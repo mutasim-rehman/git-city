@@ -9,42 +9,42 @@ import { InstancedBuildings } from "./InstancedBuildings";
 import { OrbitControls } from "@react-three/drei";
 
 const EMERALD_THEME: CityTheme = {
+  // Clear blue sky with soft horizon haze.
   sky: [
-    [0, "#000804"],
-    [0.15, "#001408"],
-    [0.3, "#002810"],
-    [0.42, "#003c1c"],
-    [0.52, "#004828"],
-    [0.6, "#003820"],
-    [0.75, "#002014"],
-    [0.9, "#001008"],
-    [1, "#000604"],
+    [0, "#0f172a"],
+    [0.2, "#1d3557"],
+    [0.5, "#2563eb"],
+    [0.8, "#60a5fa"],
+    [1, "#bfdbfe"],
   ],
-  fogColor: "#0a2014",
-  fogNear: 400,
-  fogFar: 2500,
-  ambientColor: "#40a060",
-  ambientIntensity: 0.55,
-  sunColor: "#70d090",
-  sunIntensity: 0.75,
-  sunPos: [300, 100, -250],
-  fillColor: "#20a080",
-  fillIntensity: 0.35,
-  fillPos: [-200, 60, 200],
-  hemiSky: "#50b068",
-  hemiGround: "#183020",
-  hemiIntensity: 0.5,
-  groundColor: "#1e3020",
-  grid1: "#2c4838",
-  grid2: "#243828",
-  roadMarkingColor: "#60c080",
-  sidewalkColor: "#404848",
+  fogColor: "#1d3557",
+  fogNear: 550,
+  fogFar: 2600,
+  ambientColor: "#cbd5f5",
+  ambientIntensity: 0.6,
+  sunColor: "#fbbf24",
+  sunIntensity: 1.4,
+  // High sun above the city center so it lights the whole skyline and surrounding mountains.
+  sunPos: [0, 2200, -400],
+  fillColor: "#60a5fa",
+  fillIntensity: 0.5,
+  fillPos: [-260, 80, 220],
+  hemiSky: "#60a5fa",
+  hemiGround: "#14532d",
+  hemiIntensity: 0.7,
+  // Land base: muted greenish earth; roads: dark asphalt with pale markings.
+  groundColor: "#0b2f26",
+  grid1: "#111827",
+  grid2: "#e5e7eb",
+  roadMarkingColor: "#e5e7eb",
+  sidewalkColor: "#6b7280",
   building: {
+    // "Core rule": window glow stays unified (green), facade varies per building.
     windowLit: ["#0e4429", "#006d32", "#26a641", "#39d353", "#c8e64a"],
-    windowOff: "#060e08",
-    face: "#0c1810",
-    roof: "#1e4028",
-    accent: "#f0c060",
+    windowOff: "#111827",
+    face: "#4b5563",
+    roof: "#374151",
+    accent: "#facc15",
   },
 };
 
@@ -88,21 +88,202 @@ interface GroundProps {
 }
 
 function Ground({ color, grid1, grid2 }: GroundProps) {
+  // Urban grid: double roads with green medians and sidewalks.
+  const BLOCK_SPACING = 380;
+  const ROAD_LENGTH = 8000;
+
+  const MEDIAN_WIDTH = 42;
+  const LANE_WIDTH = 34;
+  const SIDEWALK_WIDTH = 20;
+
+  const roadXs: number[] = [];
+  const roadZs: number[] = [];
+
+  for (
+    let x = -ROAD_LENGTH / 2 - BLOCK_SPACING;
+    x <= ROAD_LENGTH / 2 + BLOCK_SPACING;
+    x += BLOCK_SPACING
+  ) {
+    roadXs.push(x);
+  }
+  for (
+    let z = -ROAD_LENGTH / 2 - BLOCK_SPACING;
+    z <= ROAD_LENGTH / 2 + BLOCK_SPACING;
+    z += BLOCK_SPACING
+  ) {
+    roadZs.push(z);
+  }
+
   return (
     <group>
-      <mesh rotation-x={-Math.PI / 2} position={[0, -1, 0]}>
+      {/* Base ground */}
+      <mesh rotation-x={-Math.PI / 2} position={[0, -1, 0]} receiveShadow>
         <planeGeometry args={[20000, 20000]} />
         <meshStandardMaterial
           color={color}
           emissive={color}
-          emissiveIntensity={0.18}
+          emissiveIntensity={0.12}
           roughness={0.95}
         />
       </mesh>
-      <gridHelper
-        args={[4000, 200, grid1, grid2]}
-        position={[0, -0.5, 0]}
-      />
+
+      {/* Vertical "double roads" (north–south) with green medians and sidewalks */}
+      {roadXs.map((x) => (
+        <group key={`vr-${x}`}>
+          {/* Median green space */}
+          <mesh
+            rotation-x={-Math.PI / 2}
+            position={[x, -0.6, 0]}
+            receiveShadow
+          >
+            <planeGeometry args={[MEDIAN_WIDTH, ROAD_LENGTH]} />
+            <meshStandardMaterial
+              color="#14532d"
+              roughness={0.9}
+              metalness={0.05}
+            />
+          </mesh>
+
+          {/* Two asphalt lanes */}
+          <mesh
+            rotation-x={-Math.PI / 2}
+            position={[x - (MEDIAN_WIDTH + LANE_WIDTH) / 2, -0.55, 0]}
+            receiveShadow
+          >
+            <planeGeometry args={[LANE_WIDTH, ROAD_LENGTH]} />
+            <meshStandardMaterial
+              color={grid1}
+              roughness={0.9}
+              metalness={0.15}
+            />
+          </mesh>
+          <mesh
+            rotation-x={-Math.PI / 2}
+            position={[x + (MEDIAN_WIDTH + LANE_WIDTH) / 2, -0.55, 0]}
+            receiveShadow
+          >
+            <planeGeometry args={[LANE_WIDTH, ROAD_LENGTH]} />
+            <meshStandardMaterial
+              color={grid1}
+              roughness={0.9}
+              metalness={0.15}
+            />
+          </mesh>
+
+          {/* Sidewalks */}
+          <mesh
+            rotation-x={-Math.PI / 2}
+            position={[
+              x -
+                (MEDIAN_WIDTH + 2 * LANE_WIDTH + SIDEWALK_WIDTH) / 2,
+              -0.52,
+              0,
+            ]}
+          >
+            <planeGeometry args={[SIDEWALK_WIDTH, ROAD_LENGTH]} />
+            <meshStandardMaterial
+              color={grid2}
+              roughness={0.85}
+              metalness={0.05}
+            />
+          </mesh>
+          <mesh
+            rotation-x={-Math.PI / 2}
+            position={[
+              x +
+                (MEDIAN_WIDTH + 2 * LANE_WIDTH + SIDEWALK_WIDTH) / 2,
+              -0.52,
+              0,
+            ]}
+          >
+            <planeGeometry args={[SIDEWALK_WIDTH, ROAD_LENGTH]} />
+            <meshStandardMaterial
+              color={grid2}
+              roughness={0.85}
+              metalness={0.05}
+            />
+          </mesh>
+        </group>
+      ))}
+
+      {/* Horizontal "double roads" (east–west) with green medians and sidewalks */}
+      {roadZs.map((z) => (
+        <group key={`hr-${z}`}>
+          {/* Median green space */}
+          <mesh
+            rotation-x={-Math.PI / 2}
+            position={[0, -0.6, z]}
+            receiveShadow
+          >
+            <planeGeometry args={[ROAD_LENGTH, MEDIAN_WIDTH]} />
+            <meshStandardMaterial
+              color="#14532d"
+              roughness={0.9}
+              metalness={0.05}
+            />
+          </mesh>
+
+          {/* Two asphalt lanes */}
+          <mesh
+            rotation-x={-Math.PI / 2}
+            position={[0, -0.55, z - (MEDIAN_WIDTH + LANE_WIDTH) / 2]}
+            receiveShadow
+          >
+            <planeGeometry args={[ROAD_LENGTH, LANE_WIDTH]} />
+            <meshStandardMaterial
+              color={grid1}
+              roughness={0.9}
+              metalness={0.15}
+            />
+          </mesh>
+          <mesh
+            rotation-x={-Math.PI / 2}
+            position={[0, -0.55, z + (MEDIAN_WIDTH + LANE_WIDTH) / 2]}
+            receiveShadow
+          >
+            <planeGeometry args={[ROAD_LENGTH, LANE_WIDTH]} />
+            <meshStandardMaterial
+              color={grid1}
+              roughness={0.9}
+              metalness={0.15}
+            />
+          </mesh>
+
+          {/* Sidewalks */}
+          <mesh
+            rotation-x={-Math.PI / 2}
+            position={[
+              0,
+              -0.52,
+              z -
+                (MEDIAN_WIDTH + 2 * LANE_WIDTH + SIDEWALK_WIDTH) / 2,
+            ]}
+          >
+            <planeGeometry args={[ROAD_LENGTH, SIDEWALK_WIDTH]} />
+            <meshStandardMaterial
+              color={grid2}
+              roughness={0.85}
+              metalness={0.05}
+            />
+          </mesh>
+          <mesh
+            rotation-x={-Math.PI / 2}
+            position={[
+              0,
+              -0.52,
+              z +
+                (MEDIAN_WIDTH + 2 * LANE_WIDTH + SIDEWALK_WIDTH) / 2,
+            ]}
+          >
+            <planeGeometry args={[ROAD_LENGTH, SIDEWALK_WIDTH]} />
+            <meshStandardMaterial
+              color={grid2}
+              roughness={0.85}
+              metalness={0.05}
+            />
+          </mesh>
+        </group>
+      ))}
     </group>
   );
 }
@@ -111,6 +292,104 @@ interface CityCanvasProps {
   city: CityId;
   buildings: PositionedBuilding[];
   focusUsername?: string | null;
+}
+
+interface MountainsProps {
+  buildings: PositionedBuilding[];
+}
+
+function Mountains({ buildings }: MountainsProps) {
+  const peaks = useMemo(() => {
+    if (buildings.length === 0) return [];
+    let maxDist = 0;
+    for (const b of buildings) {
+      const d = Math.sqrt(b.x * b.x + b.z * b.z);
+      if (d > maxDist) maxDist = d;
+    }
+
+    const innerRadius = maxDist + 400;
+    const outerRadius = innerRadius + 2600;
+    const ringCount = 5;
+    const perRing = 40;
+
+    const result: {
+      x: number;
+      z: number;
+      height: number;
+      radius: number;
+      geometry: THREE.ConeGeometry;
+    }[] = [];
+
+    for (let ring = 0; ring < ringCount; ring++) {
+      const t = ring / (ringCount - 1 || 1);
+      const ringRadius = innerRadius + t * (outerRadius - innerRadius);
+      const baseHeight = 220 + t * 260;
+      const baseWidth = 220 + t * 180;
+
+      for (let i = 0; i < perRing; i++) {
+        const angle = ((Math.PI * 2) / perRing) * (i + ring * 0.37);
+        const jitterR = (Math.sin(i * 7.13 + ring * 3.17) * 0.5 + 0.5) * 260 - 130;
+        const r = ringRadius + jitterR;
+
+        const x = Math.cos(angle) * r;
+        const z = Math.sin(angle) * r;
+
+        const heightJitter = (Math.sin(i * 5.27 + ring * 1.91) * 0.5 + 0.5) * 180;
+        const radiusJitter = (Math.cos(i * 6.73 + ring * 2.43) * 0.5 + 0.5) * 120;
+        const height = baseHeight + heightJitter;
+        const radius = baseWidth + radiusJitter;
+
+        const geometry = new THREE.ConeGeometry(radius, height, 32, 8);
+        const positionAttr = geometry.attributes.position as THREE.BufferAttribute;
+        const positions = positionAttr.array as Float32Array;
+
+        for (let v = 0; v < positions.length; v += 3) {
+          const vx = positions[v];
+          const vy = positions[v + 1];
+          const vz = positions[v + 2];
+
+          if (vy < -height / 2 + 4) continue;
+
+          const noise =
+            Math.sin(vx * 0.16 + vz * 0.21) * 7 +
+            Math.cos(vx * 0.09 - vz * 0.19) * 5;
+
+          positions[v + 1] = vy + noise;
+        }
+
+        positionAttr.needsUpdate = true;
+        geometry.computeVertexNormals();
+
+        result.push({ x, z, height, radius, geometry });
+      }
+    }
+
+    return result;
+  }, [buildings]);
+
+  if (peaks.length === 0) return null;
+
+  return (
+    <group>
+      {peaks.map((p, i) => (
+        <mesh
+          key={i}
+          position={[p.x, p.height / 2 - 20, p.z]}
+          castShadow
+          receiveShadow
+          geometry={p.geometry}
+        >
+          <meshStandardMaterial
+            color="#16a34a"
+            roughness={0.96}
+            metalness={0.03}
+            emissive="#14532d"
+            emissiveIntensity={0.22}
+          />
+        </mesh>
+      ))}
+    </group>
+  );
 }
 
 function CameraFocus({
@@ -193,6 +472,7 @@ export function CityCanvas({ city, buildings, focusUsername }: CityCanvasProps) 
   return (
     <div className="relative h-[560px] w-full overflow-hidden rounded-3xl border border-emerald-500/40 bg-gradient-to-br from-slate-900 via-slate-950 to-emerald-950 shadow-[0_0_60px_rgba(15,23,42,0.9)]">
       <Canvas
+        shadows
         camera={{ position: cameraPosition, fov: 55, near: 1, far: 5000 }}
       >
         <color attach="background" args={["#020617"]} />
@@ -202,17 +482,26 @@ export function CityCanvas({ city, buildings, focusUsername }: CityCanvasProps) 
         />
 
         <ambientLight
-          intensity={theme.ambientIntensity * 2.3}
+          intensity={theme.ambientIntensity * 1.4}
           color={theme.ambientColor}
         />
         <directionalLight
           position={theme.sunPos}
-          intensity={theme.sunIntensity * 3.2}
+          intensity={theme.sunIntensity * 3.4}
           color={theme.sunColor}
+          castShadow
+          shadow-mapSize-width={2048}
+          shadow-mapSize-height={2048}
+          shadow-camera-near={50}
+          shadow-camera-far={4000}
+          shadow-camera-left={-2200}
+          shadow-camera-right={2200}
+          shadow-camera-top={2200}
+          shadow-camera-bottom={-2200}
         />
         <directionalLight
           position={theme.fillPos}
-          intensity={theme.fillIntensity * 2.4}
+          intensity={theme.fillIntensity * 1.8}
           color={theme.fillColor}
         />
         <hemisphereLight
@@ -226,12 +515,20 @@ export function CityCanvas({ city, buildings, focusUsername }: CityCanvasProps) 
           grid2={theme.grid2}
         />
 
+        {/* Simple sun disc placed at the same direction as the main sun light */}
+        <mesh position={theme.sunPos}>
+          <sphereGeometry args={[80, 24, 24]} />
+          <meshBasicMaterial color={theme.sunColor} />
+        </mesh>
+
         <InstancedBuildings
           buildings={buildings}
           atlasTexture={atlasTexture}
           colors={theme.building}
           onHover={setHovered}
         />
+
+        <Mountains buildings={buildings} />
 
         <OrbitControls
           ref={controlsRef}

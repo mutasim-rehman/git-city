@@ -19,18 +19,21 @@ const _scale = new THREE.Vector3(1, 1, 1);
 const vertexShader = /* glsl */ `
   attribute vec4 aUvFront;
   attribute vec4 aUvSide;
+  attribute vec3 aFacadeColor;
 
   varying vec2 vUv;
   varying vec3 vNormal;
   varying vec4 vUvFront;
   varying vec4 vUvSide;
   varying vec3 vViewPos;
+  varying vec3 vFacadeColor;
 
   void main() {
     vUv = uv;
     vNormal = normalize(mat3(instanceMatrix) * normal);
     vUvFront = aUvFront;
     vUvSide = aUvSide;
+    vFacadeColor = aFacadeColor;
 
     vec4 mvPos = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
     vViewPos = mvPos.xyz;
@@ -41,7 +44,6 @@ const vertexShader = /* glsl */ `
 const fragmentShader = /* glsl */ `
   uniform sampler2D uAtlas;
   uniform vec3 uRoofColor;
-  uniform vec3 uFaceColor;
   uniform vec3 uFogColor;
   uniform float uFogNear;
   uniform float uFogFar;
@@ -51,6 +53,7 @@ const fragmentShader = /* glsl */ `
   varying vec4 vUvFront;
   varying vec4 vUvSide;
   varying vec3 vViewPos;
+  varying vec3 vFacadeColor;
 
   void main() {
     float fogDepth = length(vViewPos);
@@ -63,7 +66,8 @@ const fragmentShader = /* glsl */ `
     vec4 uvParams = isFrontBack ? vUvFront : vUvSide;
     vec2 atlasUv = uvParams.xy + vUv * uvParams.zw;
 
-    vec3 wall = texture2D(uAtlas, atlasUv).rgb;
+    vec4 atlasSample = texture2D(uAtlas, atlasUv);
+    vec3 wall = mix(vFacadeColor, atlasSample.rgb, atlasSample.a);
     vec3 roof = uRoofColor;
 
     vec3 color = mix(wall, roof, isRoof);
@@ -86,6 +90,12 @@ interface InstancedBuildingsProps {
   onHover?: (building: PositionedBuilding | null) => void;
 }
 
+function usernameSeed(username: string): number {
+  let s = 0;
+  for (let i = 0; i < username.length; i++) s += username.charCodeAt(i);
+  return s;
+}
+
 export const InstancedBuildings = memo(function InstancedBuildings({
   buildings,
   atlasTexture,
@@ -102,7 +112,6 @@ export const InstancedBuildings = memo(function InstancedBuildings({
       uniforms: {
         uAtlas: { value: atlasTexture },
         uRoofColor: { value: new THREE.Color(colors.roof) },
-        uFaceColor: { value: new THREE.Color(colors.face) },
         uFogColor: { value: new THREE.Color("#020617") },
         uFogNear: { value: 400 },
         uFogFar: { value: 2500 },
@@ -116,13 +125,106 @@ export const InstancedBuildings = memo(function InstancedBuildings({
   useEffect(() => {
     material.uniforms.uAtlas.value = atlasTexture;
     material.uniforms.uRoofColor.value.set(colors.roof);
-    material.uniforms.uFaceColor.value.set(colors.face);
     material.needsUpdate = true;
-  }, [material, atlasTexture, colors.roof, colors.face]);
+  }, [material, atlasTexture, colors.roof]);
 
-  const { uvFrontData, uvSideData } = useMemo(() => {
+  const { uvFrontData, uvSideData, facadeData } = useMemo(() => {
     const uvF = new Float32Array(count * 4);
     const uvS = new Float32Array(count * 4);
+    const facade = new Float32Array(count * 3);
+
+    // Muted architectural facade palette.
+    const palette = [
+      "#9ca3af", // cool grey
+      "#94a3b8", // slate
+      "#a5b4fc", // light blue
+      "#cbd5e1", // light concrete
+      "#d6d3d1", // warm stone
+      "#e7e5e4", // off-white
+      "#d4c5a8", // sand/beige
+      "#b0b9c6", // steel
+    ].map((hex) => new THREE.Color(hex));
+
+    // Determine grid coordinates and "block" grouping so adjacent buildings can be differentiated.
+    // Layout snaps to a strict GRID_STEP; derive cell coords from positions.
+    const GRID_STEP = 95;
+    const BLOCK_CELLS = 4; // ~ one block between major roads (380 / 95 ≈ 4)
+
+    type Key = string;
+    const cellKey = (cx: number, cz: number) => `${cx},${cz}` as Key;
+    const assigned = new Map<Key, number>(); // cell -> palette index
+
+    // Stable ordering so color assignment is deterministic.
+    const order = Array.from({ length: count }, (_, i) => i).sort((ai, bi) => {
+      const a = buildings[ai];
+      const b = buildings[bi];
+      const acx = Math.round(a.x / GRID_STEP);
+      const acz = Math.round(a.z / GRID_STEP);
+      const bcx = Math.round(b.x / GRID_STEP);
+      const bcz = Math.round(b.z / GRID_STEP);
+
+      const abx = Math.floor(acx / BLOCK_CELLS);
+      const abz = Math.floor(acz / BLOCK_CELLS);
+      const bbx = Math.floor(bcx / BLOCK_CELLS);
+      const bbz = Math.floor(bcz / BLOCK_CELLS);
+
+      return abx - bbx || abz - bbz || acx - bcx || acz - bcz;
+    });
+
+    for (const i of order) {
+      const b = buildings[i];
+      const cx = Math.round(b.x / GRID_STEP);
+      const cz = Math.round(b.z / GRID_STEP);
+      const bx = Math.floor(cx / BLOCK_CELLS);
+      const bz = Math.floor(cz / BLOCK_CELLS);
+
+      const neighbors: (Key | null)[] = [
+        cellKey(cx - 1, cz),
+        cellKey(cx + 1, cz),
+        cellKey(cx, cz - 1),
+        cellKey(cx, cz + 1),
+      ];
+
+      const forbidden = new Set<number>();
+      for (const nk of neighbors) {
+        const c = assigned.get(nk);
+        if (typeof c === "number") forbidden.add(c);
+      }
+
+      // Only enforce adjacency within the same block.
+      const inSameBlock = (ncx: number, ncz: number) =>
+        Math.floor(ncx / BLOCK_CELLS) === bx && Math.floor(ncz / BLOCK_CELLS) === bz;
+
+      const neighborCells: [number, number][] = [
+        [cx - 1, cz],
+        [cx + 1, cz],
+        [cx, cz - 1],
+        [cx, cz + 1],
+      ];
+      forbidden.clear();
+      for (const [ncx, ncz] of neighborCells) {
+        if (!inSameBlock(ncx, ncz)) continue;
+        const c = assigned.get(cellKey(ncx, ncz));
+        if (typeof c === "number") forbidden.add(c);
+      }
+
+      const seed = usernameSeed(b.username);
+      const start = seed % palette.length;
+      let chosen = start;
+      for (let tries = 0; tries < palette.length; tries++) {
+        const idx = (start + tries) % palette.length;
+        if (!forbidden.has(idx)) {
+          chosen = idx;
+          break;
+        }
+      }
+
+      assigned.set(cellKey(cx, cz), chosen);
+      const c = palette[chosen];
+      facade[i * 3 + 0] = c.r;
+      facade[i * 3 + 1] = c.g;
+      facade[i * 3 + 2] = c.b;
+    }
 
     for (let i = 0; i < count; i++) {
       const b = buildings[i];
@@ -153,7 +255,7 @@ export const InstancedBuildings = memo(function InstancedBuildings({
       uvS[i * 4 + 3] = b.floors / ATLAS_COLS;
     }
 
-    return { uvFrontData: uvF, uvSideData: uvS };
+    return { uvFrontData: uvF, uvSideData: uvS, facadeData: facade };
   }, [buildings, count]);
 
   useEffect(() => {
@@ -186,11 +288,13 @@ export const InstancedBuildings = memo(function InstancedBuildings({
 
     const uvFrontAttr = new THREE.InstancedBufferAttribute(uvFrontData, 4);
     const uvSideAttr = new THREE.InstancedBufferAttribute(uvSideData, 4);
+    const facadeAttr = new THREE.InstancedBufferAttribute(facadeData, 3);
     mesh.geometry.setAttribute("aUvFront", uvFrontAttr);
     mesh.geometry.setAttribute("aUvSide", uvSideAttr);
+    mesh.geometry.setAttribute("aFacadeColor", facadeAttr);
 
     mesh.count = count;
-  }, [buildings, count, uvFrontData, uvSideData]);
+  }, [buildings, count, uvFrontData, uvSideData, facadeData]);
 
   const lastFogNear = useRef(0);
   const lastFogFar = useRef(0);
@@ -221,6 +325,8 @@ export const InstancedBuildings = memo(function InstancedBuildings({
       ref={meshRef}
       args={[geometry, material, count]}
       frustumCulled={false}
+      castShadow
+      receiveShadow
       onPointerMove={(e) => {
         e.stopPropagation();
         if (typeof e.instanceId === "number" && buildings[e.instanceId]) {
