@@ -126,14 +126,27 @@ export default function Home() {
                   }}
                 />
               </div>
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-100 shadow-[0_0_15px_rgba(16,185,129,0.45)] transition hover:bg-emerald-500/20 hover:text-emerald-50 disabled:opacity-40"
-                disabled={!selectedCity || status !== "ready" || buildings.length === 0}
-                onClick={() => setShowLeaderboard((v) => !v)}
-              >
-                {showLeaderboard ? "Hide leaderboard" : "Show leaderboard"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-100 shadow-[0_0_15px_rgba(16,185,129,0.45)] transition hover:bg-emerald-500/20 hover:text-emerald-50 disabled:opacity-40"
+                  disabled={!selectedCity || status !== "ready" || buildings.length === 0}
+                  onClick={() => setShowLeaderboard((v) => !v)}
+                >
+                  {showLeaderboard ? "Hide leaderboard" : "Show leaderboard"}
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-100 shadow-[0_0_15px_rgba(16,185,129,0.45)] transition hover:bg-emerald-500/20 hover:text-emerald-50 disabled:opacity-40"
+                  disabled={!selectedCity || status !== "ready" || buildings.length === 0}
+                  onClick={() => {
+                    if (typeof window === "undefined") return;
+                    window.dispatchEvent(new Event("gc-proto-street-toggle"));
+                  }}
+                >
+                  Street view (WASD)
+                </button>
+              </div>
             </div>
           </div>
           <p className="mt-4 text-xs text-emerald-100/70">{heading}</p>

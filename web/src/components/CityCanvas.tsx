@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import type { CityId, CityTheme, PositionedBuilding } from "@/lib/types";
@@ -441,6 +441,133 @@ function CameraFocus({
   return null;
 }
 
+// ─── Street View (prototype): small cube + WASD + mouse ─────────
+
+interface StreetViewProps {
+  onExit: () => void;
+}
+
+function StreetView({ onExit }: StreetViewProps) {
+  const { camera, gl } = useThree();
+  const domElement = gl.domElement;
+
+  const pos = useRef(new THREE.Vector3(0, 3, 260));
+  const yaw = useRef(0);
+  const pitch = useRef(0);
+  const keys = useRef<Record<string, boolean>>({});
+  const pointerLocked = useRef(false);
+  const avatarRef = useRef<THREE.Mesh>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      keys.current[e.code] = true;
+      if (e.code === "Escape") {
+        if (document.pointerLockElement === domElement) {
+          document.exitPointerLock();
+        }
+        onExit();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      keys.current[e.code] = false;
+    };
+
+    const handleClick = () => {
+      if (!pointerLocked.current && domElement.requestPointerLock) {
+        domElement.requestPointerLock();
+      }
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!pointerLocked.current) return;
+      const movementX = e.movementX || 0;
+      const movementY = e.movementY || 0;
+      const sensitivity = 0.0025;
+      yaw.current -= movementX * sensitivity;
+      pitch.current -= movementY * sensitivity;
+      const maxPitch = Math.PI / 2 - 0.1;
+      pitch.current = Math.max(-maxPitch, Math.min(maxPitch, pitch.current));
+    };
+
+    const handlePointerLockChange = () => {
+      pointerLocked.current = document.pointerLockElement === domElement;
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    domElement.addEventListener("click", handleClick);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("pointerlockchange", handlePointerLockChange);
+
+    camera.position.set(pos.current.x, pos.current.y + 2, pos.current.z);
+    camera.lookAt(pos.current.x, pos.current.y + 1.4, pos.current.z - 10);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      domElement.removeEventListener("click", handleClick);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("pointerlockchange", handlePointerLockChange);
+      if (document.pointerLockElement === domElement) {
+        document.exitPointerLock();
+      }
+    };
+  }, [camera, domElement, onExit]);
+
+  useFrame((_, delta) => {
+    const dt = Math.min(delta, 0.05);
+    const forward = new THREE.Vector3(
+      -Math.sin(yaw.current),
+      0,
+      -Math.cos(yaw.current),
+    ).normalize();
+    const turnSpeed = 2.2;
+
+    // A / D rotate the player (turn left/right)
+    if (keys.current["KeyA"]) {
+      yaw.current += turnSpeed * dt;
+    }
+    if (keys.current["KeyD"]) {
+      yaw.current -= turnSpeed * dt;
+    }
+
+    // W / S move forward/back in the current facing direction
+    let moveDir = 0;
+    if (keys.current["KeyW"]) moveDir += 1;
+    if (keys.current["KeyS"]) moveDir -= 1;
+
+    if (moveDir !== 0) {
+      const speed = 60;
+      pos.current.addScaledVector(forward, moveDir * speed * dt);
+    }
+
+    if (pos.current.y < 1.5) pos.current.y = 1.5;
+
+    const camHeight = 1.8;
+    camera.position.set(
+      pos.current.x,
+      pos.current.y + camHeight,
+      pos.current.z,
+    );
+
+    const quat = new THREE.Quaternion();
+    quat.setFromEuler(new THREE.Euler(pitch.current, yaw.current, 0, "YXZ"));
+    camera.quaternion.copy(quat);
+
+    if (avatarRef.current) {
+      avatarRef.current.position.set(pos.current.x, pos.current.y, pos.current.z);
+    }
+  });
+
+  return (
+    <mesh ref={avatarRef}>
+      <boxGeometry args={[4, 4, 4]} />
+      <meshStandardMaterial color="#f97316" emissive="#f97316" emissiveIntensity={0.6} />
+    </mesh>
+  );
+}
+
 export function CityCanvas({ city, buildings, focusUsername }: CityCanvasProps) {
   const theme = EMERALD_THEME;
 
@@ -468,6 +595,14 @@ export function CityCanvas({ city, buildings, focusUsername }: CityCanvasProps) 
 
   const controlsRef = useRef<any>(null);
   const [hovered, setHovered] = useState<PositionedBuilding | null>(null);
+  const [streetMode, setStreetMode] = useState(false);
+
+  // Allow toggling street view with custom event from parent UI
+  useEffect(() => {
+    const handler = () => setStreetMode((prev) => !prev);
+    window.addEventListener("gc-proto-street-toggle", handler);
+    return () => window.removeEventListener("gc-proto-street-toggle", handler);
+  }, []);
 
   return (
     <div className="relative h-[560px] w-full overflow-hidden rounded-3xl border border-emerald-500/40 bg-gradient-to-br from-slate-900 via-slate-950 to-emerald-950 shadow-[0_0_60px_rgba(15,23,42,0.9)]">
@@ -530,19 +665,25 @@ export function CityCanvas({ city, buildings, focusUsername }: CityCanvasProps) 
 
         <Mountains buildings={buildings} />
 
-        <OrbitControls
-          ref={controlsRef}
-          enablePan
-          enableZoom
-          enableRotate
-          maxPolarAngle={Math.PI / 2.1}
-          minDistance={250}
-          maxDistance={3200}
-          enableDamping
-          dampingFactor={0.06}
-        />
+        {!streetMode && (
+          <>
+            <OrbitControls
+              ref={controlsRef}
+              enablePan
+              enableZoom
+              enableRotate
+              maxPolarAngle={Math.PI / 2.1}
+              minDistance={250}
+              maxDistance={3200}
+              enableDamping
+              dampingFactor={0.06}
+            />
 
-        <CameraFocus focusPosition={focusPosition} controlsRef={controlsRef} />
+            <CameraFocus focusPosition={focusPosition} controlsRef={controlsRef} />
+          </>
+        )}
+
+        {streetMode && <StreetView onExit={() => setStreetMode(false)} />}
       </Canvas>
 
       <div className="pointer-events-none absolute inset-x-4 bottom-4 flex justify-center">
