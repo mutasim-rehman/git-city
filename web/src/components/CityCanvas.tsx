@@ -957,14 +957,47 @@ function CameraFocus({ focusPosition, controlsRef }: { focusPosition: [number, n
 
 // ─── Street View ──────────────────────────────────────────────────────────────
 
-function StreetView({ onExit }: { onExit: () => void }) {
+function StreetView({
+  onExit,
+  focusBuilding,
+}: {
+  onExit: () => void;
+  focusBuilding: PositionedBuilding | null;
+}) {
   const { camera, gl } = useThree();
   const domElement = gl.domElement;
 
-  // Spawn at the plaza edge on the main spoke (angle=0, east side)
-  const spawnR = PLAZA_RADIUS + 40;
-  const pos    = useRef(new THREE.Vector3(spawnR, 3, 0));
-  const yaw    = useRef(Math.PI); // face inward toward plaza
+  const spawnConfig = useMemo(() => {
+    if (focusBuilding) {
+      const bx = focusBuilding.x;
+      const bz = focusBuilding.z;
+      const buildingPos = new THREE.Vector3(bx, 0, bz);
+      let dir = buildingPos.clone().normalize();
+      if (!Number.isFinite(dir.x) || !Number.isFinite(dir.z) || dir.lengthSq() === 0) {
+        dir = new THREE.Vector3(1, 0, 0);
+      }
+      const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize();
+      const offsetForward = -18;
+      const offsetSide = 10;
+      const spawnPos = new THREE.Vector3(
+        bx + dir.x * offsetForward + right.x * offsetSide,
+        3,
+        bz + dir.z * offsetForward + right.z * offsetSide,
+      );
+      const toBuilding = buildingPos.clone().sub(spawnPos).normalize();
+      const yaw = Math.atan2(-toBuilding.x, -toBuilding.z);
+      return { pos: spawnPos, yaw };
+    }
+
+    // Fallback: spawn at plaza edge on main spoke
+    const spawnR = PLAZA_RADIUS + 40;
+    const spawnPos = new THREE.Vector3(spawnR, 3, 0);
+    const yaw = Math.PI;
+    return { pos: spawnPos, yaw };
+  }, [focusBuilding]);
+
+  const pos    = useRef(spawnConfig.pos.clone());
+  const yaw    = useRef(spawnConfig.yaw);
   const pitch  = useRef(0);
   const keys   = useRef<Record<string, boolean>>({});
   const pointerLocked = useRef(false);
@@ -993,7 +1026,10 @@ function StreetView({ onExit }: { onExit: () => void }) {
     document.addEventListener("pointerlockchange", handlePLC);
 
     camera.position.set(pos.current.x, pos.current.y + 2, pos.current.z);
-    camera.lookAt(0, pos.current.y + 1.4, 0);
+    const lookTarget = focusBuilding
+      ? new THREE.Vector3(focusBuilding.x, focusBuilding.height * 0.6, focusBuilding.z)
+      : new THREE.Vector3(0, pos.current.y + 1.4, 0);
+    camera.lookAt(lookTarget);
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
@@ -1003,7 +1039,7 @@ function StreetView({ onExit }: { onExit: () => void }) {
       document.removeEventListener("pointerlockchange", handlePLC);
       if (document.pointerLockElement === domElement) document.exitPointerLock();
     };
-  }, [camera, domElement, onExit]);
+  }, [camera, domElement, focusBuilding, onExit]);
 
   useFrame((_, delta) => {
     const dt      = Math.min(delta, 0.05);
@@ -1026,6 +1062,54 @@ function StreetView({ onExit }: { onExit: () => void }) {
       <meshStandardMaterial color="#f97316" emissive="#f97316" emissiveIntensity={0.6} />
     </mesh>
   );
+}
+
+// ─── Street Target Tracker ─────────────────────────────────────────────────────
+
+function StreetTargetTracker({
+  enabled,
+  meshRef,
+  buildings,
+  onChange,
+}: {
+  enabled: boolean;
+  meshRef: RefObject<THREE.InstancedMesh | null>;
+  buildings: PositionedBuilding[];
+  onChange: (b: PositionedBuilding | null) => void;
+}) {
+  const { camera } = useThree();
+  const raycasterRef = useRef(new THREE.Raycaster());
+  const lastIdRef = useRef<number | null>(null);
+
+  useFrame(() => {
+    if (!enabled || !meshRef.current) return;
+    const raycaster = raycasterRef.current;
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+    raycaster.set(camera.position, dir);
+    const intersections = raycaster.intersectObject(meshRef.current, false);
+    if (intersections.length === 0) {
+      if (lastIdRef.current !== null) {
+        lastIdRef.current = null;
+        onChange(null);
+      }
+      return;
+    }
+    const hit = intersections[0];
+    const instanceId = typeof hit.instanceId === "number" ? hit.instanceId : null;
+    if (instanceId === null || !buildings[instanceId]) {
+      if (lastIdRef.current !== null) {
+        lastIdRef.current = null;
+        onChange(null);
+      }
+      return;
+    }
+    if (lastIdRef.current !== instanceId) {
+      lastIdRef.current = instanceId;
+      onChange(buildings[instanceId]);
+    }
+  });
+
+  return null;
 }
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
@@ -1056,6 +1140,8 @@ export function CityCanvas({ city, buildings, layoutResult, focusUsername }: Cit
   const controlsRef = useRef<any>(null);
   const [hovered, setHovered] = useState<PositionedBuilding | null>(null);
   const [streetMode, setStreetMode] = useState(false);
+  const [streetFocused, setStreetFocused] = useState<PositionedBuilding | null>(null);
+  const instancedRef = useRef<THREE.InstancedMesh | null>(null);
 
   useEffect(() => {
     const handler = () => setStreetMode(prev => !prev);
@@ -1128,6 +1214,7 @@ export function CityCanvas({ city, buildings, layoutResult, focusUsername }: Cit
           atlasTexture={atlasTexture}
           colors={theme.building}
           onHover={setHovered}
+          meshRef={instancedRef}
         />
 
         {/* Scenery */}
@@ -1151,7 +1238,17 @@ export function CityCanvas({ city, buildings, layoutResult, focusUsername }: Cit
           </>
         )}
 
-        {streetMode && <StreetView onExit={() => setStreetMode(false)} />}
+        {streetMode && (
+          <>
+            <StreetView onExit={() => setStreetMode(false)} focusBuilding={focusBuilding} />
+            <StreetTargetTracker
+              enabled={streetMode}
+              meshRef={instancedRef}
+              buildings={buildings}
+              onChange={setStreetFocused}
+            />
+          </>
+        )}
       </Canvas>
 
       {/* HUD */}
@@ -1159,14 +1256,37 @@ export function CityCanvas({ city, buildings, layoutResult, focusUsername }: Cit
         <div className="w-full max-w-md rounded-2xl border border-emerald-500/40 bg-black/70 px-4 py-3 text-xs text-emerald-50 shadow-[0_0_30px_rgba(16,185,129,0.5)] backdrop-blur-md">
           <div className="flex justify-between gap-3">
             <div>
-              <p className="font-semibold text-emerald-200">
-                {hovered ? hovered.username : `${city.toUpperCase()} · Git City`}
-              </p>
-              <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-emerald-400/70">
-                {hovered
-                  ? `Repos: ${hovered.publicRepos.toLocaleString()} · Commits: ${hovered.lifetimeCommits.toLocaleString()}`
-                  : `${buildings.length.toLocaleString()} developers rendered as towers`}
-              </p>
+              {/*
+                In aerial mode: show hovered building.
+                In street mode: prefer the building directly in front; fall back to the focused one.
+              */}
+              {(() => {
+                const active =
+                  streetMode ? streetFocused ?? focusBuilding ?? hovered : hovered;
+                if (active) {
+                  return (
+                    <>
+                      <p className="font-semibold text-emerald-200">
+                        {active.username}
+                      </p>
+                      <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-emerald-400/70">
+                        Repos: {active.publicRepos.toLocaleString()} · Commits:{" "}
+                        {active.lifetimeCommits.toLocaleString()}
+                      </p>
+                    </>
+                  );
+                }
+                return (
+                  <>
+                    <p className="font-semibold text-emerald-200">
+                      {`${city.toUpperCase()} · Git City`}
+                    </p>
+                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-emerald-400/70">
+                      {`${buildings.length.toLocaleString()} developers rendered as towers`}
+                    </p>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>

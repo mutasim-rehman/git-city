@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef } from "react";
+import type { RefObject } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import type { PositionedBuilding, BuildingColors } from "@/lib/types";
@@ -88,6 +89,7 @@ interface InstancedBuildingsProps {
   atlasTexture: THREE.CanvasTexture;
   colors: BuildingColors;
   onHover?: (building: PositionedBuilding | null) => void;
+  meshRef?: RefObject<THREE.InstancedMesh | null>;
 }
 
 function usernameSeed(username: string): number {
@@ -101,8 +103,10 @@ export const InstancedBuildings = memo(function InstancedBuildings({
   atlasTexture,
   colors,
   onHover,
+  meshRef: externalMeshRef,
 }: InstancedBuildingsProps) {
-  const meshRef = useRef<THREE.InstancedMesh | null>(null);
+  const internalMeshRef = useRef<THREE.InstancedMesh | null>(null);
+  const meshRef = externalMeshRef ?? internalMeshRef;
   const count = buildings.length;
 
   const geometry = useMemo(() => new THREE.BoxGeometry(1, 1, 1), []);
