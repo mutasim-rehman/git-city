@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import type { CityId, CityTheme, PositionedBuilding } from "@/lib/types";
 import { createWindowAtlas } from "@/lib/city/windowAtlas";
 import { InstancedBuildings } from "./InstancedBuildings";
-import { OrbitControls } from "@react-three/drei";
+import { OrbitControls, useGLTF } from "@react-three/drei";
 import type { CityLayoutResult } from "@/lib/city/layout";
 import { PLAZA_RADIUS, RIVER_CENTER, RIVER_HALF_WIDTH, RIVER_SKIP } from "@/lib/city/layout";
 
@@ -957,12 +957,118 @@ function CameraFocus({ focusPosition, controlsRef }: { focusPosition: [number, n
 
 // ─── Street View ──────────────────────────────────────────────────────────────
 
+// ─── Car model — corrects GLB orientation mismatches ─────────────────────────
+//
+//  Most downloaded car GLBs are exported with:
+//    • Z as the forward axis  (Three.js uses -Z as "forward" for cameras)
+//    • The model rolled ~30° because the exporter used Y-up differently
+//
+//  We wrap the primitive in a group that:
+//    1. rotation-y={Math.PI}   — flips the car to face -Z (same as player forward)
+//    2. rotation-x={0}         — no tilt correction needed once Y is right
+//  If your specific GLB still looks tilted, adjust CAR_MODEL_TILT below.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── Per-variant car configuration ───────────────────────────────────────────
+//
+//  Each car has its own tuning values because every GLB is exported differently:
+//    scale         — world-unit size of the model
+//    modelYaw      — Y-rotation (radians) to align GLB's native forward with Three.js -Z
+//    modelTilt     — X-rotation (radians) to correct any side-lean in the GLB
+//    forwardOffset — how far ahead of the camera the car appears (hood distance)
+//    downOffset    — how far below eye level (higher = more buried, lower = floating)
+//    sideOffset    — lateral nudge (negative = left, positive = right)
+//    speed         — movement units per second when W/S held
+//    eyeOffset     — camera height above ground (higher = taller viewpoint, lower = lower)
+// ─────────────────────────────────────────────────────────────────────────────
+
+type CarVariant = "mr-bean" | "batmobile" | "harry-potter" | "ms-queen";
+
+interface CarConfig {
+  modelPath:     string;
+  scale:         number;
+  modelYaw:      number;
+  modelTilt:     number;
+  forwardOffset: number;
+  downOffset:    number;
+  sideOffset:    number;
+  speed:         number;
+  eyeOffset:     number;  // camera height above player ground (viewpoint height)
+}
+
+const CAR_CONFIGS: Record<CarVariant, CarConfig> = {
+  "mr-bean": {
+    modelPath:     "/models/car1.glb",
+    scale:         1.8,
+    modelYaw:      Math.PI / 2,
+    modelTilt:     0,
+    forwardOffset: 15,
+    downOffset:    0.5,
+    sideOffset:    -3,
+    speed:         60,
+    eyeOffset:     4,
+  },
+  "batmobile": {
+    modelPath:     "/models/car2.glb",
+    scale:         1.2,
+    modelYaw:      Math.PI / 2,
+    modelTilt:     0,
+    forwardOffset: 50,
+    downOffset:    0.8,
+    sideOffset:    0,
+    speed:         110,
+    eyeOffset:     15.5,
+  },
+  "harry-potter": {
+    modelPath:     "/models/car4.glb",
+    scale:         2.2,
+    modelYaw:      Math.PI / 2,
+    modelTilt:     0,
+    forwardOffset: 8,
+    downOffset:    0.6,
+    sideOffset:    0,
+    speed:         70,
+    eyeOffset:     2.2,
+  },
+  "ms-queen": {
+    modelPath:     "/models/car3.glb",
+    scale:         1.5,
+    modelYaw:      Math.PI / 1,
+    modelTilt:     0,
+    forwardOffset: 10,
+    downOffset:    1.5,
+    sideOffset:    0,
+    speed:         50,
+    eyeOffset:     1.8,
+  },
+};
+
+function StreetCar({
+  carGroupRef,
+  variant,
+}: {
+  carGroupRef: React.MutableRefObject<THREE.Group | null>;
+  variant: CarVariant;
+}) {
+  const cfg  = CAR_CONFIGS[variant];
+  const gltf = useGLTF(cfg.modelPath);
+  return (
+    <group ref={carGroupRef}>
+      <group rotation-y={cfg.modelYaw} rotation-x={cfg.modelTilt}>
+        <primitive object={gltf.scene} scale={cfg.scale} />
+      </group>
+    </group>
+  );
+}
+
 function StreetView({
   onExit,
   focusBuilding,
+  carVariant,
 }: {
   onExit: () => void;
   focusBuilding: PositionedBuilding | null;
+  carVariant: CarVariant;
 }) {
   const { camera, gl } = useThree();
   const domElement = gl.domElement;
@@ -977,23 +1083,19 @@ function StreetView({
         dir = new THREE.Vector3(1, 0, 0);
       }
       const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize();
-      const offsetForward = -18;
-      const offsetSide = 10;
       const spawnPos = new THREE.Vector3(
-        bx + dir.x * offsetForward + right.x * offsetSide,
-        3,
-        bz + dir.z * offsetForward + right.z * offsetSide,
+        bx + dir.x * -18 + right.x * 10,
+        1.5,
+        bz + dir.z * -18 + right.z * 10,
       );
       const toBuilding = buildingPos.clone().sub(spawnPos).normalize();
       const yaw = Math.atan2(-toBuilding.x, -toBuilding.z);
       return { pos: spawnPos, yaw };
     }
 
-    // Fallback: spawn at plaza edge on main spoke
     const spawnR = PLAZA_RADIUS + 40;
-    const spawnPos = new THREE.Vector3(spawnR, 3, 0);
-    const yaw = Math.PI;
-    return { pos: spawnPos, yaw };
+    const spawnPos = new THREE.Vector3(spawnR, 1.5, 0);
+    return { pos: spawnPos, yaw: Math.PI };
   }, [focusBuilding]);
 
   const pos    = useRef(spawnConfig.pos.clone());
@@ -1001,23 +1103,36 @@ function StreetView({
   const pitch  = useRef(0);
   const keys   = useRef<Record<string, boolean>>({});
   const pointerLocked = useRef(false);
-  const avatarRef = useRef<THREE.Mesh>(null);
+
+  // Separate ref for the car group — positioned and rotated every frame
+  const carRef = useRef<THREE.Group | null>(null);
+
+  // Pull all tuning values from the per-variant config
+  const cfg = CAR_CONFIGS[carVariant];
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       keys.current[e.code] = true;
-      if (e.code === "Escape") { if (document.pointerLockElement === domElement) document.exitPointerLock(); onExit(); }
+      if (e.code === "Escape") {
+        if (document.pointerLockElement === domElement) document.exitPointerLock();
+        onExit();
+      }
     };
     const handleKeyUp   = (e: KeyboardEvent) => { keys.current[e.code] = false; };
-    const handleClick   = () => { if (!pointerLocked.current && domElement.requestPointerLock) domElement.requestPointerLock(); };
-    const handleMM      = (e: MouseEvent) => {
+    const handleClick   = () => {
+      if (!pointerLocked.current && domElement.requestPointerLock)
+        domElement.requestPointerLock();
+    };
+    const handleMM = (e: MouseEvent) => {
       if (!pointerLocked.current) return;
       const s = 0.0025;
       yaw.current   -= (e.movementX || 0) * s;
       pitch.current -= (e.movementY || 0) * s;
       pitch.current  = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch.current));
     };
-    const handlePLC = () => { pointerLocked.current = document.pointerLockElement === domElement; };
+    const handlePLC = () => {
+      pointerLocked.current = document.pointerLockElement === domElement;
+    };
 
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup",   handleKeyUp);
@@ -1025,10 +1140,11 @@ function StreetView({
     document.addEventListener("mousemove", handleMM);
     document.addEventListener("pointerlockchange", handlePLC);
 
-    camera.position.set(pos.current.x, pos.current.y + 2, pos.current.z);
+    // Initial camera placement — use per-car eyeOffset for viewpoint height
+    camera.position.set(pos.current.x, pos.current.y + cfg.eyeOffset, pos.current.z);
     const lookTarget = focusBuilding
       ? new THREE.Vector3(focusBuilding.x, focusBuilding.height * 0.6, focusBuilding.z)
-      : new THREE.Vector3(0, pos.current.y + 1.4, 0);
+      : new THREE.Vector3(0, pos.current.y + cfg.eyeOffset - 0.6, 0);
     camera.lookAt(lookTarget);
 
     return () => {
@@ -1039,29 +1155,49 @@ function StreetView({
       document.removeEventListener("pointerlockchange", handlePLC);
       if (document.pointerLockElement === domElement) document.exitPointerLock();
     };
-  }, [camera, domElement, focusBuilding, onExit]);
+  }, [camera, domElement, focusBuilding, onExit, cfg]);
 
   useFrame((_, delta) => {
-    const dt      = Math.min(delta, 0.05);
-    const forward = new THREE.Vector3(-Math.sin(yaw.current), 0, -Math.cos(yaw.current)).normalize();
+    const dt = Math.min(delta, 0.05);
+
+    // ── Player movement ──────────────────────────────────────────────────────
+    const forward = new THREE.Vector3(
+      -Math.sin(yaw.current), 0, -Math.cos(yaw.current),
+    ).normalize();
+
     if (keys.current["KeyA"]) yaw.current += 2.2 * dt;
     if (keys.current["KeyD"]) yaw.current -= 2.2 * dt;
+
     let moveDir = 0;
     if (keys.current["KeyW"]) moveDir += 1;
     if (keys.current["KeyS"]) moveDir -= 1;
-    if (moveDir !== 0) pos.current.addScaledVector(forward, moveDir * 60 * dt);
+    if (moveDir !== 0) pos.current.addScaledVector(forward, moveDir * cfg.speed * dt);
     if (pos.current.y < 1.5) pos.current.y = 1.5;
-    camera.position.set(pos.current.x, pos.current.y + 1.8, pos.current.z);
-    camera.quaternion.copy(new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch.current, yaw.current, 0, "YXZ")));
-    if (avatarRef.current) avatarRef.current.position.set(pos.current.x, pos.current.y, pos.current.z);
+
+    // ── Camera ───────────────────────────────────────────────────────────────
+    // Eye height uses per-car eyeOffset (viewpoint height)
+    camera.position.set(pos.current.x, pos.current.y + cfg.eyeOffset, pos.current.z);
+    camera.quaternion.copy(
+      new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(pitch.current, yaw.current, 0, "YXZ"),
+      ),
+    );
+
+    // ── Car mesh — placed in front of camera, facing the same direction ──────
+    if (carRef.current) {
+      // Position: player feet + forward offset along yaw direction + down to ground
+      const carX = pos.current.x + forward.x * cfg.forwardOffset + (-Math.cos(yaw.current)) * cfg.sideOffset;
+      const carZ = pos.current.z + forward.z * cfg.forwardOffset + (-Math.sin(yaw.current)) * cfg.sideOffset;
+      const carY = pos.current.y - cfg.downOffset;
+
+      carRef.current.position.set(carX, carY, carZ);
+
+      // Rotation: car faces the same horizontal direction as the camera (yaw only — no pitch)
+      carRef.current.rotation.set(0, yaw.current, 0);
+    }
   });
 
-  return (
-    <mesh ref={avatarRef}>
-      <boxGeometry args={[4, 4, 4]} />
-      <meshStandardMaterial color="#f97316" emissive="#f97316" emissiveIntensity={0.6} />
-    </mesh>
-  );
+  return <StreetCar carGroupRef={carRef} variant={carVariant} />;
 }
 
 // ─── Street Target Tracker ─────────────────────────────────────────────────────
@@ -1119,9 +1255,16 @@ interface CityCanvasProps {
   buildings: PositionedBuilding[];
   layoutResult: CityLayoutResult;
   focusUsername?: string | null;
+  carVariant?: "mr-bean" | "batmobile" | "harry-potter" | "ms-queen";
 }
 
-export function CityCanvas({ city, buildings, layoutResult, focusUsername }: CityCanvasProps) {
+export function CityCanvas({
+  city,
+  buildings,
+  layoutResult,
+  focusUsername,
+  carVariant = "mr-bean",
+}: CityCanvasProps) {
   const theme = EMERALD_THEME;
   const { ringRadii } = layoutResult;
 
@@ -1240,7 +1383,11 @@ export function CityCanvas({ city, buildings, layoutResult, focusUsername }: Cit
 
         {streetMode && (
           <>
-            <StreetView onExit={() => setStreetMode(false)} focusBuilding={focusBuilding} />
+            <StreetView
+              onExit={() => setStreetMode(false)}
+              focusBuilding={focusBuilding}
+              carVariant={carVariant as CarVariant}
+            />
             <StreetTargetTracker
               enabled={streetMode}
               meshRef={instancedRef}
