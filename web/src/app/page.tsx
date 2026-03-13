@@ -1,7 +1,8 @@
- "use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import type { CityId, PositionedBuilding } from "@/lib/types";
+import type { CityLayoutResult } from "@/lib/city/layout";
 import { loadCityCsv } from "@/lib/data/csvClient";
 import { mapCsvToBuildings } from "@/lib/city/scaling";
 import { computeCityLayout } from "@/lib/city/layout";
@@ -15,6 +16,7 @@ export default function Home() {
   const [selectedCity, setSelectedCity] = useState<CityId | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [buildings, setBuildings] = useState<PositionedBuilding[]>([]);
+  const [layoutResult, setLayoutResult] = useState<CityLayoutResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [focusedUsername, setFocusedUsername] = useState<string | null>(null);
@@ -30,11 +32,13 @@ export default function Home() {
       try {
         setStatus("loading");
         setError(null);
+        setLayoutResult(null);
         const csv = await loadCityCsv(city);
         if (canceled) return;
         const mapped = mapCsvToBuildings(city, csv);
-        const positioned = computeCityLayout(mapped);
-        setBuildings(positioned);
+        const layout = computeCityLayout(mapped);
+        setBuildings(layout.buildings);
+        setLayoutResult(layout);
         setStatus("ready");
       } catch (err) {
         console.error(err);
@@ -159,10 +163,11 @@ export default function Home() {
         </section>
 
         <section>
-          {selectedCity && status === "ready" && buildings.length > 0 ? (
+          {selectedCity && status === "ready" && buildings.length > 0 && layoutResult ? (
             <CityCanvas
               city={selectedCity}
               buildings={buildings}
+              layoutResult={layoutResult}
               focusUsername={focusedUsername}
             />
           ) : (

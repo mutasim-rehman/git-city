@@ -40,6 +40,11 @@ export interface Building {
 export interface PositionedBuilding extends Building {
   x: number;
   z: number;
+  /**
+   * Optional Y-axis rotation in radians, used by the renderer
+   * to align buildings with curved roads or other layout logic.
+   */
+  rotationY?: number;
 }
 
 export interface BuildingColors {

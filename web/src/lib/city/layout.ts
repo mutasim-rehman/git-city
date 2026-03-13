@@ -1,31 +1,31 @@
 import type { Building, PositionedBuilding } from "../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Street / road constants
-//
 //  Road hierarchy (widest → narrowest):
-//    RING_ROAD      – the three major circular boulevards between ring bands
+//    RING_ROAD      – three major circular boulevards between ring bands
 //    RADIAL_STREET  – spoke streets between adjacent blocks in a sub-ring
 //    SUB_RING_GAP   – lane between concentric rows inside one ring band
 //    BLOCK_ALLEY_H  – internal horizontal alley between the two block columns
 //    BLOCK_ALLEY_V  – internal vertical alley between the two block rows
-//
-//  Every building in a 2×2 block has at least one face on one of the above,
-//  so every building is reachable.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const PLAZA_RADIUS  = 90;
-const RING_ROAD     = 32;   // main circular boulevard
-const RADIAL_STREET = 22;   // spoke streets between blocks
-const SUB_RING_GAP  = 16;   // lane between sub-ring rows
-const BLOCK_ALLEY_H = 8;    // alley between left and right column inside block
-const BLOCK_ALLEY_V = 8;    // alley between top and bottom row inside block
+export const PLAZA_RADIUS  = 90;   // exported so CityCanvas can use it
+export const RING_ROAD     = 32;   // main circular boulevard width
+const RADIAL_STREET        = 22;   // spoke streets between blocks
+const SUB_RING_GAP         = 16;   // lane between sub-ring rows
+const BLOCK_ALLEY_H        = 8;    // alley between left/right columns inside block
+const BLOCK_ALLEY_V        = 8;    // alley between top/bottom rows inside block
 
 const BUILDING_FOOTPRINT_SCALE = 0.5;
 
-const RIVER_CENTER     = -Math.PI / 4;
-const RIVER_HALF_WIDTH = Math.PI / 18;
-const RIVER_SKIP       = RIVER_HALF_WIDTH * 2.6;
+// Ring radii — exported so CityCanvas can draw matching road geometry
+export const RING_1_INNER = PLAZA_RADIUS + RING_ROAD;          // ~122
+export const RING_2_INNER_BASE = 188;  // approximate; actual depends on core depth
+export const RING_3_INNER_BASE = 272;  // approximate; actual depends on mid depth
+
+export const RIVER_CENTER     = -Math.PI / 4;
+export const RIVER_HALF_WIDTH = Math.PI / 18;
+export const RIVER_SKIP       = RIVER_HALF_WIDTH * 2.6;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Helpers
@@ -46,20 +46,7 @@ function skipOverRiver(angle: number, blockArc: number): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Block packing  — internal alleys guarantee every building is accessible
-//
-//  Layout for a full 4-building block:
-//
-//        ← col0W →  ←H→  ← col1W →
-//      ┌──────────┐  │  ┌──────────┐   ↑
-//      │  bldg 0  │  │  │  bldg 1  │  row0D
-//      └──────────┘  │  └──────────┘   ↓
-//      ══════════════════════════════  ← BLOCK_ALLEY_V
-//      ┌──────────┐  │  ┌──────────┐   ↑
-//      │  bldg 2  │  │  │  bldg 3  │  row1D
-//      └──────────┘  │  └──────────┘   ↓
-//                    ↑
-//              BLOCK_ALLEY_H
+//  Block packing — 2×2 with internal alleys
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface Block {
@@ -96,15 +83,11 @@ function packBlock(bs: Building[]): Block {
   const D = row0D + (hasRow1 ? BLOCK_ALLEY_V + row1D : 0);
 
   const offsets: { x: number; z: number }[] = [];
-
   offsets.push({ x: -W / 2 + col0W / 2, z: -D / 2 + row0D / 2 });
-
   if (scaled[1])
     offsets.push({ x: -W / 2 + col0W + BLOCK_ALLEY_H + col1W / 2, z: -D / 2 + row0D / 2 });
-
   if (scaled[2])
     offsets.push({ x: -W / 2 + col0W / 2, z: -D / 2 + row0D + BLOCK_ALLEY_V + row1D / 2 });
-
   if (scaled[3])
     offsets.push({ x: -W / 2 + col0W + BLOCK_ALLEY_H + col1W / 2, z: -D / 2 + row0D + BLOCK_ALLEY_V + row1D / 2 });
 
@@ -145,7 +128,7 @@ function estimateRadialDepth(blocks: Block[], innerRadius: number): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Place one ring band
+//  Place one ring band — buildings are rotated to face the ring tangent
 // ─────────────────────────────────────────────────────────────────────────────
 
 function placeRing(
@@ -192,14 +175,28 @@ function placeRing(
       const bx  = Math.cos(mid) * R;
       const bz  = Math.sin(mid) * R;
 
+      // Tangent angle: each building faces outward from ring centre
+      const tangentAngle = mid + Math.PI / 2;
+
       for (let k = 0; k < block.buildings.length; k++) {
-        result.push({
+        // Rotate the local block offset by the tangent angle so
+        // buildings align with the ring curve
+        const localX = block.offsets[k].x;
+        const localZ = block.offsets[k].z;
+        const cosT = Math.cos(tangentAngle);
+        const sinT = Math.sin(tangentAngle);
+
+        const placed: PositionedBuilding = {
           ...block.buildings[k],
           width: block.scaledBuildings[k].width,
           depth: block.scaledBuildings[k].depth,
-          x: bx + block.offsets[k].x,
-          z: bz + block.offsets[k].z,
-        });
+          x: bx + cosT * localX - sinT * localZ,
+          z: bz + sinT * localX + cosT * localZ,
+        };
+        // Store rotation on the instance for renderer use without affecting typing
+        (placed as any).rotationY = tangentAngle;
+
+        result.push(placed);
       }
 
       angle = normalizeAngle(angle + blockArc + gapAngle);
@@ -211,24 +208,66 @@ function placeRing(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Main export
+//  Main export — also returns ring radii for road rendering
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function computeCityLayout(buildings: Building[]): PositionedBuilding[] {
-  if (!buildings.length) return [];
+export interface CityLayoutResult {
+  buildings: PositionedBuilding[];
+  ringRadii: {
+    plaza: number;
+    ring1Inner: number;
+    ring1Outer: number;
+    ring2Inner: number;
+    ring2Outer: number;
+    ring3Inner: number;
+    ring3Outer: number;
+  };
+}
+
+export function computeCityLayout(buildings: Building[]): CityLayoutResult {
+  const empty: CityLayoutResult = {
+    buildings: [],
+    ringRadii: {
+      plaza: PLAZA_RADIUS,
+      ring1Inner: RING_1_INNER,
+      ring1Outer: RING_1_INNER,
+      ring2Inner: RING_1_INNER + RING_ROAD,
+      ring2Outer: RING_1_INNER + RING_ROAD,
+      ring3Inner: RING_1_INNER + RING_ROAD * 2,
+      ring3Outer: RING_1_INNER + RING_ROAD * 2,
+    },
+  };
+
+  if (!buildings.length) return empty;
   const n = buildings.length;
 
   if (n <= 8) {
     const step = (Math.PI * 2) / n;
-    return [...buildings]
+    const placed = [...buildings]
       .sort((a, b) => b.lifetimeCommits - a.lifetimeCommits)
-      .map((b, i) => ({
-        ...b,
-        width: b.width * BUILDING_FOOTPRINT_SCALE,
-        depth: b.depth * BUILDING_FOOTPRINT_SCALE,
-        x: Math.cos(step * i) * 120,
-        z: Math.sin(step * i) * 120,
-      }));
+      .map((b, i) => {
+        const angle = step * i;
+        return {
+          ...b,
+          width: b.width * BUILDING_FOOTPRINT_SCALE,
+          depth: b.depth * BUILDING_FOOTPRINT_SCALE,
+          x: Math.cos(angle) * (PLAZA_RADIUS + RING_ROAD + 60),
+          z: Math.sin(angle) * (PLAZA_RADIUS + RING_ROAD + 60),
+          rotationY: angle + Math.PI / 2,
+        };
+      });
+    return {
+      buildings: placed,
+      ringRadii: {
+        plaza: PLAZA_RADIUS,
+        ring1Inner: PLAZA_RADIUS + RING_ROAD,
+        ring1Outer: PLAZA_RADIUS + RING_ROAD + 80,
+        ring2Inner: PLAZA_RADIUS + RING_ROAD + 80 + RING_ROAD,
+        ring2Outer: PLAZA_RADIUS + RING_ROAD + 80 + RING_ROAD,
+        ring3Inner: PLAZA_RADIUS + RING_ROAD + 80 + RING_ROAD * 2,
+        ring3Outer: PLAZA_RADIUS + RING_ROAD + 80 + RING_ROAD * 2,
+      },
+    };
   }
 
   const sorted = [...buildings].sort(
@@ -251,15 +290,32 @@ export function computeCityLayout(buildings: Building[]): PositionedBuilding[] {
   const outerBlocks = makeBlocks(coreCount + midCount, outerCount);
 
   const coreInner  = PLAZA_RADIUS + RING_ROAD;
-  const coreOuter  = coreInner + estimateRadialDepth(coreBlocks, coreInner);
+  const coreDepth  = estimateRadialDepth(coreBlocks, coreInner);
+  const coreOuter  = coreInner + coreDepth;
+
   const midInner   = coreOuter + RING_ROAD;
-  const midOuter   = midInner  + estimateRadialDepth(midBlocks,  midInner);
-  const outerInner = midOuter  + RING_ROAD;
+  const midDepth   = estimateRadialDepth(midBlocks, midInner);
+  const midOuter   = midInner + midDepth;
+
+  const outerInner = midOuter + RING_ROAD;
+  const outerDepth = estimateRadialDepth(outerBlocks, outerInner);
+  const outerOuter = outerInner + outerDepth;
 
   const result: PositionedBuilding[] = [];
   placeRing(coreBlocks,  coreInner,  0, result);
   placeRing(midBlocks,   midInner,   1, result);
   placeRing(outerBlocks, outerInner, 2, result);
 
-  return result;
+  return {
+    buildings: result,
+    ringRadii: {
+      plaza:      PLAZA_RADIUS,
+      ring1Inner: coreInner,
+      ring1Outer: coreOuter,
+      ring2Inner: midInner,
+      ring2Outer: midOuter,
+      ring3Inner: outerInner,
+      ring3Outer: outerOuter,
+    },
+  };
 }
