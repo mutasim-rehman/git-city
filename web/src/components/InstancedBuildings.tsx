@@ -178,7 +178,7 @@ export const InstancedBuildings = memo(function InstancedBuildings({
       const bx = Math.floor(cx / BLOCK_CELLS);
       const bz = Math.floor(cz / BLOCK_CELLS);
 
-      const neighbors: (Key | null)[] = [
+      const neighbors: Key[] = [
         cellKey(cx - 1, cz),
         cellKey(cx + 1, cz),
         cellKey(cx, cz - 1),
