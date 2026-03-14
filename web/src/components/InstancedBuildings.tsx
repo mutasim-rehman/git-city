@@ -15,6 +15,7 @@ const {
 const _matrix = new THREE.Matrix4();
 const _position = new THREE.Vector3();
 const _quaternion = new THREE.Quaternion();
+const _euler = new THREE.Euler(0, 0, 0);
 const _scale = new THREE.Vector3(1, 1, 1);
 
 const vertexShader = /* glsl */ `
@@ -270,6 +271,13 @@ export const InstancedBuildings = memo(function InstancedBuildings({
       const b = buildings[i];
       _position.set(b.x, b.height / 2, b.z);
       _scale.set(b.width, b.height, b.depth);
+      const rotY = (b as { rotationY?: number }).rotationY;
+      if (typeof rotY === "number") {
+        _euler.y = rotY;
+        _quaternion.setFromEuler(_euler);
+      } else {
+        _quaternion.identity();
+      }
       _matrix.compose(_position, _quaternion, _scale);
       mesh.setMatrixAt(i, _matrix);
     }

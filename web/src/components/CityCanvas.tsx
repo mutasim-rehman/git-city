@@ -523,6 +523,97 @@ function Plaza() {
   );
 }
 
+// ─── Monument ─────────────────────────────────────────────────────────────────
+//  Loads the GLB monument model and places it at the city centre (plaza origin).
+//  The model is auto-scaled to roughly fit inside PLAZA_RADIUS; tweak MONUMENT_SCALE
+//  if the asset comes out too large or too small.
+
+// ─── Monument tuning ──────────────────────────────────────────────────────────
+//  All values you'd ever want to tweak, in one place.
+//  Angles are in plain DEGREES — no Math.PI needed.
+const MONUMENT_CONFIG = {
+
+  // ── Position ────────────────────────────────────────────────────────────────
+  height:  0,      // lift above plaza ground (0 = sitting, 200 = floating high)
+  offsetX: -10,      // nudge left (−) or right (+) from city centre
+  offsetZ: 10,      // nudge forward (−) or back (+) from city centre
+
+  // ── Orientation (degrees) ───────────────────────────────────────────────────
+  yaw:   -90,        // spin around vertical axis  (0–360)
+  pitch: 90,        // tilt nose down (+) or up (−)
+  roll:  0,        // lean left (−) or right (+)
+
+  // ── Size ────────────────────────────────────────────────────────────────────
+  scale: 0.050,      // uniform scale multiplier
+
+  // ── Brightness / glow ───────────────────────────────────────────────────────
+  //  brightness: overall emissive intensity on the model's own materials
+  //    0   = completely unlit / dark
+  //    0.5 = subtle inner glow
+  //    1.0 = natural (default)
+  //    3.0 = strongly glowing
+  brightness:    1.0,
+  emissiveColor: "#88ffcc",  // glow colour (visible when brightness > 1)
+
+  // ── Scene light ─────────────────────────────────────────────────────────────
+  //  A point-light placed at the monument casts coloured light on nearby buildings.
+  lightColor:     "#88ffcc",
+  lightIntensity: 2.0,   // 0 = off
+  lightDistance:  300,   // radius in world units the light reaches
+};
+
+function Monument() {
+  const gltf = useGLTF("/models/v-cruiser.glb");
+  const cfg  = MONUMENT_CONFIG;
+
+  // Clone so we can mutate materials without affecting the shared GLTF cache
+  const scene = useMemo(() => gltf.scene.clone(true), [gltf.scene]);
+
+  // Apply brightness / emissive override to every mesh in the model
+  useMemo(() => {
+    scene.traverse((obj) => {
+      if (!(obj as THREE.Mesh).isMesh) return;
+      const mesh = obj as THREE.Mesh;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      mats.forEach((mat) => {
+        const m = mat as THREE.MeshStandardMaterial;
+        if (!m.isMeshStandardMaterial) return;
+        // brightness > 1 adds a coloured emissive glow; < 1 darkens the model
+        m.emissive          = new THREE.Color(cfg.emissiveColor);
+        m.emissiveIntensity = Math.max(0, cfg.brightness - 1);
+        m.needsUpdate       = true;
+      });
+    });
+  }, [scene, cfg.brightness, cfg.emissiveColor]);
+
+  // Seat the base at y = 0 then lift by cfg.height
+  const groundOffset = useMemo(() => {
+    const box = new THREE.Box3().setFromObject(scene);
+    return -box.min.y * cfg.scale;
+  }, [scene, cfg.scale]);
+
+  // Convert degrees → radians for Three.js
+  const D = Math.PI / 180;
+
+  return (
+    <group position={[cfg.offsetX, groundOffset + cfg.height, cfg.offsetZ]}>
+      {/* Point light at monument position — illuminates surrounding plaza / buildings */}
+      {cfg.lightIntensity > 0 && (
+        <pointLight
+          color={cfg.lightColor}
+          intensity={cfg.lightIntensity}
+          distance={cfg.lightDistance}
+        />
+      )}
+      <primitive
+        object={scene}
+        scale={cfg.scale}
+        rotation={[cfg.pitch * D, cfg.yaw * D, cfg.roll * D]}
+      />
+    </group>
+  );
+}
+
 // ─── River ────────────────────────────────────────────────────────────────────
 //  A wedge-shaped water body occupying the river gap sector, radiating outward.
 
@@ -1004,7 +1095,7 @@ const CAR_CONFIGS: Record<CarVariant, CarConfig> = {
     modelTilt:     0,
     forwardOffset: 15,
     downOffset:    0.5,
-    sideOffset:    -3,
+    sideOffset:    0,
     speed:         60,
     eyeOffset:     4,
   },
@@ -1021,8 +1112,8 @@ const CAR_CONFIGS: Record<CarVariant, CarConfig> = {
   },
   "harry-potter": {
     modelPath:     "/models/car4.glb",
-    scale:         2.2,
-    modelYaw:      Math.PI / 2,
+    scale:         1.0,
+    modelYaw:      3.5*Math.PI,
     modelTilt:     0,
     forwardOffset: 8,
     downOffset:    0.6,
@@ -1099,10 +1190,15 @@ function StreetView({
   }, [focusBuilding]);
 
   const pos    = useRef(spawnConfig.pos.clone());
-  const yaw    = useRef(spawnConfig.yaw);
+  const yaw    = useRef(spawnConfig.yaw);   // camera / look direction
   const pitch  = useRef(0);
   const keys   = useRef<Record<string, boolean>>({});
   const pointerLocked = useRef(false);
+
+  // carYaw tracks the car *body* direction — it only chases the movement direction
+  // when the player is actually driving, so mouse-look while stationary doesn't
+  // spin the car model.
+  const carYaw = useRef(spawnConfig.yaw);
 
   // Separate ref for the car group — positioned and rotated every frame
   const carRef = useRef<THREE.Group | null>(null);
@@ -1125,10 +1221,13 @@ function StreetView({
     };
     const handleMM = (e: MouseEvent) => {
       if (!pointerLocked.current) return;
-      const s = 0.0025;
-      yaw.current   -= (e.movementX || 0) * s;
-      pitch.current -= (e.movementY || 0) * s;
-      pitch.current  = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch.current));
+      // Standard FPS: raw delta → yaw/pitch.
+      // Sensitivity tuned for ~800 dpi mouse; lower = slower, higher = faster.
+      const s = 0.0018;
+      yaw.current   -= (e.movementX || 0) * s;   // right → turn right
+      pitch.current -= (e.movementY || 0) * s;   // up    → look up
+      // Clamp pitch so camera can't flip past vertical
+      pitch.current  = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch.current));
     };
     const handlePLC = () => {
       pointerLocked.current = document.pointerLockElement === domElement;
@@ -1175,7 +1274,6 @@ function StreetView({
     if (pos.current.y < 1.5) pos.current.y = 1.5;
 
     // ── Camera ───────────────────────────────────────────────────────────────
-    // Eye height uses per-car eyeOffset (viewpoint height)
     camera.position.set(pos.current.x, pos.current.y + cfg.eyeOffset, pos.current.z);
     camera.quaternion.copy(
       new THREE.Quaternion().setFromEuler(
@@ -1183,17 +1281,42 @@ function StreetView({
       ),
     );
 
-    // ── Car mesh — placed in front of camera, facing the same direction ──────
+    // ── Car rotation — body faces movement direction, not camera look ─────────
+    //
+    //  carYaw only updates while the player is actually driving:
+    //    • Driving forward → target = camera yaw (nose points where you're going)
+    //    • Driving backward → target = camera yaw + π  (nose points opposite)
+    //    • Turning in-place (A/D without W/S) → snap immediately with camera
+    //    • Mouse-look while stationary → carYaw stays put (no phantom spin)
+    //
+    if (moveDir !== 0) {
+      // Target yaw for the car body
+      const targetCarYaw = moveDir > 0 ? yaw.current : yaw.current + Math.PI;
+
+      // Shortest-path angle delta (avoid spinning the long way around)
+      let diff = targetCarYaw - carYaw.current;
+      while (diff >  Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+
+      // Smooth rotation: lerp speed of 8 rad/s feels like a real turning radius
+      carYaw.current += diff * Math.min(1, 8 * dt);
+    } else if (keys.current["KeyA"] || keys.current["KeyD"]) {
+      // Stationary pivot (e.g. reversing to orient) — car body snaps with camera
+      carYaw.current = yaw.current;
+    }
+    // If neither moving nor turning (pure mouse-look), carYaw is intentionally unchanged
+
+    // ── Car mesh — placed in front of camera, facing movement direction ───────
     if (carRef.current) {
-      // Position: player feet + forward offset along yaw direction + down to ground
       const carX = pos.current.x + forward.x * cfg.forwardOffset + (-Math.cos(yaw.current)) * cfg.sideOffset;
       const carZ = pos.current.z + forward.z * cfg.forwardOffset + (-Math.sin(yaw.current)) * cfg.sideOffset;
       const carY = pos.current.y - cfg.downOffset;
 
       carRef.current.position.set(carX, carY, carZ);
 
-      // Rotation: car faces the same horizontal direction as the camera (yaw only — no pitch)
-      carRef.current.rotation.set(0, yaw.current, 0);
+      // Use carYaw (movement direction) — NOT camera yaw — so the model always
+      // faces the direction it is travelling.
+      carRef.current.rotation.set(0, carYaw.current, 0);
     }
   });
 
@@ -1348,8 +1471,9 @@ export function CityCanvas({
         {/* Polar road network — ring roads + spokes */}
         <PolarRoads ringRadii={ringRadii} />
 
-        {/* Empty plaza — no monument, just paving */}
+        {/* Empty plaza — paving + central monument */}
         <Plaza />
+        <Monument />
 
         {/* Buildings */}
         <InstancedBuildings

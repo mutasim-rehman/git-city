@@ -172,29 +172,26 @@ function placeRing(
       angle = skipOverRiver(angle, blockArc);
 
       const mid = normalizeAngle(angle + blockArc / 2);
-      const bx  = Math.cos(mid) * R;
-      const bz  = Math.sin(mid) * R;
 
-      // Tangent angle: each building faces outward from ring centre
-      const tangentAngle = mid + Math.PI / 2;
-
+      // Each building is placed on the circular road using polar coords: x = r*cos(θ), z = r*sin(θ)
+      // block.offsets: .x = tangential (along ring), .z = radial (in/out from center)
       for (let k = 0; k < block.buildings.length; k++) {
-        // Rotate the local block offset by the tangent angle so
-        // buildings align with the ring curve
         const localX = block.offsets[k].x;
         const localZ = block.offsets[k].z;
-        const cosT = Math.cos(tangentAngle);
-        const sinT = Math.sin(tangentAngle);
+        // r = ring radius + radial offset (positive = outward)
+        const r_k = R + localZ;
+        // θ = block center angle + angular offset (arc length localX at radius r_k)
+        const theta_k = mid + localX / Math.max(r_k, 1);
 
         const placed: PositionedBuilding = {
           ...block.buildings[k],
           width: block.scaledBuildings[k].width,
           depth: block.scaledBuildings[k].depth,
-          x: bx + cosT * localX - sinT * localZ,
-          z: bz + sinT * localX + cosT * localZ,
+          x: r_k * Math.cos(theta_k),
+          z: r_k * Math.sin(theta_k),
         };
-        // Store rotation on the instance for renderer use without affecting typing
-        (placed as any).rotationY = tangentAngle;
+        // Building faces outward: +Z (front) aligns with radial direction (cos θ, sin θ)
+        (placed as any).rotationY = Math.PI / 2 - theta_k;
 
         result.push(placed);
       }
@@ -243,17 +240,18 @@ export function computeCityLayout(buildings: Building[]): CityLayoutResult {
 
   if (n <= 8) {
     const step = (Math.PI * 2) / n;
+    const r = PLAZA_RADIUS + RING_ROAD + 60;
     const placed = [...buildings]
       .sort((a, b) => b.lifetimeCommits - a.lifetimeCommits)
       .map((b, i) => {
-        const angle = step * i;
+        const theta = step * i;
         return {
           ...b,
           width: b.width * BUILDING_FOOTPRINT_SCALE,
           depth: b.depth * BUILDING_FOOTPRINT_SCALE,
-          x: Math.cos(angle) * (PLAZA_RADIUS + RING_ROAD + 60),
-          z: Math.sin(angle) * (PLAZA_RADIUS + RING_ROAD + 60),
-          rotationY: angle + Math.PI / 2,
+          x: r * Math.cos(theta),
+          z: r * Math.sin(theta),
+          rotationY: Math.PI / 2 - theta,
         };
       });
     return {
