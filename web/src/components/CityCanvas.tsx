@@ -711,7 +711,7 @@ function River({ outerRadius }: RiverProps) {
 
 // ─── Mountains ────────────────────────────────────────────────────────────────
 
-// ─── Mountains ────────────────────────────────────────────────────────────────
+/// ─── Mountains ────────────────────────────────────────────────────────────────
 
 function seededRng(seed: number): number {
   return Math.abs((Math.sin(seed * 127.1 + 311.7) * 43758.5453) % 1);
@@ -723,6 +723,16 @@ function fbm(x: number, z: number, octaves: number, seed: number): number {
     val   += Math.sin(x * freq + seed * 1.3 + o * 2.7) * Math.cos(z * freq - seed * 0.9 + o * 1.8) * amp;
     val   += Math.sin((x + z) * freq * 0.7 + seed * 2.1 + o) * amp * 0.5;
     total += amp; amp *= 0.52; freq *= 2.17;
+  }
+  return val / total;
+}
+
+/** Ridged noise — inverted absolute-value gives sharp mountain ridgelines */
+function ridgedFbm(x: number, z: number, octaves: number, seed: number): number {
+  let val = 0, amp = 1, freq = 1, total = 0;
+  for (let o = 0; o < octaves; o++) {
+    const n = 1 - Math.abs(Math.sin(x * freq + seed * 1.7 + o * 3.1) * Math.cos(z * freq - seed * 1.1 + o * 2.3));
+    val += n * amp; total += amp; amp *= 0.5; freq *= 2.1;
   }
   return val / total;
 }
@@ -742,67 +752,191 @@ function buildRealisticMountain(
   baseRadius: number, height: number, profile: number, seed: number,
   snowFrac: number, treeFrac: number,
 ): MountainGeoResult {
-  const RADIAL = 48; const HEIGHT = 28; const halfH = height / 2;
+  const RADIAL = 72; const HEIGHT = 52; const halfH = height / 2;
+
+  // Per-mountain personality
   const mainRidgeCount  = 2 + Math.floor(seededRng(seed + 90) * 3);
   const mainRidgeAmp    = 0.18 + seededRng(seed + 91) * 0.22;
-  const secondaryRidges = 4 + Math.floor(seededRng(seed + 95) * 5);
-  const secondaryAmp    = 0.07 + seededRng(seed + 96) * 0.09;
+  const secondaryRidges = 5 + Math.floor(seededRng(seed + 95) * 6);
+  const secondaryAmp    = 0.07 + seededRng(seed + 96) * 0.10;
   const tiltAngle       = seededRng(seed + 92) * Math.PI * 2;
   const tiltAmt         = seededRng(seed + 93) * 0.10;
   const cliffSide       = seededRng(seed + 94) * Math.PI * 2;
-  const cliffSharpness  = 0.15 + seededRng(seed + 97) * 0.35;
-  const snowVariance    = 0.07 + seededRng(seed + 98) * 0.10;
+  const cliffSharpness  = 0.18 + seededRng(seed + 97) * 0.38;
+  const snowVariance    = 0.06 + seededRng(seed + 98) * 0.09;
+  const windDir         = seededRng(seed + 100) * Math.PI * 2;
+  const mineralTint     = seededRng(seed + 101);
+  const wetSide         = seededRng(seed + 102) * Math.PI * 2;
+  const strataFreq      = 4 + Math.floor(seededRng(seed + 103) * 5);
+  const strataAmp       = 0.013 + seededRng(seed + 104) * 0.022;
+  // FIX 3: Big spur ridges radiating from base
+  const spurCount       = 3 + Math.floor(seededRng(seed + 110) * 4);
+  const spurPhase       = seededRng(seed + 111) * Math.PI * 2;
+  const spurStrength    = 0.28 + seededRng(seed + 112) * 0.38;
+  // Per-mountain footprint lobe shape (glacial carving)
+  const lobeCount       = 2 + Math.floor(seededRng(seed + 113) * 3);
+  const lobePhase       = seededRng(seed + 114) * Math.PI * 2;
+  const lobeStrength    = 0.22 + seededRng(seed + 115) * 0.30;
 
   const C = {
-    bedrock:  [0.16, 0.14, 0.13], darkRock: [0.22, 0.20, 0.18], rock: [0.36, 0.33, 0.30],
-    scree: [0.42, 0.38, 0.33], alpine: [0.28, 0.34, 0.22], treeLine: [0.13, 0.28, 0.12],
-    snow: [0.88, 0.90, 0.94], iceShadow: [0.72, 0.76, 0.84],
+    bedrock:    [0.13, 0.11, 0.10],
+    darkRock:   [0.18, 0.16, 0.14],
+    wetRock:    [0.14, 0.13, 0.12],
+    rock:       [0.36, 0.32, 0.27],
+    lightRock:  [0.52, 0.47, 0.40],
+    ironRock:   [0.45, 0.29, 0.18],
+    scree:      [0.40, 0.36, 0.31],
+    screeLight: [0.54, 0.49, 0.42],
+    alpine:     [0.26, 0.33, 0.19],
+    alpineWet:  [0.17, 0.27, 0.14],
+    treeLine:   [0.10, 0.23, 0.10],
+    lichen:     [0.46, 0.49, 0.30],
+    snow:       [0.91, 0.93, 0.97],
+    snowShadow: [0.76, 0.82, 0.91],
+    corniceSnow:[0.94, 0.96, 0.99],
+    iceShadow:  [0.66, 0.74, 0.88],
   };
 
   const positions: number[] = []; const colors: number[] = []; const indices: number[] = [];
+
   for (let hRing = 0; hRing <= HEIGHT; hRing++) {
-    const t = hRing / HEIGHT; const vy = -halfH + t * height;
-    const profileT = Math.pow(t, profile); const ringRadius = baseRadius * (1 - profileT);
+    const t = hRing / HEIGHT;
+    const vy = -halfH + t * height;
+    const profileT = Math.pow(t, profile);
+    const ringRadius = baseRadius * (1 - profileT);
+
     for (let a = 0; a <= RADIAL; a++) {
-      const angle = (a / RADIAL) * Math.PI * 2; const ca = Math.cos(angle); const sa = Math.sin(angle);
+      const angle = (a / RADIAL) * Math.PI * 2;
+      const ca = Math.cos(angle); const sa = Math.sin(angle);
+
+      // ── FIX 2 & 3: Base irregularity ─────────────────────────────────────
+      // Spur ridges: sharp lobes radiating outward from the base, fading with height
+      // Use power curve so effect is strong at base and gone by ~half-height
+      const baseWeight = Math.pow(Math.max(0, 1 - t * 1.8), 2.2);
+
+      // Glacial cirque lobes (large, sweeping concavities/convexities at the foot)
+      const lobeFactor = Math.cos(angle * lobeCount + lobePhase) * lobeStrength * baseWeight;
+
+      // Spur ridges (narrower, sharper features like buttresses)
+      const spurFactor = Math.max(0, Math.sin(angle * spurCount + spurPhase)) * spurStrength * baseWeight;
+
+      // Large-amplitude base footprint noise (was ~17%, now up to 55% at base)
+      const footprintNoise = fbm(ca * 1.6, sa * 1.6, 6, seed * 0.16 + 4) * 0.55 * baseWeight;
+
+      // Mid-slope erosion noise (unchanged from before)
+      const macroNoise  = fbm(ca * 2.1, sa * 2.1, 5, seed * 0.17) * 0.15 * (1 - t * 0.30);
+      const midNoise    = fbm(ca * 5.0 + t * 2, sa * 5.0 + t * 2, 4, seed * 0.29 + 3) * 0.06 * (1 - t * 0.20);
+      const microNoise  = fbm(ca * 12.0 + t * 5, sa * 12.0 + t * 5, 3, seed * 0.41 + 7) * 0.020;
+      const sharpRidge  = ridgedFbm(ca * 4.5 + t, sa * 4.5 + t, 3, seed * 0.55 + 11) * 0.045 * t;
+
+      // Ridge system
       const ridgeFactor = 1
-        + Math.sin(angle * mainRidgeCount + seed * 1.9) * mainRidgeAmp * (1 - t * 0.6)
-        + Math.sin(angle * secondaryRidges + seed * 3.7) * secondaryAmp * (1 - t * 0.4);
+        + Math.sin(angle * mainRidgeCount + seed * 1.9) * mainRidgeAmp * (1 - t * 0.50)
+        + Math.sin(angle * secondaryRidges + seed * 3.7) * secondaryAmp * (1 - t * 0.35)
+        + Math.sin(angle * secondaryRidges * 2.3 + seed * 5.9) * secondaryAmp * 0.35 * (1 - t * 0.20);
+
+      // Cliff face
       const cliffDiff = Math.cos(angle - cliffSide);
-      const cliffPull = cliffDiff > 0 ? -cliffDiff * cliffSharpness * t * (1 - t) * 3.5 : 0;
-      const macroNoise = fbm(ca * 2.1, sa * 2.1, 4, seed * 0.17) * 0.14 * (1 - t * 0.3);
-      const microNoise = fbm(ca * 8.0 + t * 4, sa * 8.0 + t * 4, 3, seed * 0.41 + 7) * 0.04;
-      const r = ringRadius * ridgeFactor * (1 + macroNoise + microNoise) + cliffPull * ringRadius;
+      const cliffPull = cliffDiff > 0 ? -cliffDiff * cliffSharpness * t * (1 - t) * 4.2 : 0;
+
+      // Combine: footprint dominates at base, ridges + macro dominate above
+      const r = ringRadius
+        * ridgeFactor
+        * (1 + macroNoise + midNoise + microNoise + sharpRidge + footprintNoise + lobeFactor)
+        + spurFactor * ringRadius
+        + cliffPull * ringRadius;
+
+      // Strata / terrace
       const terraceFreq = 3 + Math.floor(seededRng(seed + 99) * 3);
-      const terrace = Math.sin(t * Math.PI * terraceFreq + angle * 0.8 + seed) * height * 0.018 * (1 - t);
-      const yNoise = fbm(ca * 3, sa * 3, 3, seed * 0.23 + 2) * height * 0.03 * t + terrace;
+      const terrace     = Math.sin(t * Math.PI * terraceFreq + angle * 0.8 + seed) * height * 0.016 * (1 - t);
+      const strata      = Math.sin(t * Math.PI * strataFreq + seed * 0.7) * height * strataAmp * (1 - t * 0.5);
+      const midYNoise   = fbm(ca * 3, sa * 3, 4, seed * 0.23 + 2) * height * 0.030 * t;
+
+      // FIX 2: Y irregularity at the base — gullies and talus fans push base down
+      const baseGully   = fbm(ca * 4.5, sa * 4.5, 4, seed * 0.37 + 9) * height * 0.10 * baseWeight;
+      const yNoise      = midYNoise + terrace + strata - baseGully;
+
       const tiltOffset = t * height * tiltAmt;
-      positions.push(ca * r + Math.cos(tiltAngle) * tiltOffset, vy + yNoise, sa * r + Math.sin(tiltAngle) * tiltOffset);
-      const cliffFace = Math.max(0, cliffDiff) * (1 - t);
-      const snowLineLocal = snowFrac + Math.sin(angle * 5.3 + seed * 2.1) * snowVariance + Math.cos(angle * 3.7 + seed * 1.4) * snowVariance * 0.5;
+      positions.push(
+        ca * r + Math.cos(tiltAngle) * tiltOffset,
+        vy + yNoise,
+        sa * r + Math.sin(tiltAngle) * tiltOffset,
+      );
+
+      // ── Vertex coloring ───────────────────────────────────────────────────
+      const cliffFace  = Math.max(0, cliffDiff) * (1 - t);
+      const wetFactor  = Math.max(0, Math.cos(angle - wetSide)) * 0.65;
+      const lichenVal  = Math.max(0, fbm(ca * 6.5, sa * 6.5, 3, seed * 0.5 + 2) * 0.5 + 0.25);
+      const mineralVal = Math.max(0, fbm(ca * 3.5, sa * 3.5, 2, seed * 0.4 + 13) * 0.5 + 0.1) * mineralTint;
+      const strataLine = Math.abs(Math.sin(t * Math.PI * strataFreq + seed * 0.7)) * 0.5;
+
+      const snowLineLocal = snowFrac
+        + Math.sin(angle * 5.3 + seed * 2.1) * snowVariance
+        + Math.cos(angle * 3.7 + seed * 1.4) * snowVariance * 0.5
+        + Math.cos(angle - windDir) * snowVariance * 0.28;
+
       let color: number[];
-      if (t > snowLineLocal + 0.04) {
-        color = lerpColor(C.snow, C.iceShadow, cliffFace * 0.6);
-      } else if (t > snowLineLocal - 0.03) {
-        color = lerpColor(C.rock, C.snow, Math.max(0, Math.min(1, (t - (snowLineLocal - 0.03)) / 0.07)));
-      } else if (t > treeFrac + 0.12) {
-        const lichenAmt = Math.max(0, fbm(ca * 5, sa * 5, 2, seed * 0.5) * 0.5 + 0.2);
-        color = lerpColor(cliffFace > 0.3 ? C.darkRock : C.rock, C.alpine, lichenAmt * (1 - cliffFace) * 0.5);
+
+      if (t > snowLineLocal + 0.05) {
+        const windShadow = Math.max(0, Math.cos(angle - windDir + Math.PI)) * 0.30;
+        color = lerpColor(C.corniceSnow, C.iceShadow, cliffFace * 0.50 + windShadow);
+        if (cliffFace > 0.25) color = lerpColor(color, C.snowShadow, (cliffFace - 0.25) * 1.6);
+      } else if (t > snowLineLocal - 0.045) {
+        const blend      = Math.max(0, Math.min(1, (t - (snowLineLocal - 0.045)) / 0.095));
+        const patchNoise = fbm(ca * 9, sa * 9, 3, seed * 0.8 + 15) * 0.35 + 0.5;
+        const patchBlend = Math.max(0, Math.min(1, blend * patchNoise * 1.6));
+        const rockBase   = lerpColor(C.rock, C.lightRock, strataLine * 0.6);
+        color = lerpColor(rockBase, C.snow, patchBlend);
+        if (patchBlend < 0.45) color = lerpColor(color, C.ironRock, mineralVal * (1 - patchBlend) * 0.45);
+      } else if (t > treeFrac + 0.15) {
+        const rockBase   = lerpColor(C.rock, C.lightRock, strataLine * 0.65);
+        const stained    = lerpColor(rockBase, C.ironRock, mineralVal * 0.55);
+        const withLichen = lerpColor(stained, C.lichen, lichenVal * (1 - cliffFace) * 0.42 * (1 - t * 0.8));
+        color = withLichen;
+        if (wetFactor > 0.2)  color = lerpColor(color, C.wetRock, (wetFactor - 0.2) * 0.85);
+        if (cliffFace > 0.15) color = lerpColor(color, C.darkRock, Math.min(1, (cliffFace - 0.15) * 2.2));
+      } else if (t > treeFrac + 0.04) {
+        const blend = Math.max(0, Math.min(1, (t - (treeFrac + 0.04)) / 0.11));
+        color = lerpColor(C.alpine, lerpColor(C.rock, C.lightRock, strataLine * 0.4), blend);
+        if (wetFactor > 0.30) color = lerpColor(color, C.alpineWet, wetFactor * 0.55);
       } else if (t > treeFrac - 0.04) {
-        color = lerpColor(C.treeLine, C.alpine, Math.max(0, Math.min(1, (t - (treeFrac - 0.04)) / 0.08)));
-      } else if (t > 0.05) {
-        color = lerpColor(C.treeLine, C.scree, t / treeFrac * 0.4);
+        const blend = Math.max(0, Math.min(1, (t - (treeFrac - 0.04)) / 0.08));
+        color = lerpColor(C.treeLine, C.alpine, blend);
+      } else if (t > 0.06) {
+        const forestNoise = fbm(ca * 4.5, sa * 4.5, 2, seed * 0.6 + 8) * 0.28;
+        color = lerpColor(C.treeLine, C.scree, Math.min(1, t / treeFrac * 0.55 + forestNoise * 0.2));
       } else {
-        color = lerpColor(C.scree, C.bedrock, 1 - t / 0.05);
+        // Base / talus: warmer color variation from mineral deposits & exposed bedrock
+        color = lerpColor(C.scree, C.bedrock, 1 - t / 0.06);
+        color = lerpColor(color, C.darkRock, strataLine * 0.30);
+        color = lerpColor(color, C.ironRock, spurFactor * 0.35); // spur ridges = iron-stained
       }
-      if (cliffFace > 0.2) color = lerpColor(color, C.darkRock, Math.min(1, (cliffFace - 0.2) * 2.5));
-      colors.push(...color);
+
+      if (cliffFace > 0.2 && t < snowLineLocal) {
+        color = lerpColor(color, C.darkRock, Math.min(1, (cliffFace - 0.2) * 2.4));
+      }
+      const sideLight = Math.cos(angle + seed) * 0.04;
+      colors.push(
+        Math.max(0, Math.min(1, color[0] + sideLight)),
+        Math.max(0, Math.min(1, color[1] + sideLight)),
+        Math.max(0, Math.min(1, color[2] + sideLight)),
+      );
     }
   }
+
+  // FIX 1: Apex must include the tilt offset (same as the top ring vertices)
+  const apexTiltX = Math.cos(tiltAngle) * height * tiltAmt;
+  const apexTiltZ = Math.sin(tiltAngle) * height * tiltAmt;
   const apexIdx = (HEIGHT + 1) * (RADIAL + 1);
-  positions.push(0, halfH, 0); colors.push(...C.snow);
+  positions.push(apexTiltX, halfH, apexTiltZ);
+  colors.push(...C.corniceSnow);
+
   const bottomCenterIdx = apexIdx + 1;
-  positions.push(0, -halfH, 0); colors.push(...C.scree);
+  // Bottom center is also irregular: pulled to the weighted centroid of base noise
+  // (keeping it simple: just use 0,0 but push it down a touch for better base silhouette)
+  positions.push(0, -halfH - height * 0.012, 0);
+  colors.push(...C.scree);
+
   for (let hRing = 0; hRing < HEIGHT; hRing++) {
     for (let a = 0; a < RADIAL; a++) {
       const row = hRing * (RADIAL + 1); const nextRow = (hRing + 1) * (RADIAL + 1);
@@ -812,30 +946,51 @@ function buildRealisticMountain(
   const topRow = HEIGHT * (RADIAL + 1);
   for (let a = 0; a < RADIAL; a++) indices.push(topRow + a, apexIdx, topRow + a + 1);
   for (let a = 0; a < RADIAL; a++) indices.push(a, a + 1, bottomCenterIdx);
+
   const mainGeo = new THREE.BufferGeometry();
   mainGeo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   mainGeo.setAttribute("color",    new THREE.Float32BufferAttribute(colors, 3));
-  mainGeo.setIndex(indices); mainGeo.computeVertexNormals();
+  mainGeo.setIndex(indices);
+  mainGeo.computeVertexNormals();
 
-  // Snow cap
-  const SNOW_RADIAL = 36; const SNOW_HEIGHT_RINGS = 10;
-  const snowStartT = snowFrac - 0.02; const snowBaseY = -halfH + snowStartT * height;
-  const snowCapH = halfH - snowBaseY;
-  const snowPos: number[] = []; const snowIdx: number[] = [];
+  // ── Snow Cap ─────────────────────────────────────────────────────────────────
+  const SNOW_RADIAL = 52; const SNOW_HEIGHT_RINGS = 20;
+  const snowStartT = snowFrac - 0.025;
+  const snowBaseY  = -halfH + snowStartT * height;
+  const snowCapH   = halfH - snowBaseY;
+  const snowPos: number[] = []; const snowColors: number[] = []; const snowIdx: number[] = [];
+
   for (let sh = 0; sh <= SNOW_HEIGHT_RINGS; sh++) {
-    const st = sh / SNOW_HEIGHT_RINGS; const sy = snowBaseY + st * snowCapH;
+    const st = sh / SNOW_HEIGHT_RINGS;
+    const sy = snowBaseY + st * snowCapH;
     const globalT = snowStartT + st * (1 - snowStartT);
-    const sr = baseRadius * (1 - Math.pow(globalT, profile)) * 1.08;
+    const sr = baseRadius * (1 - Math.pow(globalT, profile)) * 1.10;
+
     for (let a = 0; a <= SNOW_RADIAL; a++) {
-      const angle = (a / SNOW_RADIAL) * Math.PI * 2; const ca = Math.cos(angle); const sa2 = Math.sin(angle);
-      const edgeJag = sh === 0 ? fbm(ca * 4, sa2 * 4, 3, seed * 0.6 + 5) * sr * 0.55 : fbm(ca * 3, sa2 * 3, 2, seed * 0.6 + 5 + sh) * sr * 0.08 * (1 - st);
-      const dune = Math.sin(angle * 3.1 + seed * 2) * sr * 0.04 * (1 - st);
-      const snowR = Math.max(0, sr * (1 - st * 0.3) + edgeJag + dune);
-      snowPos.push(ca * snowR + Math.cos(tiltAngle) * st * snowCapH * tiltAmt, sy, sa2 * snowR + Math.sin(tiltAngle) * st * snowCapH * tiltAmt);
+      const angle = (a / SNOW_RADIAL) * Math.PI * 2;
+      const ca = Math.cos(angle); const sa2 = Math.sin(angle);
+      const edgeScale = sh === 0 ? 0.58 : 0.08 * (1 - st * 0.65);
+      const edgeJag   = fbm(ca * 5.5, sa2 * 5.5, 4, seed * 0.6 + 5 + sh * 0.5) * sr * edgeScale;
+      const leeward   = Math.max(0, Math.cos(angle - windDir + Math.PI)) * sr
+                        * (sh === 0 ? 0.20 : 0.055 * (1 - st));
+      const dune      = Math.sin(angle * 3.1 + seed * 2) * sr * 0.05 * (1 - st);
+      const snowR     = Math.max(0, sr * (1 - st * 0.28) + edgeJag + dune + leeward);
+      const tiltOff   = st * snowCapH * tiltAmt;
+      snowPos.push(
+        ca * snowR + Math.cos(tiltAngle) * tiltOff,
+        sy,
+        sa2 * snowR + Math.sin(tiltAngle) * tiltOff,
+      );
+      const shadowAmount = Math.max(0, Math.cos(angle - windDir + Math.PI)) * 0.28 + st * 0.08;
+      snowColors.push(...lerpColor(C.corniceSnow, C.snowShadow, shadowAmount));
     }
   }
+
+  // FIX 1 (snow cap apex): match tilt of top snow ring
   const snowApex = (SNOW_HEIGHT_RINGS + 1) * (SNOW_RADIAL + 1);
-  snowPos.push(0, halfH + height * 0.015, 0);
+  snowPos.push(apexTiltX, halfH + height * 0.018, apexTiltZ); // <-- fixed
+  snowColors.push(...C.corniceSnow);
+
   for (let sh = 0; sh < SNOW_HEIGHT_RINGS; sh++) {
     for (let a = 0; a < SNOW_RADIAL; a++) {
       const row = sh * (SNOW_RADIAL + 1); const nr = (sh + 1) * (SNOW_RADIAL + 1);
@@ -844,34 +999,68 @@ function buildRealisticMountain(
   }
   const sTopRow = SNOW_HEIGHT_RINGS * (SNOW_RADIAL + 1);
   for (let a = 0; a < SNOW_RADIAL; a++) snowIdx.push(sTopRow + a, snowApex, sTopRow + a + 1);
+
   const snowGeo = new THREE.BufferGeometry();
   snowGeo.setAttribute("position", new THREE.Float32BufferAttribute(snowPos, 3));
-  snowGeo.setIndex(snowIdx); snowGeo.computeVertexNormals();
+  snowGeo.setAttribute("color",    new THREE.Float32BufferAttribute(snowColors, 3));
+  snowGeo.setIndex(snowIdx);
+  snowGeo.computeVertexNormals();
 
-  // Scree apron
-  const SCREE_RADIAL = 32; const screePos: number[] = []; const screeIdx: number[] = [];
-  const screeInner = baseRadius * 0.7; const screeOuter = baseRadius * 1.35;
-  for (let ring = 0; ring <= 4; ring++) {
-    const rt = ring / 4; const rad = screeInner + rt * (screeOuter - screeInner);
+  // ── Scree Apron ───────────────────────────────────────────────────────────────
+  // FIX 2: Much more irregular Y and radial shape — no more flat concentric rings
+  const SCREE_RADIAL = 48;
+  const screePos: number[] = []; const screeColors: number[] = []; const screeIdx: number[] = [];
+  const screeInner = baseRadius * 0.62; const screeOuter = baseRadius * 1.48;
+
+  for (let ring = 0; ring <= 5; ring++) {
+    const rt  = ring / 5;
+    const rad = screeInner + rt * (screeOuter - screeInner);
     for (let a = 0; a <= SCREE_RADIAL; a++) {
-      const angle = (a / SCREE_RADIAL) * Math.PI * 2; const ca = Math.cos(angle); const sa2 = Math.sin(angle);
-      const jag = fbm(ca * 6, sa2 * 6, 3, seed * 0.3 + ring * 3.1) * rad * 0.12;
-      screePos.push(ca * (rad + jag), -halfH - rt * height * 0.04 - 1, sa2 * (rad + jag));
+      const angle = (a / SCREE_RADIAL) * Math.PI * 2;
+      const ca = Math.cos(angle); const sa2 = Math.sin(angle);
+
+      // Large irregular radial variation (fan-shaped talus cones)
+      const jag       = fbm(ca * 5, sa2 * 5, 5, seed * 0.3 + ring * 3.1) * rad * 0.28;
+      const microJag  = fbm(ca * 14, sa2 * 14, 2, seed * 0.6 + ring * 1.8 + 50) * rad * 0.06;
+      // Align scree fans with spur ridges (rock falls along spurs)
+      const spurAlign = Math.max(0, Math.sin(angle * spurCount + spurPhase)) * rad * 0.35 * (1 - rt * 0.5);
+
+      // FIX 2: Highly varied Y — talus fans slope unevenly, gullies cut between
+      const talFan    = fbm(ca * 3, sa2 * 3, 4, seed * 0.22 + ring * 2.4 + 8) * height * 0.09 * rt;
+      const gully     = Math.max(0, -fbm(ca * 6, sa2 * 6, 3, seed * 0.48 + ring + 15)) * height * 0.07 * rt;
+
+      screePos.push(
+        ca * (rad + jag + microJag + spurAlign),
+        -halfH - rt * height * 0.048 - talFan - gully - 1,
+        sa2 * (rad + jag + microJag + spurAlign),
+      );
+
+      const n      = fbm(ca * 5, sa2 * 5, 2, seed * 0.4 + ring * 2 + 20) * 0.5 + 0.5;
+      const sColor = lerpColor(
+        lerpColor(C.scree, C.screeLight, n * 0.55),
+        C.darkRock, rt * 0.18 + (1 - n) * 0.18,
+      );
+      screeColors.push(...sColor);
     }
   }
-  for (let ring = 0; ring < 4; ring++) {
+
+  for (let ring = 0; ring < 5; ring++) {
     for (let a = 0; a < SCREE_RADIAL; a++) {
       const row = ring * (SCREE_RADIAL + 1); const nr = (ring + 1) * (SCREE_RADIAL + 1);
       screeIdx.push(row + a, nr + a, nr + a + 1, row + a, nr + a + 1, row + a + 1);
     }
   }
+
   const screeGeo = new THREE.BufferGeometry();
   screeGeo.setAttribute("position", new THREE.Float32BufferAttribute(screePos, 3));
-  screeGeo.setIndex(screeIdx); screeGeo.computeVertexNormals();
+  screeGeo.setAttribute("color",    new THREE.Float32BufferAttribute(screeColors, 3));
+  screeGeo.setIndex(screeIdx);
+  screeGeo.computeVertexNormals();
 
   return { mainGeo, snowGeo, screeGeo };
 }
 
+// ─── Mountain peaks + bands — unchanged ──────────────────────────────────────
 interface MountainPeak {
   x: number; z: number; height: number; baseRadius: number;
   snowFrac: number; treeFrac: number; profile: number;
@@ -924,40 +1113,51 @@ function Mountains({ buildings }: { buildings: PositionedBuilding[] }) {
   return (
     <group>
       {peaks.map((p, i) => {
-        const worldY = p.height / 2 - 12; const halfH = p.height / 2;
-        const treeH  = p.height * p.treeFrac;
-        const treeR  = p.baseRadius * Math.pow(1 - p.treeFrac, p.profile) * 1.12;
-        const treeR2 = p.baseRadius * Math.pow(1 - p.treeFrac * 0.7, p.profile) * 1.05;
+        const worldY    = p.height / 2 - 12;
+        const halfH     = p.height / 2;
+        const treeH     = p.height * p.treeFrac;
+        const treeR     = p.baseRadius * Math.pow(1 - p.treeFrac, p.profile) * 1.14;
+        const treeR2    = p.baseRadius * Math.pow(1 - p.treeFrac * 0.7, p.profile) * 1.06;
         const treeBaseY = -halfH + treeH * 0.5 - 2;
+
         return (
           <group key={i} position={[p.x, worldY, p.z]}>
+
             <mesh geometry={p.screeGeo} receiveShadow>
-              <meshStandardMaterial color="#4a4540" roughness={0.97} metalness={0.01} emissive="#1a1510" emissiveIntensity={0.05} />
+              <meshPhysicalMaterial vertexColors roughness={0.97} metalness={0.01} />
             </mesh>
+
             <mesh geometry={p.mainGeo} castShadow receiveShadow>
-              <meshStandardMaterial vertexColors roughness={0.92} metalness={0.04} />
+              <meshPhysicalMaterial vertexColors roughness={0.88} metalness={0.03} envMapIntensity={0.4} />
             </mesh>
-            <mesh geometry={p.snowGeo} castShadow>
-              <meshStandardMaterial color="#eef3f8" roughness={0.38} metalness={0.04} emissive="#b8cfe0" emissiveIntensity={0.12} />
+
+            <mesh geometry={p.snowGeo} castShadow receiveShadow>
+              <meshPhysicalMaterial
+                vertexColors roughness={0.22} metalness={0.02}
+                clearcoat={0.40} clearcoatRoughness={0.18}
+                emissive="#9ab8d0" emissiveIntensity={0.06}
+              />
             </mesh>
+
             {treeH > 20 && (
               <mesh position={[0, treeBaseY, 0]} castShadow receiveShadow>
-                <coneGeometry args={[treeR, treeH, 22, 4]} />
-                <meshStandardMaterial color="#133d1a" roughness={0.95} metalness={0.01} emissive="#05140a" emissiveIntensity={0.18} />
+                <coneGeometry args={[treeR, treeH, 28, 6]} />
+                <meshPhysicalMaterial color="#111f13" roughness={0.96} metalness={0.0} emissive="#040d06" emissiveIntensity={0.18} />
               </mesh>
             )}
             {treeH > 30 && (
               <mesh position={[0, -halfH + treeH * 0.35 - 2, 0]} castShadow>
-                <coneGeometry args={[treeR2, treeH * 0.7, 18, 3]} />
-                <meshStandardMaterial color="#1a5228" roughness={0.94} metalness={0.01} emissive="#072210" emissiveIntensity={0.12} transparent opacity={0.85} />
+                <coneGeometry args={[treeR2, treeH * 0.70, 22, 4]} />
+                <meshPhysicalMaterial color="#18421f" roughness={0.95} metalness={0.0} emissive="#061509" emissiveIntensity={0.12} transparent opacity={0.88} />
               </mesh>
             )}
             {treeH > 50 && (
               <mesh position={[0, -halfH + treeH * 0.62, 0]} castShadow>
-                <coneGeometry args={[treeR * 0.65, treeH * 0.4, 14, 2]} />
-                <meshStandardMaterial color="#206b33" roughness={0.93} metalness={0.01} transparent opacity={0.7} />
+                <coneGeometry args={[treeR * 0.62, treeH * 0.38, 16, 3]} />
+                <meshPhysicalMaterial color="#1d5c2a" roughness={0.93} metalness={0.0} transparent opacity={0.72} />
               </mesh>
             )}
+
           </group>
         );
       })}
