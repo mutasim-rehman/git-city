@@ -12,6 +12,26 @@ interface Props {
   onHover(b: PositionedBuilding | null): void;
 }
 
+function hashStringToUint32(input: string): number {
+  // Deterministic, fast (FNV-1a 32-bit)
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+function mulberry32(seed: number) {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6d2b79f5;
+    let x = Math.imul(t ^ (t >>> 15), 1 | t);
+    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 export function Building({ building, isHovered, onHover }: Props) {
   const { x, z, width, depth, height, username } = building;
 
@@ -61,11 +81,35 @@ export function Building({ building, isHovered, onHover }: Props) {
     metalness: 0.5,
   }), [bodyColor]);
 
+  const accentColor = useMemo(() => {
+    const seed = hashStringToUint32(username ?? "anon");
+    const rand = mulberry32(seed);
+    const hue = Math.floor(rand() * 360);
+    // neon-ish accent but still emerald-friendly
+    return new THREE.Color().setHSL(hue / 360, 0.85, 0.58);
+  }, [username]);
+
+  const accentMaterial = useMemo(() => new THREE.MeshStandardMaterial({
+    color: accentColor,
+    emissive: accentColor,
+    emissiveIntensity: 1.4,
+    roughness: 0.35,
+    metalness: 0.2,
+  }), [accentColor]);
+
   // Smooth hover animation applied to the shared materials
   useFrame((state, delta) => {
     const targetGlow = isHovered ? baseEmissive * 2.5 : baseEmissive;
+    // eslint-disable-next-line react-hooks/immutability
     bodyMaterial.emissiveIntensity = THREE.MathUtils.lerp(bodyMaterial.emissiveIntensity, targetGlow, delta * 8);
+    // eslint-disable-next-line react-hooks/immutability
     roofMaterial.emissiveIntensity = THREE.MathUtils.lerp(roofMaterial.emissiveIntensity, targetGlow * 0.4, delta * 8);
+    // eslint-disable-next-line react-hooks/immutability
+    accentMaterial.emissiveIntensity = THREE.MathUtils.lerp(
+      accentMaterial.emissiveIntensity,
+      isHovered ? 2.1 : 1.4,
+      delta * 8
+    );
   });
 
   // Architectural Dimensions
@@ -81,6 +125,19 @@ export function Building({ building, isHovered, onHover }: Props) {
   // Unique details determined by user stats
   const hasAntenna = building.publicRepos % 3 === 0; // 1 in 3 chance
   const hasACUnit = building.lifetimeCommits % 2 === 0; // 1 in 2 chance
+
+  const roofVariant = useMemo(() => {
+    const seed = hashStringToUint32(`${username ?? "anon"}|${building.publicRepos}|${building.lifetimeCommits}`);
+    const rand = mulberry32(seed);
+    const r = rand();
+    // bias slightly by stats so “stronger” users get more dramatic tops
+    const t = Math.min(building.lifetimeCommits / 1800 + building.publicRepos / 60, 1);
+    if (t > 0.75 && r < 0.35) return "helipad" as const;
+    if (r < 0.22) return "pyramid" as const;
+    if (r < 0.44) return "dome" as const;
+    if (r < 0.7) return "penthouse" as const;
+    return "sawtooth" as const;
+  }, [username, building.publicRepos, building.lifetimeCommits]);
 
   return (
     <group
@@ -118,6 +175,81 @@ export function Building({ building, isHovered, onHover }: Props) {
         {/* E/W Walls */}
         <mesh position={[tier2Width / 2 - 0.2, 0, 0]} material={roofMaterial}><boxGeometry args={[0.4, 1, tier2Depth - 0.8]} /></mesh>
         <mesh position={[-tier2Width / 2 + 0.2, 0, 0]} material={roofMaterial}><boxGeometry args={[0.4, 1, tier2Depth - 0.8]} /></mesh>
+
+        {/* ROOF SILHOUETTE (personality) */}
+        {roofVariant === "pyramid" && (
+          <mesh
+            position={[0, 2.3, 0]}
+            castShadow
+            material={roofMaterial}
+            scale={[tier2Width * 0.42, 4.2, tier2Depth * 0.42]}
+          >
+            <coneGeometry args={[1, 1, 4, 1]} />
+          </mesh>
+        )}
+
+        {roofVariant === "dome" && (
+          <mesh
+            position={[0, 2.4, 0]}
+            castShadow
+            material={roofMaterial}
+            scale={[tier2Width * 0.26, 2.6, tier2Depth * 0.26]}
+          >
+            <sphereGeometry args={[1, 20, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+          </mesh>
+        )}
+
+        {roofVariant === "penthouse" && (
+          <group position={[0, 1.2, 0]}>
+            <mesh castShadow receiveShadow material={roofMaterial}>
+              <boxGeometry args={[tier2Width * 0.72, 2.2, tier2Depth * 0.72]} />
+            </mesh>
+            <mesh position={[0, 1.35, 0]} castShadow material={accentMaterial}>
+              <boxGeometry args={[tier2Width * 0.76, 0.25, tier2Depth * 0.76]} />
+            </mesh>
+          </group>
+        )}
+
+        {roofVariant === "sawtooth" && (
+          <group position={[0, 1.0, 0]}>
+            {Array.from({ length: 4 }).map((_, i) => {
+              const stepW = tier2Width * 0.18;
+              const stepD = tier2Depth * 0.65;
+              const x0 = (-1.5 + i) * stepW * 1.05;
+              const h0 = 1.2 + i * 0.45;
+              return (
+                <mesh
+                  key={`sawtooth-${i}`}
+                  position={[x0, h0 / 2, 0]}
+                  castShadow
+                  material={roofMaterial}
+                >
+                  <boxGeometry args={[stepW, h0, stepD]} />
+                </mesh>
+              );
+            })}
+            <mesh position={[0, 1.9, tier2Depth * 0.1]} material={accentMaterial}>
+              <boxGeometry args={[tier2Width * 0.78, 0.18, 0.5]} />
+            </mesh>
+          </group>
+        )}
+
+        {roofVariant === "helipad" && (
+          <group position={[0, 1.25, 0]}>
+            <mesh castShadow receiveShadow material={roofMaterial}>
+              <cylinderGeometry args={[Math.min(tier2Width, tier2Depth) * 0.32, Math.min(tier2Width, tier2Depth) * 0.32, 0.35, 24]} />
+            </mesh>
+            <mesh position={[0, 0.26, 0]} material={accentMaterial}>
+              <torusGeometry args={[Math.min(tier2Width, tier2Depth) * 0.25, 0.12, 10, 28]} />
+            </mesh>
+            <mesh position={[0, 0.28, 0]} material={accentMaterial}>
+              <boxGeometry args={[Math.min(tier2Width, tier2Depth) * 0.32, 0.12, 0.35]} />
+            </mesh>
+            <mesh position={[0, 0.28, 0]} rotation-y={Math.PI / 2} material={accentMaterial}>
+              <boxGeometry args={[Math.min(tier2Width, tier2Depth) * 0.18, 0.12, 0.35]} />
+            </mesh>
+          </group>
+        )}
         
         {/* ROOFTOP CLUTTER: AC Unit */}
         {hasACUnit && (
