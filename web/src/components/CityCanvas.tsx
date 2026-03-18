@@ -8,8 +8,9 @@ import type { CityId, CityTheme, PositionedBuilding } from "@/lib/types";
 import { createWindowAtlas } from "@/lib/city/windowAtlas";
 import { InstancedBuildings } from "./InstancedBuildings";
 import { OrbitControls, useGLTF } from "@react-three/drei";
-import type { CityLayoutResult } from "@/lib/city/layout";
+import type { CityLayoutResult, GreenRing } from "@/lib/city/layout";
 import { PLAZA_RADIUS, RIVER_CENTER, RIVER_HALF_WIDTH, RIVER_SKIP } from "@/lib/city/layout";
+import { Game } from "@/game/Game";
 
 const EMERALD_THEME: CityTheme = {
   sky: [
@@ -85,9 +86,9 @@ function Stars() {
     const count = 1400;
     const positions = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(Math.random() * 0.62 + 0.38);
-      const r = 3600 + Math.random() * 200;
+      const theta = seededRng(i * 991) * Math.PI * 2;
+      const phi = Math.acos(seededRng(i * 577) * 0.62 + 0.38);
+      const r = 3600 + seededRng(i * 313) * 200;
       positions[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
       positions[i * 3 + 1] = r * Math.cos(phi);
       positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
@@ -137,6 +138,7 @@ function GroundPlane({ color }: { color: string }) {
 // ─────────────────────────────────────────────────────────────────────────────
 const SUB_RING_GAP   = 16;   // gap between sub-ring rows inside a district band
 const RADIAL_STREET  = 22;   // spoke streets between blocks (layout.ts value)
+const SPOKE_COUNT    = 12;   // connector roads intersecting the rings
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  RingRoad — renders a single circular road (either district or sub-ring)
@@ -348,8 +350,8 @@ function PolarRoads({ ringRadii }: PolarRoadsProps) {
   // ── Spoke angles — 8 spokes, skip river sector ─────────────────────────────
   const spokeAngles = useMemo(() => {
     const angles: number[] = [];
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2;
+    for (let i = 0; i < SPOKE_COUNT; i++) {
+      const a = (i / SPOKE_COUNT) * Math.PI * 2;
       const norm      = (a + Math.PI * 2) % (Math.PI * 2);
       const riverNorm = (RIVER_CENTER + Math.PI * 2) % (Math.PI * 2);
       const diff      = Math.abs(norm - riverNorm);
@@ -501,9 +503,9 @@ function Plaza() {
         />
       </mesh>
 
-      {/* Radial paving lines (8 spokes across the plaza) */}
-      {Array.from({ length: 8 }).map((_, i) => {
-        const angle = (i / 8) * Math.PI * 2;
+      {/* Radial paving lines (connector spokes across the plaza) */}
+      {Array.from({ length: SPOKE_COUNT }).map((_, i) => {
+        const angle = (i / SPOKE_COUNT) * Math.PI * 2;
         const len   = PLAZA_RADIUS * 0.85;
         const cx    = Math.cos(angle) * len * 0.5;
         const cz    = Math.sin(angle) * len * 0.5;
@@ -517,6 +519,220 @@ function Plaza() {
             <planeGeometry args={[1.5, len]} />
             <meshStandardMaterial color={PLAZA_RING_COLOR} roughness={0.7} />
           </mesh>
+        );
+      })}
+    </group>
+  );
+}
+
+// ─── Green spaces (park rings + district belts) ────────────────────────────────
+
+function mulberry32(seed: number) {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6d2b79f5;
+    let x = Math.imul(t ^ (t >>> 15), 1 | t);
+    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function computeSpokeAngles(): number[] {
+  const angles: number[] = [];
+  for (let i = 0; i < SPOKE_COUNT; i++) {
+    const a = (i / SPOKE_COUNT) * Math.PI * 2;
+    const norm      = (a + Math.PI * 2) % (Math.PI * 2);
+    const riverNorm = (RIVER_CENTER + Math.PI * 2) % (Math.PI * 2);
+    const diff      = Math.abs(norm - riverNorm);
+    const angDiff   = diff > Math.PI ? Math.PI * 2 - diff : diff;
+    if (angDiff > RIVER_SKIP * 0.7) angles.push(a);
+  }
+  return angles;
+}
+
+function GreenSpaces({ rings }: { rings: GreenRing[] }) {
+  const spokeAngles = useMemo(() => computeSpokeAngles(), []);
+
+  const grassMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: "#0b3a1f",
+    emissive: "#0b3a1f",
+    emissiveIntensity: 0.10,
+    roughness: 1.0,
+    metalness: 0.0,
+  }), []);
+
+  const treeTrunkMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: "#3a2413",
+    roughness: 0.95,
+    metalness: 0.0,
+  }), []);
+
+  const treeLeafMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: "#14532d",
+    emissive: "#0a2a16",
+    emissiveIntensity: 0.22,
+    roughness: 0.92,
+    metalness: 0.0,
+  }), []);
+
+  const ringsData = useMemo(() => {
+    const data: Array<{
+      ring: GreenRing;
+      treeCount: number;
+      treeMatrices: THREE.Matrix4[];
+      leafMatrices: THREE.Matrix4[];
+    }> = [];
+
+    // Precompute tree transforms per ring (deterministic-ish)
+    for (let ri = 0; ri < rings.length; ri++) {
+      const ring = rings[ri];
+      const inner = Math.max(0, ring.innerR);
+      const outer = Math.max(inner + 1, ring.outerR);
+      const width = outer - inner;
+      const midR = inner + width / 2;
+
+      const baseSpacing = ring.kind === "district" ? 14 : 11;
+      const approx = Math.max(12, Math.floor((Math.PI * 2 * midR) / baseSpacing));
+      const treeCount = Math.min(420, approx);
+
+      const rand = mulberry32((ri + 1) * 991 + Math.floor(midR));
+
+      const treeMatrices: THREE.Matrix4[] = [];
+      const leafMatrices: THREE.Matrix4[] = [];
+
+      // Avoid planting right on the connector roads: carve angular corridors around spokes
+      const corridorWorld = ring.kind === "district" ? 34 : 26;
+
+      for (let i = 0; i < treeCount; i++) {
+        const angle = rand() * Math.PI * 2;
+
+        // Skip river sector entirely (match road/ring arc rendering)
+        const riverStart = (RIVER_CENTER - RIVER_SKIP / 2 + Math.PI * 2) % (Math.PI * 2);
+        const riverEnd   = (RIVER_CENTER + RIVER_SKIP / 2 + Math.PI * 2) % (Math.PI * 2);
+        const aNorm      = (angle + Math.PI * 2) % (Math.PI * 2);
+        const inRiver = riverStart < riverEnd
+          ? (aNorm > riverStart && aNorm < riverEnd)
+          : (aNorm > riverStart || aNorm < riverEnd);
+        if (inRiver) continue;
+
+        // Skip near spoke angles so roads "cut" through green rings
+        const rForCorr = Math.max(80, midR);
+        const corridorAng = corridorWorld / rForCorr;
+        let nearSpoke = false;
+        for (const s of spokeAngles) {
+          const d = Math.abs(((angle - s + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+          if (d < corridorAng) { nearSpoke = true; break; }
+        }
+        if (nearSpoke) continue;
+
+        const r = inner + rand() * width;
+        const x = Math.cos(angle) * r;
+        const z = Math.sin(angle) * r;
+
+        const tall = ring.treeStyle === "tall";
+        const h = (tall ? 34 : 22) + rand() * (tall ? 22 : 16);
+        const trunkH = h * (0.34 + rand() * 0.06);
+        const trunkR = (tall ? 1.15 : 0.95) + rand() * 0.4;
+        const leafR  = (tall ? 7.5 : 6.0) + rand() * 3.0;
+        const leafH  = h * (0.68 + rand() * 0.06);
+        const rotY   = rand() * Math.PI * 2;
+
+        const trunkM = new THREE.Matrix4()
+          .compose(
+            new THREE.Vector3(x, trunkH / 2, z),
+            new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotY, 0)),
+            new THREE.Vector3(trunkR, trunkH, trunkR),
+          );
+        const leafM = new THREE.Matrix4()
+          .compose(
+            new THREE.Vector3(x, trunkH + leafH / 2 - 1.2, z),
+            new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotY, 0)),
+            new THREE.Vector3(leafR, leafH, leafR),
+          );
+
+        treeMatrices.push(trunkM);
+        leafMatrices.push(leafM);
+      }
+
+      data.push({ ring, treeCount: treeMatrices.length, treeMatrices, leafMatrices });
+    }
+
+    return data;
+  }, [rings, spokeAngles]);
+
+  function TreeInstances({
+    count,
+    trunkMatrices,
+    leafMatrices,
+  }: {
+    count: number;
+    trunkMatrices: THREE.Matrix4[];
+    leafMatrices: THREE.Matrix4[];
+  }) {
+    const trunkRef = useRef<THREE.InstancedMesh | null>(null);
+    const leafRef  = useRef<THREE.InstancedMesh | null>(null);
+
+    useEffect(() => {
+      if (!trunkRef.current || !leafRef.current) return;
+      for (let i = 0; i < count; i++) {
+        trunkRef.current.setMatrixAt(i, trunkMatrices[i]);
+        leafRef.current.setMatrixAt(i, leafMatrices[i]);
+      }
+      trunkRef.current.instanceMatrix.needsUpdate = true;
+      leafRef.current.instanceMatrix.needsUpdate = true;
+    }, [count, trunkMatrices, leafMatrices]);
+
+    return (
+      <group>
+        <instancedMesh
+          ref={trunkRef}
+          args={[undefined, undefined, count]}
+          material={treeTrunkMat}
+          castShadow
+          receiveShadow
+        >
+          <cylinderGeometry args={[1, 1, 1, 8]} />
+        </instancedMesh>
+        <instancedMesh
+          ref={leafRef}
+          args={[undefined, undefined, count]}
+          material={treeLeafMat}
+          castShadow
+          receiveShadow
+        >
+          <coneGeometry args={[1, 1, 10, 3]} />
+        </instancedMesh>
+      </group>
+    );
+  }
+
+  return (
+    <group>
+      {rings.map((ring, i) => {
+        // Render as an arc to leave a river gap, consistent with roads
+        const riverStart  = RIVER_CENTER - RIVER_SKIP / 2;
+        const riverEnd    = RIVER_CENTER + RIVER_SKIP / 2;
+        const arcStart    = riverEnd + 0.01;
+        const arcLen      = (riverStart + Math.PI * 2 - 0.01) - arcStart;
+        const innerR = Math.max(0, ring.innerR);
+        const outerR = Math.max(innerR + 1, ring.outerR);
+
+        return (
+          <mesh key={`green-ring-${i}`} rotation-x={-Math.PI / 2} position={[0, -0.42, 0]} receiveShadow material={grassMat}>
+            <ringGeometry args={[innerR, outerR, 192, 1, arcStart, arcLen]} />
+          </mesh>
+        );
+      })}
+
+      {ringsData.map((d, i) => {
+        if (d.treeCount === 0) return null;
+        return (
+          <TreeInstances
+            key={`trees-${i}`}
+            count={d.treeCount}
+            trunkMatrices={d.treeMatrices}
+            leafMatrices={d.leafMatrices}
+          />
         );
       })}
     </group>
@@ -1222,25 +1438,47 @@ function Clouds() {
 
 // ─── Camera Focus ─────────────────────────────────────────────────────────────
 
-function CameraFocus({ focusPosition, controlsRef }: { focusPosition: [number, number, number] | null; controlsRef: RefObject<any> }) {
+type OrbitControlsLike = { target: THREE.Vector3; update: () => void };
+
+function CameraFocus({
+  focusPosition,
+  controlsRef,
+}: {
+  focusPosition: [number, number, number] | null;
+  controlsRef: RefObject<OrbitControlsLike | null>;
+}) {
   const { camera } = useThree();
   const currentTarget = useRef<THREE.Vector3 | null>(null);
   const target = useRef<THREE.Vector3 | null>(null);
 
-  useMemo(() => {
-    if (!focusPosition) { target.current = null; return; }
+  useEffect(() => {
+    if (!focusPosition) {
+      target.current = null;
+      currentTarget.current = null;
+      return;
+    }
+
     target.current = new THREE.Vector3(...focusPosition);
+
     if (!currentTarget.current) {
       currentTarget.current = target.current.clone();
       camera.lookAt(currentTarget.current);
-      if (controlsRef.current) { controlsRef.current.target.copy(currentTarget.current); controlsRef.current.update(); }
+      const c = controlsRef.current;
+      if (c) {
+        c.target.copy(currentTarget.current);
+        c.update();
+      }
     }
   }, [focusPosition, camera, controlsRef]);
 
   useFrame(() => {
     if (!target.current || !currentTarget.current) return;
     currentTarget.current.lerp(target.current, 0.08);
-    if (controlsRef.current) { controlsRef.current.target.copy(currentTarget.current); controlsRef.current.update(); }
+    const c = controlsRef.current;
+    if (c) {
+      c.target.copy(currentTarget.current);
+      c.update();
+    }
   });
 
   return null;
@@ -1273,7 +1511,18 @@ function CameraFocus({ focusPosition, controlsRef }: { focusPosition: [number, n
 //    eyeOffset     — camera height above ground (higher = taller viewpoint, lower = lower)
 // ─────────────────────────────────────────────────────────────────────────────
 
-type CarVariant = "mr-bean" | "batmobile" | "harry-potter" | "ms-queen";
+export type CarVariant =
+  | "mr-bean"
+  | "batmobile"
+  | "harry-potter"
+  | "mc-queen"
+  | "Stradale 67"
+  | "ZIS 101A"
+  | "Beetle"
+  | "Ferrai SF23"
+  | "Wagon";
+
+export const DEFAULT_CAR_VARIANT: CarVariant = "mr-bean";
 
 interface CarConfig {
   modelPath:     string;
@@ -1321,7 +1570,7 @@ const CAR_CONFIGS: Record<CarVariant, CarConfig> = {
     speed:         70,
     eyeOffset:     2.2,
   },
-  "ms-queen": {
+  "mc-queen": {
     modelPath:     "/models/car3.glb",
     scale:         1.5,
     modelYaw:      Math.PI / 1,
@@ -1329,6 +1578,61 @@ const CAR_CONFIGS: Record<CarVariant, CarConfig> = {
     forwardOffset: 10,
     downOffset:    1.5,
     sideOffset:    0,
+    speed:         50,
+    eyeOffset:     1.8,
+  },
+  "Stradale 67": {
+    modelPath:     "/models/car_stradale.glb",
+    scale:         200.0,
+    modelYaw:      Math.PI,
+    modelTilt:     0,
+    forwardOffset: 10,
+    downOffset:    1.5,
+    sideOffset:    0,
+    speed:         50,
+    eyeOffset:     1.8,
+  },
+  "ZIS 101A": {
+    modelPath:     "/models/car_zis101.glb",
+    scale:         2.0,
+    modelYaw:      Math.PI / 1,
+    modelTilt:     0,
+    forwardOffset: 13,
+    downOffset:    1.5,
+    sideOffset:    0,
+    speed:         50,
+    eyeOffset:     1.8,
+  },
+  "Beetle": {
+    modelPath:     "/models/car_beetle.glb",
+    scale:         150.0,
+    modelYaw:      Math.PI / 1,
+    modelTilt:     0,
+    forwardOffset: 10,
+    downOffset:    1.5,
+    sideOffset:    0,
+    speed:         50,
+    eyeOffset:     1.8,
+  },
+  "Ferrai SF23": {
+    modelPath:     "/models/car_f1f.glb",
+    scale:         2.0,
+    modelYaw:      Math.PI / 1,
+    modelTilt:     0,
+    forwardOffset: 10,
+    downOffset:    1.5,
+    sideOffset:    0,
+    speed:         50,
+    eyeOffset:     1.8,
+  },
+  "Wagon": {
+    modelPath:     "/models/car_wagon.glb",
+    scale:         1.0,
+    modelYaw:      3 * Math.PI / 2,
+    modelTilt:     0,
+    forwardOffset: 10,
+    downOffset:    1.5,
+    sideOffset:    2,
     speed:         50,
     eyeOffset:     1.8,
   },
@@ -1341,7 +1645,7 @@ function StreetCar({
   carGroupRef: React.MutableRefObject<THREE.Group | null>;
   variant: CarVariant;
 }) {
-  const cfg  = CAR_CONFIGS[variant];
+  const cfg  = CAR_CONFIGS[variant] ?? CAR_CONFIGS[DEFAULT_CAR_VARIANT];
   const gltf = useGLTF(cfg.modelPath);
   return (
     <group ref={carGroupRef}>
@@ -1361,8 +1665,7 @@ function StreetView({
   focusBuilding: PositionedBuilding | null;
   carVariant: CarVariant;
 }) {
-  const { camera, gl } = useThree();
-  const domElement = gl.domElement;
+  const { camera } = useThree();
 
   const spawnConfig = useMemo(() => {
     if (focusBuilding) {
@@ -1389,135 +1692,67 @@ function StreetView({
     return { pos: spawnPos, yaw: Math.PI };
   }, [focusBuilding]);
 
-  const pos    = useRef(spawnConfig.pos.clone());
-  const yaw    = useRef(spawnConfig.yaw);   // camera / look direction
-  const pitch  = useRef(0);
-  const keys   = useRef<Record<string, boolean>>({});
-  const pointerLocked = useRef(false);
-
-  // carYaw tracks the car *body* direction — it only chases the movement direction
-  // when the player is actually driving, so mouse-look while stationary doesn't
-  // spin the car model.
-  const carYaw = useRef(spawnConfig.yaw);
-
   // Separate ref for the car group — positioned and rotated every frame
   const carRef = useRef<THREE.Group | null>(null);
 
   // Pull all tuning values from the per-variant config
-  const cfg = CAR_CONFIGS[carVariant];
+  const cfg = CAR_CONFIGS[carVariant] ?? CAR_CONFIGS[DEFAULT_CAR_VARIANT];
+
+  const game = useMemo(() => {
+    return new Game({
+      initialPosition: spawnConfig.pos,
+      initialYaw: spawnConfig.yaw,
+      vehicleTuning: {
+        // Keep per-variant top speed feel, but drive with acceleration/brake curves.
+        maxSpeed: Math.max(40, cfg.speed),
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spawnConfig.pos.x, spawnConfig.pos.z, spawnConfig.yaw, carVariant]);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      keys.current[e.code] = true;
-      if (e.code === "Escape") {
-        if (document.pointerLockElement === domElement) document.exitPointerLock();
-        onExit();
-      }
-    };
-    const handleKeyUp   = (e: KeyboardEvent) => { keys.current[e.code] = false; };
-    const handleClick   = () => {
-      if (!pointerLocked.current && domElement.requestPointerLock)
-        domElement.requestPointerLock();
-    };
-    const handleMM = (e: MouseEvent) => {
-      if (!pointerLocked.current) return;
-      // Standard FPS: raw delta → yaw/pitch.
-      // Sensitivity tuned for ~800 dpi mouse; lower = slower, higher = faster.
-      const s = 0.0018;
-      yaw.current   -= (e.movementX || 0) * s;   // right → turn right
-      pitch.current -= (e.movementY || 0) * s;   // up    → look up
-      // Clamp pitch so camera can't flip past vertical
-      pitch.current  = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch.current));
-    };
-    const handlePLC = () => {
-      pointerLocked.current = document.pointerLockElement === domElement;
-    };
+    const detach = game.input.attach();
+    return detach;
+  }, [game]);
 
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup",   handleKeyUp);
-    domElement.addEventListener("click", handleClick);
-    document.addEventListener("mousemove", handleMM);
-    document.addEventListener("pointerlockchange", handlePLC);
-
-    // Initial camera placement — use per-car eyeOffset for viewpoint height
-    camera.position.set(pos.current.x, pos.current.y + cfg.eyeOffset, pos.current.z);
-    const lookTarget = focusBuilding
-      ? new THREE.Vector3(focusBuilding.x, focusBuilding.height * 0.6, focusBuilding.z)
-      : new THREE.Vector3(0, pos.current.y + cfg.eyeOffset - 0.6, 0);
-    camera.lookAt(lookTarget);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup",   handleKeyUp);
-      domElement.removeEventListener("click", handleClick);
-      document.removeEventListener("mousemove", handleMM);
-      document.removeEventListener("pointerlockchange", handlePLC);
-      if (document.pointerLockElement === domElement) document.exitPointerLock();
-    };
-  }, [camera, domElement, focusBuilding, onExit, cfg]);
+  // Camera spring state (world space)
+  const camPos = useRef(new THREE.Vector3(spawnConfig.pos.x, spawnConfig.pos.y + cfg.eyeOffset + 10, spawnConfig.pos.z + 30));
+  const camVel = useRef(new THREE.Vector3());
+  const tmpForward = useRef(new THREE.Vector3());
+  const tmpDesired = useRef(new THREE.Vector3());
+  const tmpToTarget = useRef(new THREE.Vector3());
 
   useFrame((_, delta) => {
-    const dt = Math.min(delta, 0.05);
+    const snapshot = game.update(delta);
+    if (snapshot.exit) onExit();
 
-    // ── Player movement ──────────────────────────────────────────────────────
-    const forward = new THREE.Vector3(
-      -Math.sin(yaw.current), 0, -Math.cos(yaw.current),
-    ).normalize();
+    const v = game.state.player.vehicle;
 
-    if (keys.current["KeyA"]) yaw.current += 2.2 * dt;
-    if (keys.current["KeyD"]) yaw.current -= 2.2 * dt;
-
-    let moveDir = 0;
-    if (keys.current["KeyW"]) moveDir += 1;
-    if (keys.current["KeyS"]) moveDir -= 1;
-    if (moveDir !== 0) pos.current.addScaledVector(forward, moveDir * cfg.speed * dt);
-    if (pos.current.y < 1.5) pos.current.y = 1.5;
-
-    // ── Camera ───────────────────────────────────────────────────────────────
-    camera.position.set(pos.current.x, pos.current.y + cfg.eyeOffset, pos.current.z);
-    camera.quaternion.copy(
-      new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(pitch.current, yaw.current, 0, "YXZ"),
-      ),
-    );
-
-    // ── Car rotation — body faces movement direction, not camera look ─────────
-    //
-    //  carYaw only updates while the player is actually driving:
-    //    • Driving forward → target = camera yaw (nose points where you're going)
-    //    • Driving backward → target = camera yaw + π  (nose points opposite)
-    //    • Turning in-place (A/D without W/S) → snap immediately with camera
-    //    • Mouse-look while stationary → carYaw stays put (no phantom spin)
-    //
-    if (moveDir !== 0) {
-      // Target yaw for the car body
-      const targetCarYaw = moveDir > 0 ? yaw.current : yaw.current + Math.PI;
-
-      // Shortest-path angle delta (avoid spinning the long way around)
-      let diff = targetCarYaw - carYaw.current;
-      while (diff >  Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-
-      // Smooth rotation: lerp speed of 8 rad/s feels like a real turning radius
-      carYaw.current += diff * Math.min(1, 8 * dt);
-    } else if (keys.current["KeyA"] || keys.current["KeyD"]) {
-      // Stationary pivot (e.g. reversing to orient) — car body snaps with camera
-      carYaw.current = yaw.current;
-    }
-    // If neither moving nor turning (pure mouse-look), carYaw is intentionally unchanged
-
-    // ── Car mesh — placed in front of camera, facing movement direction ───────
+    // Place car mesh at vehicle state
     if (carRef.current) {
-      const carX = pos.current.x + forward.x * cfg.forwardOffset + (-Math.cos(yaw.current)) * cfg.sideOffset;
-      const carZ = pos.current.z + forward.z * cfg.forwardOffset + (-Math.sin(yaw.current)) * cfg.sideOffset;
-      const carY = pos.current.y - cfg.downOffset;
-
-      carRef.current.position.set(carX, carY, carZ);
-
-      // Use carYaw (movement direction) — NOT camera yaw — so the model always
-      // faces the direction it is travelling.
-      carRef.current.rotation.set(0, carYaw.current, 0);
+      carRef.current.position.set(v.position.x, v.position.y - cfg.downOffset, v.position.z);
+      carRef.current.rotation.set(0, v.yaw, 0);
     }
+
+    // Chase camera (spring-damper) behind the car
+    const forward = tmpForward.current.set(-Math.sin(v.yaw), 0, -Math.cos(v.yaw)).normalize();
+    const desired = tmpDesired.current
+      .copy(v.position)
+      .addScaledVector(forward, -Math.max(18, cfg.forwardOffset * 0.6));
+    desired.y += cfg.eyeOffset + 10;
+
+    // critically damped-ish spring
+    const k = 18;
+    const c = 2 * Math.sqrt(k);
+    const x = camPos.current;
+    const xd = camVel.current;
+    const toTarget = tmpToTarget.current.copy(desired).sub(x);
+    xd.addScaledVector(toTarget, k * Math.min(delta, 0.05));
+    xd.multiplyScalar(Math.exp(-c * Math.min(delta, 0.05)));
+    x.addScaledVector(xd, Math.min(delta, 0.05));
+
+    camera.position.copy(x);
+    camera.lookAt(v.position.x, v.position.y + cfg.eyeOffset * 0.4, v.position.z);
   });
 
   return <StreetCar carGroupRef={carRef} variant={carVariant} />;
@@ -1538,12 +1773,13 @@ function StreetTargetTracker({
 }) {
   const { camera } = useThree();
   const raycasterRef = useRef(new THREE.Raycaster());
+  const dirRef = useRef(new THREE.Vector3());
   const lastIdRef = useRef<number | null>(null);
 
   useFrame(() => {
     if (!enabled || !meshRef.current) return;
     const raycaster = raycasterRef.current;
-    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+    const dir = dirRef.current.set(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
     raycaster.set(camera.position, dir);
     const intersections = raycaster.intersectObject(meshRef.current, false);
     if (intersections.length === 0) {
@@ -1578,7 +1814,7 @@ interface CityCanvasProps {
   buildings: PositionedBuilding[];
   layoutResult: CityLayoutResult;
   focusUsername?: string | null;
-  carVariant?: "mr-bean" | "batmobile" | "harry-potter" | "ms-queen";
+  carVariant?: CarVariant;
 }
 
 export function CityCanvas({
@@ -1586,10 +1822,11 @@ export function CityCanvas({
   buildings,
   layoutResult,
   focusUsername,
-  carVariant = "mr-bean",
+  carVariant = DEFAULT_CAR_VARIANT,
 }: CityCanvasProps) {
   const theme = EMERALD_THEME;
-  const { ringRadii } = layoutResult;
+  const ringRadii = layoutResult.ringRadii;
+  const greenRings = layoutResult.greenRings ?? [];
 
   const atlasTexture = useMemo(() => createWindowAtlas(theme.building), [theme.building]);
 
@@ -1603,7 +1840,7 @@ export function CityCanvas({
     ? [focusBuilding.x, focusBuilding.height + 40, focusBuilding.z]
     : null;
 
-  const controlsRef = useRef<any>(null);
+  const controlsRef = useRef<OrbitControlsLike | null>(null);
   const [hovered, setHovered] = useState<PositionedBuilding | null>(null);
   const [streetMode, setStreetMode] = useState(false);
   const [streetFocused, setStreetFocused] = useState<PositionedBuilding | null>(null);
@@ -1668,6 +1905,9 @@ export function CityCanvas({
         {/* River — rendered first, below roads */}
         <River outerRadius={cityOuterR} />
 
+        {/* Green-space rings (parks + district belts) — below roads */}
+        {greenRings.length > 0 && <GreenSpaces rings={greenRings} />}
+
         {/* Polar road network — ring roads + spokes */}
         <PolarRoads ringRadii={ringRadii} />
 
@@ -1710,7 +1950,7 @@ export function CityCanvas({
             <StreetView
               onExit={() => setStreetMode(false)}
               focusBuilding={focusBuilding}
-              carVariant={carVariant as CarVariant}
+              carVariant={carVariant}
             />
             <StreetTargetTracker
               enabled={streetMode}
