@@ -16,6 +16,13 @@ const SUB_RING_GAP         = 16;   // lane between sub-ring rows
 const BLOCK_ALLEY_H        = 8;    // alley between left/right columns inside block
 const BLOCK_ALLEY_V        = 8;    // alley between top/bottom rows inside block
 
+// Green space planning:
+// - After every N sub-rings of buildings inside a band, insert a wider "park ring".
+// - After each district boulevard (between bands), insert a thicker green belt.
+const GREEN_AFTER_SUB_RINGS = 3;
+const PARK_RING_EXTRA_GAP   = 56;  // added on top of SUB_RING_GAP
+const DISTRICT_GREEN_BELT_W = 80;  // thick belt after district road (tall trees)
+
 const BUILDING_FOOTPRINT_SCALE = 0.5;
 
 // Ring radii — exported so CityCanvas can draw matching road geometry
@@ -55,6 +62,13 @@ interface Block {
   offsets: { x: number; z: number }[];
   width: number;
   depth: number;
+}
+
+export interface GreenRing {
+  innerR: number;          // inner radius of green band
+  outerR: number;          // outer radius of green band
+  kind: "park" | "district"; // park = intra-band, district = thick belt after district road
+  treeStyle: "normal" | "tall";
 }
 
 function packBlock(bs: Building[]): Block {
@@ -103,6 +117,7 @@ function estimateRadialDepth(blocks: Block[], innerRadius: number): number {
   let cursor     = 0;
   let innerEdge  = innerRadius;
   let totalDepth = 0;
+  let subRingN   = 0;
 
   while (cursor < blocks.length) {
     const maxDepth = Math.max(...blocks.slice(cursor).map(b => b.depth));
@@ -120,8 +135,11 @@ function estimateRadialDepth(blocks: Block[], innerRadius: number): number {
     if (rowCount === 0) rowCount = 1;
 
     cursor     += rowCount;
-    innerEdge  += maxDepth + SUB_RING_GAP;
-    totalDepth += maxDepth + SUB_RING_GAP;
+    const isParkGap = (subRingN + 1) % GREEN_AFTER_SUB_RINGS === 0;
+    const gap = SUB_RING_GAP + (isParkGap ? PARK_RING_EXTRA_GAP : 0);
+    innerEdge  += maxDepth + gap;
+    totalDepth += maxDepth + gap;
+    subRingN++;
   }
 
   return totalDepth;
@@ -136,6 +154,7 @@ function placeRing(
   innerRadius: number,
   ringIndex: number,
   result: PositionedBuilding[],
+  greenRings: GreenRing[],
 ): void {
   if (!blocks.length) return;
 
@@ -191,7 +210,7 @@ function placeRing(
           z: r_k * Math.sin(theta_k),
         };
         // Building faces outward: +Z (front) aligns with radial direction (cos θ, sin θ)
-        (placed as any).rotationY = Math.PI / 2 - theta_k;
+        placed.rotationY = Math.PI / 2 - theta_k;
 
         result.push(placed);
       }
@@ -199,7 +218,20 @@ function placeRing(
       angle = normalizeAngle(angle + blockArc + gapAngle);
     }
 
-    subRingInner += maxDepth + SUB_RING_GAP;
+    const isParkGap = (subRingN + 1) % GREEN_AFTER_SUB_RINGS === 0;
+    const gap = SUB_RING_GAP + (isParkGap ? PARK_RING_EXTRA_GAP : 0);
+    if (isParkGap) {
+      const parkInner = subRingInner + maxDepth;
+      const parkOuter = parkInner + gap;
+      greenRings.push({
+        innerR: parkInner,
+        outerR: parkOuter,
+        kind: "park",
+        treeStyle: "normal",
+      });
+    }
+
+    subRingInner += maxDepth + gap;
     subRingN++;
   }
 }
@@ -219,6 +251,7 @@ export interface CityLayoutResult {
     ring3Inner: number;
     ring3Outer: number;
   };
+  greenRings: GreenRing[];
 }
 
 export function computeCityLayout(buildings: Building[]): CityLayoutResult {
@@ -233,6 +266,7 @@ export function computeCityLayout(buildings: Building[]): CityLayoutResult {
       ring3Inner: RING_1_INNER + RING_ROAD * 2,
       ring3Outer: RING_1_INNER + RING_ROAD * 2,
     },
+    greenRings: [],
   };
 
   if (!buildings.length) return empty;
@@ -265,6 +299,7 @@ export function computeCityLayout(buildings: Building[]): CityLayoutResult {
         ring3Inner: PLAZA_RADIUS + RING_ROAD + 80 + RING_ROAD * 2,
         ring3Outer: PLAZA_RADIUS + RING_ROAD + 80 + RING_ROAD * 2,
       },
+      greenRings: [],
     };
   }
 
@@ -291,18 +326,28 @@ export function computeCityLayout(buildings: Building[]): CityLayoutResult {
   const coreDepth  = estimateRadialDepth(coreBlocks, coreInner);
   const coreOuter  = coreInner + coreDepth;
 
-  const midInner   = coreOuter + RING_ROAD;
+  // Thick green belt after the district boulevard (taller trees).
+  const midBeltInner = coreOuter + RING_ROAD;
+  const midBeltOuter = midBeltInner + DISTRICT_GREEN_BELT_W;
+  const midInner   = midBeltOuter;
   const midDepth   = estimateRadialDepth(midBlocks, midInner);
   const midOuter   = midInner + midDepth;
 
-  const outerInner = midOuter + RING_ROAD;
+  const outerBeltInner = midOuter + RING_ROAD;
+  const outerBeltOuter = outerBeltInner + DISTRICT_GREEN_BELT_W;
+  const outerInner = outerBeltOuter;
   const outerDepth = estimateRadialDepth(outerBlocks, outerInner);
   const outerOuter = outerInner + outerDepth;
 
   const result: PositionedBuilding[] = [];
-  placeRing(coreBlocks,  coreInner,  0, result);
-  placeRing(midBlocks,   midInner,   1, result);
-  placeRing(outerBlocks, outerInner, 2, result);
+  const greenRings: GreenRing[] = [
+    { innerR: midBeltInner, outerR: midBeltOuter, kind: "district", treeStyle: "tall" },
+    { innerR: outerBeltInner, outerR: outerBeltOuter, kind: "district", treeStyle: "tall" },
+  ];
+
+  placeRing(coreBlocks,  coreInner,  0, result, greenRings);
+  placeRing(midBlocks,   midInner,   1, result, greenRings);
+  placeRing(outerBlocks, outerInner, 2, result, greenRings);
 
   return {
     buildings: result,
@@ -315,5 +360,6 @@ export function computeCityLayout(buildings: Building[]): CityLayoutResult {
       ring3Inner: outerInner,
       ring3Outer: outerOuter,
     },
+    greenRings,
   };
 }

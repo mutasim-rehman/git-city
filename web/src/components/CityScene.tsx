@@ -10,6 +10,10 @@ import { Building } from "./Building";
 
 // ─── Scene sub-components ────────────────────────────────────────────────────
 
+function seededRng(seed: number): number {
+  return Math.abs((Math.sin(seed * 127.1 + 311.7) * 43758.5453) % 1);
+}
+
 /** Green core light that breathes slowly */
 function PulsingCoreLight() {
   const ref = useRef<THREE.PointLight>(null);
@@ -31,14 +35,14 @@ function AmbientParticles() {
     const baseY = new Float32Array(COUNT);
     const speeds = new Float32Array(COUNT);
     for (let i = 0; i < COUNT; i++) {
-      const x = (Math.random() - 0.5) * 1400;
-      const y = Math.random() * 450 + 15;
-      const z = (Math.random() - 0.5) * 1400;
+      const x = (seededRng(i * 991) - 0.5) * 1400;
+      const y = seededRng(i * 577) * 450 + 15;
+      const z = (seededRng(i * 313) - 0.5) * 1400;
       positions[i * 3] = x;
       positions[i * 3 + 1] = y;
       positions[i * 3 + 2] = z;
       baseY[i] = y;
-      speeds[i] = 0.15 + Math.random() * 0.35;
+      speeds[i] = 0.15 + seededRng(i * 739) * 0.35;
     }
     return { positions, baseY, speeds };
   }, []);
@@ -122,7 +126,8 @@ export function CityScene({ city, buildings }: Props) {
   }, []);
 
   useEffect(() => {
-    resetIdle();
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => setIsIdle(true), 5000);
     return () => {
       if (idleTimer.current) {
         clearTimeout(idleTimer.current);

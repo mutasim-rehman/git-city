@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
@@ -8,9 +8,15 @@ import type { CityId, CityTheme, PositionedBuilding } from "@/lib/types";
 import { createWindowAtlas } from "@/lib/city/windowAtlas";
 import { InstancedBuildings } from "./InstancedBuildings";
 import { OrbitControls, useGLTF } from "@react-three/drei";
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { CityLayoutResult, GreenRing } from "@/lib/city/layout";
 import { PLAZA_RADIUS, RIVER_CENTER, RIVER_HALF_WIDTH, RIVER_SKIP } from "@/lib/city/layout";
 import { Game } from "@/game/Game";
+import { createPolarRoadGraph, nearestRoadNode } from "@/game/world/RoadGraph";
+import type { RoadNodeId } from "@/game/world/RoadGraph";
+import { aStar } from "@/game/routing/aStar";
+import { Minimap } from "@/game/ui/Minimap";
+import { NpcTraffic } from "@/game/ai/NpcTraffic";
 
 const EMERALD_THEME: CityTheme = {
   sky: [
@@ -1438,14 +1444,12 @@ function Clouds() {
 
 // ─── Camera Focus ─────────────────────────────────────────────────────────────
 
-type OrbitControlsLike = { target: THREE.Vector3; update: () => void };
-
 function CameraFocus({
   focusPosition,
   controlsRef,
 }: {
   focusPosition: [number, number, number] | null;
-  controlsRef: RefObject<OrbitControlsLike | null>;
+  controlsRef: RefObject<OrbitControlsImpl | null>;
 }) {
   const { camera } = useThree();
   const currentTarget = useRef<THREE.Vector3 | null>(null);
@@ -1660,10 +1664,16 @@ function StreetView({
   onExit,
   focusBuilding,
   carVariant,
+  onVehiclePose,
+  roadGraph,
+  playerTuning,
 }: {
   onExit: () => void;
   focusBuilding: PositionedBuilding | null;
   carVariant: CarVariant;
+  onVehiclePose: (pose: { x: number; z: number; yaw: number; speed: number }) => void;
+  roadGraph: ReturnType<typeof createPolarRoadGraph>;
+  playerTuning: { maxSpeed: number; accel: number; grip: number };
 }) {
   const { camera } = useThree();
 
@@ -1710,10 +1720,33 @@ function StreetView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spawnConfig.pos.x, spawnConfig.pos.z, spawnConfig.yaw, carVariant]);
 
+  const npcTraffic = useMemo(() => new NpcTraffic(roadGraph, 12), [roadGraph]);
+  const npcMeshRef = useRef<THREE.InstancedMesh | null>(null);
+  const tmpObj = useMemo(() => new THREE.Object3D(), []);
+
+  useEffect(() => {
+    if (!npcMeshRef.current) return;
+    const cars = npcTraffic.getCars();
+    for (let i = 0; i < cars.length; i++) {
+      npcMeshRef.current.setColorAt(i, cars[i].color);
+    }
+    if (npcMeshRef.current.instanceColor) {
+      npcMeshRef.current.instanceColor.needsUpdate = true;
+    }
+  }, [npcTraffic]);
+
   useEffect(() => {
     const detach = game.input.attach();
     return detach;
   }, [game]);
+
+  useEffect(() => {
+    game.setVehicleTuning({
+      maxSpeed: playerTuning.maxSpeed,
+      accel: playerTuning.accel,
+      grip: playerTuning.grip,
+    });
+  }, [game, playerTuning.maxSpeed, playerTuning.accel, playerTuning.grip]);
 
   // Camera spring state (world space)
   const camPos = useRef(new THREE.Vector3(spawnConfig.pos.x, spawnConfig.pos.y + cfg.eyeOffset + 10, spawnConfig.pos.z + 30));
@@ -1723,10 +1756,13 @@ function StreetView({
   const tmpToTarget = useRef(new THREE.Vector3());
 
   useFrame((_, delta) => {
-    const snapshot = game.update(delta);
+    const snapshot = game.update(delta, (fixedDt) => {
+      npcTraffic.step(fixedDt, game.state.player.vehicle);
+    });
     if (snapshot.exit) onExit();
 
     const v = game.state.player.vehicle;
+    onVehiclePose({ x: v.position.x, z: v.position.z, yaw: v.yaw, speed: v.speed });
 
     // Place car mesh at vehicle state
     if (carRef.current) {
@@ -1753,9 +1789,43 @@ function StreetView({
 
     camera.position.copy(x);
     camera.lookAt(v.position.x, v.position.y + cfg.eyeOffset * 0.4, v.position.z);
+
+    // Subtle speed feel: widen FOV a bit at high speed
+    const cam = camera as THREE.PerspectiveCamera;
+    if ("fov" in cam) {
+      const baseFov = 55;
+      const speed01 = Math.min(1, Math.abs(v.speed) / Math.max(1, playerTuning.maxSpeed));
+      const targetFov = baseFov + speed01 * 9;
+      cam.fov = THREE.MathUtils.lerp(cam.fov, targetFov, Math.min(1, delta * 4));
+      cam.updateProjectionMatrix();
+    }
+
+    // NPC render (instanced)
+    const m = npcMeshRef.current;
+    if (m) {
+      const cars = npcTraffic.getCars();
+      const count = Math.min(m.count, cars.length);
+      for (let i = 0; i < count; i++) {
+        const c = cars[i].vehicle;
+        tmpObj.position.set(c.position.x, c.position.y - 0.6, c.position.z);
+        tmpObj.rotation.set(0, c.yaw, 0);
+        tmpObj.scale.set(3.2, 1.4, 6.0);
+        tmpObj.updateMatrix();
+        m.setMatrixAt(i, tmpObj.matrix);
+      }
+      m.instanceMatrix.needsUpdate = true;
+    }
   });
 
-  return <StreetCar carGroupRef={carRef} variant={carVariant} />;
+  return (
+    <group>
+      <StreetCar carGroupRef={carRef} variant={carVariant} />
+      <instancedMesh ref={npcMeshRef} args={[undefined, undefined, 12]} castShadow receiveShadow>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color="#ffffff" roughness={0.7} metalness={0.1} vertexColors />
+      </instancedMesh>
+    </group>
+  );
 }
 
 // ─── Street Target Tracker ─────────────────────────────────────────────────────
@@ -1840,11 +1910,97 @@ export function CityCanvas({
     ? [focusBuilding.x, focusBuilding.height + 40, focusBuilding.z]
     : null;
 
-  const controlsRef = useRef<OrbitControlsLike | null>(null);
+  const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const [hovered, setHovered] = useState<PositionedBuilding | null>(null);
   const [streetMode, setStreetMode] = useState(false);
   const [streetFocused, setStreetFocused] = useState<PositionedBuilding | null>(null);
   const instancedRef = useRef<THREE.InstancedMesh | null>(null);
+
+  const roadGraph = useMemo(() => createPolarRoadGraph(layoutResult), [layoutResult]);
+  const playerPoseRef = useRef<{ x: number; z: number; yaw: number; speed: number }>({ x: 0, z: 0, yaw: 0, speed: 0 });
+  const [uiPose, setUiPose] = useState<{ x: number; z: number; yaw: number; speed: number } | null>(null);
+  const [navQuery, setNavQuery] = useState("");
+  const [navTarget, setNavTarget] = useState<PositionedBuilding | null>(null);
+  const [navRoute, setNavRoute] = useState<RoadNodeId[]>([]);
+  const [toast, setToast] = useState<string | null>(null);
+  const [showTuning, setShowTuning] = useState(false);
+  const [playerTuning, setPlayerTuning] = useState<{ maxSpeed: number; accel: number; grip: number }>({
+    maxSpeed: Math.max(40, (CAR_CONFIGS[carVariant] ?? CAR_CONFIGS[DEFAULT_CAR_VARIANT]).speed),
+    accel: 65,
+    grip: 0.78,
+  });
+  const arrivalLatchRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!streetMode) return;
+    const id = window.setInterval(() => {
+      setUiPose({ ...playerPoseRef.current });
+
+      if (navTarget) {
+        const dx = navTarget.x - playerPoseRef.current.x;
+        const dz = navTarget.z - playerPoseRef.current.z;
+        const d = Math.sqrt(dx * dx + dz * dz);
+        if (d < 26) {
+          const key = navTarget.id;
+          if (arrivalLatchRef.current !== key) {
+            arrivalLatchRef.current = key;
+            setToast(`Arrived at @${navTarget.username}`);
+            setNavRoute([]);
+            window.setTimeout(() => setToast(null), 1800);
+          }
+        } else if (d > 60) {
+          // allow re-trigger after leaving the destination area
+          if (arrivalLatchRef.current === navTarget.id) arrivalLatchRef.current = null;
+        }
+      }
+    }, 120);
+    return () => window.clearInterval(id);
+  }, [streetMode, navTarget]);
+
+  const destinationXZ = navTarget ? { x: navTarget.x, z: navTarget.z } : null;
+
+  const navHint = useMemo(() => {
+    if (!uiPose || navRoute.length < 2) return null;
+
+    // Find closest route node to player
+    let bestIdx = 0;
+    let bestD = Infinity;
+    for (let i = 0; i < navRoute.length; i++) {
+      const n = roadGraph.nodes.get(navRoute[i]);
+      if (!n) continue;
+      const dx = n.x - uiPose.x;
+      const dz = n.z - uiPose.z;
+      const d = dx * dx + dz * dz;
+      if (d < bestD) {
+        bestD = d;
+        bestIdx = i;
+      }
+    }
+
+    const nextId = navRoute[Math.min(navRoute.length - 1, bestIdx + 1)];
+    const next = roadGraph.nodes.get(nextId);
+    if (!next) return null;
+
+    const toX = next.x - uiPose.x;
+    const toZ = next.z - uiPose.z;
+    const bearing = Math.atan2(-toX, -toZ); // match our forward convention (-sin, -cos)
+    let delta = bearing - uiPose.yaw;
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+
+    const abs = Math.abs(delta);
+    const turn = abs < 0.35 ? "Go straight" : delta > 0 ? "Turn left" : "Turn right";
+    const dist = Math.sqrt(toX * toX + toZ * toZ);
+    return { turn, dist };
+  }, [uiPose, navRoute, roadGraph]);
+
+  const computeRouteTo = useCallback((target: PositionedBuilding) => {
+    const start = nearestRoadNode(roadGraph, playerPoseRef.current.x, playerPoseRef.current.z);
+    const goal = nearestRoadNode(roadGraph, target.x, target.z);
+    const path = aStar(roadGraph, start, goal);
+    setNavTarget(target);
+    setNavRoute(path);
+  }, [roadGraph]);
 
   useEffect(() => {
     const handler = () => setStreetMode(prev => !prev);
@@ -1951,6 +2107,11 @@ export function CityCanvas({
               onExit={() => setStreetMode(false)}
               focusBuilding={focusBuilding}
               carVariant={carVariant}
+              onVehiclePose={(pose) => {
+                playerPoseRef.current = pose;
+              }}
+              roadGraph={roadGraph}
+              playerTuning={playerTuning}
             />
             <StreetTargetTracker
               enabled={streetMode}
@@ -2002,6 +2163,153 @@ export function CityCanvas({
           </div>
         </div>
       </div>
+
+      {/* Navigation + minimap (street mode) */}
+      {streetMode && (
+        <div className="absolute right-4 top-4 z-30 flex flex-col items-end gap-3">
+          <div className="pointer-events-auto w-[280px] rounded-2xl border border-emerald-500/35 bg-black/70 px-3 py-3 backdrop-blur-md shadow-[0_0_30px_rgba(16,185,129,0.25)]">
+            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-emerald-300/80">
+              Navigation
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                value={navQuery}
+                onChange={(e) => setNavQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  const needle = navQuery.trim().replace(/^@/, "").toLowerCase();
+                  if (!needle) return;
+                  const target = buildings.find((b) => b.username.toLowerCase() === needle);
+                  if (target) computeRouteTo(target);
+                }}
+                placeholder="Type @username and press Enter"
+                className="h-9 flex-1 rounded-xl border border-emerald-500/25 bg-black/40 px-3 text-xs text-emerald-50 placeholder:text-emerald-400/40 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+              />
+              <button
+                type="button"
+                className="h-9 rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-3 text-[11px] font-medium text-emerald-100 hover:bg-emerald-500/20"
+                onClick={() => {
+                  const needle = navQuery.trim().replace(/^@/, "").toLowerCase();
+                  if (!needle) return;
+                  const target = buildings.find((b) => b.username.toLowerCase() === needle);
+                  if (target) computeRouteTo(target);
+                }}
+              >
+                Route
+              </button>
+            </div>
+
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-emerald-500/25 bg-black/30 px-2 py-1 text-[10px] font-mono uppercase tracking-[0.22em] text-emerald-200/80 hover:bg-emerald-500/10"
+                onClick={() => {
+                  if (!buildings.length) return;
+                  const idx = Math.floor((Math.abs(Math.sin(Date.now())) % 1) * buildings.length);
+                  const target = buildings[idx];
+                  computeRouteTo(target);
+                  setNavQuery(`@${target.username}`);
+                  setToast(`Job started: deliver to @${target.username}`);
+                  window.setTimeout(() => setToast(null), 1600);
+                }}
+              >
+                Random job
+              </button>
+              <button
+                type="button"
+                className="rounded-xl border border-emerald-500/25 bg-black/30 px-2 py-1 text-[10px] font-mono uppercase tracking-[0.22em] text-emerald-200/80 hover:bg-emerald-500/10"
+                onClick={() => setShowTuning((v) => !v)}
+              >
+                {showTuning ? "Hide tuning" : "Tuning"}
+              </button>
+            </div>
+
+            {uiPose && (
+              <div className="mt-2 text-[11px] text-emerald-200/70">
+                Speed: <span className="font-semibold text-emerald-100">{Math.round(Math.abs(uiPose.speed))}</span>
+              </div>
+            )}
+
+            {navTarget && (
+              <div className="mt-2 text-[11px] text-emerald-200/90">
+                Destination: <span className="font-semibold text-emerald-100">@{navTarget.username}</span>
+                {navRoute.length > 0 && (
+                  <span className="ml-2 text-emerald-400/70">
+                    ({navRoute.length - 1} hops)
+                  </span>
+                )}
+                {navHint && (
+                  <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-emerald-300/70">
+                    {navHint.turn} · {Math.round(navHint.dist)}m
+                  </div>
+                )}
+              </div>
+            )}
+
+            {showTuning && (
+              <div className="mt-3 space-y-2 rounded-xl border border-emerald-500/20 bg-black/30 p-2">
+                <div className="flex items-center justify-between gap-2 text-[10px] text-emerald-200/70">
+                  <span className="font-mono uppercase tracking-[0.22em]">Max speed</span>
+                  <span className="font-mono text-emerald-100">{Math.round(playerTuning.maxSpeed)}</span>
+                </div>
+                <input
+                  type="range"
+                  min={40}
+                  max={180}
+                  value={playerTuning.maxSpeed}
+                  onChange={(e) => setPlayerTuning((p) => ({ ...p, maxSpeed: Number(e.target.value) }))}
+                  className="w-full accent-emerald-500"
+                />
+
+                <div className="flex items-center justify-between gap-2 text-[10px] text-emerald-200/70">
+                  <span className="font-mono uppercase tracking-[0.22em]">Acceleration</span>
+                  <span className="font-mono text-emerald-100">{Math.round(playerTuning.accel)}</span>
+                </div>
+                <input
+                  type="range"
+                  min={20}
+                  max={120}
+                  value={playerTuning.accel}
+                  onChange={(e) => setPlayerTuning((p) => ({ ...p, accel: Number(e.target.value) }))}
+                  className="w-full accent-emerald-500"
+                />
+
+                <div className="flex items-center justify-between gap-2 text-[10px] text-emerald-200/70">
+                  <span className="font-mono uppercase tracking-[0.22em]">Grip</span>
+                  <span className="font-mono text-emerald-100">{playerTuning.grip.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range"
+                  min={0.35}
+                  max={0.95}
+                  step={0.01}
+                  value={playerTuning.grip}
+                  onChange={(e) => setPlayerTuning((p) => ({ ...p, grip: Number(e.target.value) }))}
+                  className="w-full accent-emerald-500"
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-emerald-500/30 bg-black/40 p-2 shadow-[0_0_35px_rgba(16,185,129,0.18)] backdrop-blur-md">
+            <Minimap
+              graph={roadGraph}
+              playerXZ={uiPose ? { x: uiPose.x, z: uiPose.z } : null}
+              destinationXZ={destinationXZ}
+              route={navRoute}
+              size={190}
+            />
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="pointer-events-none absolute inset-x-4 top-4 z-40 flex justify-center">
+          <div className="rounded-full border border-emerald-500/35 bg-black/70 px-4 py-2 text-[11px] font-mono uppercase tracking-[0.25em] text-emerald-100 shadow-[0_0_25px_rgba(16,185,129,0.35)] backdrop-blur-md">
+            {toast}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

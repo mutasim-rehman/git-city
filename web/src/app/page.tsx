@@ -8,7 +8,7 @@ import { mapCsvToBuildings } from "@/lib/city/scaling";
 import { computeCityLayout } from "@/lib/city/layout";
 import { CitySelector } from "@/components/CitySelector";
 import { LoadingScreen } from "@/components/LoadingScreen";
-import { CityCanvas } from "@/components/CityCanvas";
+import { CityCanvas, type CarVariant } from "@/components/CityCanvas";
 
 type Status = "idle" | "loading" | "ready";
 
@@ -22,9 +22,19 @@ export default function Home() {
   const [focusedUsername, setFocusedUsername] = useState<string | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
-  const [carVariant, setCarVariant] = useState<
-    "mr-bean" | "batmobile" | "harry-potter" | "ms-queen"
-  >("mr-bean");
+  const [carVariant, setCarVariant] = useState<CarVariant>("mr-bean");
+
+  const carOptions: { id: CarVariant; label: string }[] = [
+    { id: "mr-bean", label: "Mr Bean" },
+    { id: "batmobile", label: "Batmobile" },
+    { id: "harry-potter", label: "Harry Potter" },
+    { id: "mc-queen", label: "Mc Queen" },
+    { id: "Stradale 67", label: "Stradale 67" },
+    { id: "ZIS 101A", label: "ZIS 101A" },
+    { id: "Beetle", label: "Beetle" },
+    { id: "Ferrai SF23", label: "Ferrari SF23" },
+    { id: "Wagon", label: "Wagon" },
+  ];
 
   const isLoading = status === "loading";
 
@@ -159,50 +169,20 @@ export default function Home() {
           {/* Car variant selector */}
           <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
             <span className="mr-1 text-emerald-200/80">Street vehicle:</span>
-            <button
-              type="button"
-              className={`rounded-full border px-2 py-1 font-mono ${
-                carVariant === "mr-bean"
-                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-50"
-                  : "border-emerald-500/40 bg-black/30 text-emerald-200/80"
-              }`}
-              onClick={() => setCarVariant("mr-bean")}
-            >
-              Mr Bean
-            </button>
-            <button
-              type="button"
-              className={`rounded-full border px-2 py-1 font-mono ${
-                carVariant === "batmobile"
-                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-50"
-                  : "border-emerald-500/40 bg-black/30 text-emerald-200/80"
-              }`}
-              onClick={() => setCarVariant("batmobile")}
-            >
-              Batmobile
-            </button>
-            <button
-              type="button"
-              className={`rounded-full border px-2 py-1 font-mono ${
-                carVariant === "harry-potter"
-                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-50"
-                  : "border-emerald-500/40 bg-black/30 text-emerald-200/80"
-              }`}
-              onClick={() => setCarVariant("harry-potter")}
-            >
-              Harry Potter
-            </button>
-            <button
-              type="button"
-              className={`rounded-full border px-2 py-1 font-mono ${
-                carVariant === "ms-queen"
-                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-50"
-                  : "border-emerald-500/40 bg-black/30 text-emerald-200/80"
-              }`}
-              onClick={() => setCarVariant("ms-queen")}
-            >
-              Ms Queen
-            </button>
+            {carOptions.map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                className={`rounded-full border px-2 py-1 font-mono ${
+                  carVariant === id
+                    ? "border-emerald-400 bg-emerald-500/20 text-emerald-50"
+                    : "border-emerald-500/40 bg-black/30 text-emerald-200/80"
+                }`}
+                onClick={() => setCarVariant(id)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
           <p className="mt-4 text-xs text-emerald-100/70">{heading}</p>
           {error && (
