@@ -53,19 +53,19 @@ export function Minimap({ graph, playerXZ, destinationXZ, route, size = 180 }: P
       >
         <defs>
           <radialGradient id="mmGlow" cx="50%" cy="50%" r="60%">
-            <stop offset="0%" stopColor="rgba(16,185,129,0.35)" />
+            <stop offset="0%" stopColor="rgba(236,72,153,0.35)" />
             <stop offset="100%" stopColor="rgba(2,6,23,0)" />
           </radialGradient>
         </defs>
 
         {/* Base */}
-        <circle cx={size / 2} cy={size / 2} r={size / 2} fill="rgba(0,0,0,0.55)" stroke="rgba(16,185,129,0.35)" strokeWidth="2" />
+        <circle cx={size / 2} cy={size / 2} r={size / 2} fill="rgba(0,0,0,0.55)" stroke="rgba(168,85,247,0.4)" strokeWidth="2" />
         <circle cx={size / 2} cy={size / 2} r={size / 2 - 6} fill="url(#mmGlow)" />
 
         {/* Rings */}
         {ringPaths.map(({ r, key }, idx) => {
           const rr = ((size / 2 - 10) * r) / (graph.maxRadius || 1);
-          const stroke = idx === 0 ? "rgba(245,158,11,0.35)" : "rgba(16,185,129,0.20)";
+          const stroke = idx === 0 ? "rgba(251,191,36,0.35)" : "rgba(168,85,247,0.25)";
           return <circle key={key} cx={size / 2} cy={size / 2} r={rr} fill="none" stroke={stroke} strokeWidth={1} />;
         })}
 
@@ -92,7 +92,7 @@ export function Minimap({ graph, playerXZ, destinationXZ, route, size = 180 }: P
           <polyline
             points={routePoints}
             fill="none"
-            stroke="rgba(34,197,94,0.85)"
+            stroke="rgba(236,72,153,0.85)"
             strokeWidth={2.5}
             strokeLinejoin="round"
             strokeLinecap="round"
@@ -102,16 +102,16 @@ export function Minimap({ graph, playerXZ, destinationXZ, route, size = 180 }: P
         {/* Destination */}
         {destP && (
           <>
-            <circle cx={destP.x} cy={destP.y} r={6} fill="rgba(245,158,11,0.95)" />
-            <circle cx={destP.x} cy={destP.y} r={12} fill="rgba(245,158,11,0.12)" />
+            <circle cx={destP.x} cy={destP.y} r={6} fill="rgba(125,211,252,0.95)" />
+            <circle cx={destP.x} cy={destP.y} r={12} fill="rgba(125,211,252,0.15)" />
           </>
         )}
 
         {/* Player */}
         {playerP && (
           <>
-            <circle cx={playerP.x} cy={playerP.y} r={5.5} fill="rgba(59,130,246,0.95)" />
-            <circle cx={playerP.x} cy={playerP.y} r={11} fill="rgba(59,130,246,0.12)" />
+            <circle cx={playerP.x} cy={playerP.y} r={5.5} fill="rgba(236,72,153,0.95)" />
+            <circle cx={playerP.x} cy={playerP.y} r={11} fill="rgba(236,72,153,0.2)" />
           </>
         )}
       </svg>

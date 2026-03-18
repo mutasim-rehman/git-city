@@ -28,8 +28,8 @@ export function CitySelector({ selected, onSelect, disabled }: Props) {
             className={`px-6 py-3 rounded-xl border text-sm font-semibold tracking-wide transition-all
               ${
                 active
-                  ? "bg-emerald-400 text-black border-emerald-300 shadow-[0_0_30px_rgba(52,211,153,0.9)]"
-                  : "bg-slate-900/70 text-emerald-100 border-emerald-500/50 hover:bg-slate-900 hover:border-emerald-200/80"
+                  ? "bg-pink-400 text-black border-pink-300 shadow-[0_0_30px_rgba(236,72,153,0.8)]"
+                  : "bg-slate-900/70 text-pink-100 border-purple-500/50 hover:bg-slate-900 hover:border-pink-200/80"
               }
               ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}
             `}

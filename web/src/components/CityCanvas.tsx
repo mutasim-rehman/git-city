@@ -17,6 +17,7 @@ import type { RoadNodeId } from "@/game/world/RoadGraph";
 import { aStar } from "@/game/routing/aStar";
 import { Minimap } from "@/game/ui/Minimap";
 import { NpcTraffic } from "@/game/ai/NpcTraffic";
+import { CAR_CONFIGS, DEFAULT_CAR_VARIANT, type CarVariant } from "@/game/content/cars";
 
 const EMERALD_THEME: CityTheme = {
   sky: [
@@ -581,6 +582,9 @@ function GreenSpaces({ rings }: { rings: GreenRing[] }) {
     metalness: 0.0,
   }), []);
 
+  const trunkGeom = useMemo(() => new THREE.CylinderGeometry(1, 1, 1, 8), []);
+  const leafGeom  = useMemo(() => new THREE.ConeGeometry(1, 1, 10, 3), []);
+
   const ringsData = useMemo(() => {
     const data: Array<{
       ring: GreenRing;
@@ -692,22 +696,16 @@ function GreenSpaces({ rings }: { rings: GreenRing[] }) {
       <group>
         <instancedMesh
           ref={trunkRef}
-          args={[undefined, undefined, count]}
-          material={treeTrunkMat}
+          args={[trunkGeom, treeTrunkMat, count]}
           castShadow
           receiveShadow
-        >
-          <cylinderGeometry args={[1, 1, 1, 8]} />
-        </instancedMesh>
+        />
         <instancedMesh
           ref={leafRef}
-          args={[undefined, undefined, count]}
-          material={treeLeafMat}
+          args={[leafGeom, treeLeafMat, count]}
           castShadow
           receiveShadow
-        >
-          <coneGeometry args={[1, 1, 10, 3]} />
-        </instancedMesh>
+        />
       </group>
     );
   }
@@ -1515,132 +1513,7 @@ function CameraFocus({
 //    eyeOffset     — camera height above ground (higher = taller viewpoint, lower = lower)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type CarVariant =
-  | "mr-bean"
-  | "batmobile"
-  | "harry-potter"
-  | "mc-queen"
-  | "Stradale 67"
-  | "ZIS 101A"
-  | "Beetle"
-  | "Ferrai SF23"
-  | "Wagon";
-
-export const DEFAULT_CAR_VARIANT: CarVariant = "mr-bean";
-
-interface CarConfig {
-  modelPath:     string;
-  scale:         number;
-  modelYaw:      number;
-  modelTilt:     number;
-  forwardOffset: number;
-  downOffset:    number;
-  sideOffset:    number;
-  speed:         number;
-  eyeOffset:     number;  // camera height above player ground (viewpoint height)
-}
-
-const CAR_CONFIGS: Record<CarVariant, CarConfig> = {
-  "mr-bean": {
-    modelPath:     "/models/car1.glb",
-    scale:         1.8,
-    modelYaw:      Math.PI / 2,
-    modelTilt:     0,
-    forwardOffset: 15,
-    downOffset:    0.5,
-    sideOffset:    0,
-    speed:         60,
-    eyeOffset:     4,
-  },
-  "batmobile": {
-    modelPath:     "/models/car2.glb",
-    scale:         1.2,
-    modelYaw:      Math.PI / 2,
-    modelTilt:     0,
-    forwardOffset: 50,
-    downOffset:    0.8,
-    sideOffset:    0,
-    speed:         110,
-    eyeOffset:     15.5,
-  },
-  "harry-potter": {
-    modelPath:     "/models/car4.glb",
-    scale:         1.0,
-    modelYaw:      3.5*Math.PI,
-    modelTilt:     0,
-    forwardOffset: 8,
-    downOffset:    0.6,
-    sideOffset:    0,
-    speed:         70,
-    eyeOffset:     2.2,
-  },
-  "mc-queen": {
-    modelPath:     "/models/car3.glb",
-    scale:         1.5,
-    modelYaw:      Math.PI / 1,
-    modelTilt:     0,
-    forwardOffset: 10,
-    downOffset:    1.5,
-    sideOffset:    0,
-    speed:         50,
-    eyeOffset:     1.8,
-  },
-  "Stradale 67": {
-    modelPath:     "/models/car_stradale.glb",
-    scale:         200.0,
-    modelYaw:      Math.PI,
-    modelTilt:     0,
-    forwardOffset: 10,
-    downOffset:    1.5,
-    sideOffset:    0,
-    speed:         50,
-    eyeOffset:     1.8,
-  },
-  "ZIS 101A": {
-    modelPath:     "/models/car_zis101.glb",
-    scale:         2.0,
-    modelYaw:      Math.PI / 1,
-    modelTilt:     0,
-    forwardOffset: 13,
-    downOffset:    1.5,
-    sideOffset:    0,
-    speed:         50,
-    eyeOffset:     1.8,
-  },
-  "Beetle": {
-    modelPath:     "/models/car_beetle.glb",
-    scale:         150.0,
-    modelYaw:      Math.PI / 1,
-    modelTilt:     0,
-    forwardOffset: 10,
-    downOffset:    1.5,
-    sideOffset:    0,
-    speed:         50,
-    eyeOffset:     1.8,
-  },
-  "Ferrai SF23": {
-    modelPath:     "/models/car_f1f.glb",
-    scale:         2.0,
-    modelYaw:      Math.PI / 1,
-    modelTilt:     0,
-    forwardOffset: 10,
-    downOffset:    1.5,
-    sideOffset:    0,
-    speed:         50,
-    eyeOffset:     1.8,
-  },
-  "Wagon": {
-    modelPath:     "/models/car_wagon.glb",
-    scale:         1.0,
-    modelYaw:      3 * Math.PI / 2,
-    modelTilt:     0,
-    forwardOffset: 10,
-    downOffset:    1.5,
-    sideOffset:    2,
-    speed:         50,
-    eyeOffset:     1.8,
-  },
-};
+export type { CarVariant };
 
 function StreetCar({
   carGroupRef,
@@ -1885,6 +1758,9 @@ interface CityCanvasProps {
   layoutResult: CityLayoutResult;
   focusUsername?: string | null;
   carVariant?: CarVariant;
+  startInStreetMode?: boolean;
+  /** When true, canvas fills the viewport (for fullscreen gameplay) */
+  fullHeight?: boolean;
 }
 
 export function CityCanvas({
@@ -1893,6 +1769,8 @@ export function CityCanvas({
   layoutResult,
   focusUsername,
   carVariant = DEFAULT_CAR_VARIANT,
+  startInStreetMode = false,
+  fullHeight = false,
 }: CityCanvasProps) {
   const theme = EMERALD_THEME;
   const ringRadii = layoutResult.ringRadii;
@@ -1912,7 +1790,7 @@ export function CityCanvas({
 
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const [hovered, setHovered] = useState<PositionedBuilding | null>(null);
-  const [streetMode, setStreetMode] = useState(false);
+  const [streetMode, setStreetMode] = useState(startInStreetMode);
   const [streetFocused, setStreetFocused] = useState<PositionedBuilding | null>(null);
   const instancedRef = useRef<THREE.InstancedMesh | null>(null);
 
@@ -2012,7 +1890,9 @@ export function CityCanvas({
   const cityOuterR = Math.max(ringRadii.ring3Outer, ringRadii.ring1Outer) + 60;
 
   return (
-    <div className="relative h-[560px] w-full overflow-hidden rounded-3xl border border-emerald-500/40 bg-gradient-to-br from-slate-900 via-slate-950 to-emerald-950 shadow-[0_0_60px_rgba(15,23,42,0.9)]">
+    <div
+      className={`relative w-full overflow-hidden border border-purple-500/40 bg-gradient-to-br from-slate-900 via-purple-950/30 to-pink-950/40 shadow-[0_0_60px_rgba(15,23,42,0.9)] ${fullHeight ? "min-h-0 flex-1 rounded-none" : "h-[560px] rounded-3xl"}`}
+    >
       <Canvas
         shadows
         camera={{ position: [800, 700, 1000], fov: 55, near: 1, far: 10000 }}
@@ -2125,7 +2005,7 @@ export function CityCanvas({
 
       {/* HUD */}
       <div className="pointer-events-none absolute inset-x-4 bottom-4 flex justify-center">
-        <div className="w-full max-w-md rounded-2xl border border-emerald-500/40 bg-black/70 px-4 py-3 text-xs text-emerald-50 shadow-[0_0_30px_rgba(16,185,129,0.5)] backdrop-blur-md">
+        <div className="w-full max-w-md rounded-2xl border border-purple-500/40 bg-black/70 px-4 py-3 text-xs text-slate-100 shadow-[0_0_30px_rgba(168,85,247,0.3)] backdrop-blur-md">
           <div className="flex justify-between gap-3">
             <div>
               {/*
@@ -2138,10 +2018,10 @@ export function CityCanvas({
                 if (active) {
                   return (
                     <>
-                      <p className="font-semibold text-emerald-200">
+                      <p className="font-semibold text-pink-200">
                         {active.username}
                       </p>
-                      <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-emerald-400/70">
+                      <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-purple-300/80">
                         Repos: {active.publicRepos.toLocaleString()} · Commits:{" "}
                         {active.lifetimeCommits.toLocaleString()}
                       </p>
@@ -2150,10 +2030,10 @@ export function CityCanvas({
                 }
                 return (
                   <>
-                    <p className="font-semibold text-emerald-200">
+                    <p className="font-semibold text-pink-200">
                       {`${city.toUpperCase()} · Git City`}
                     </p>
-                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-emerald-400/70">
+                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-purple-300/80">
                       {`${buildings.length.toLocaleString()} developers rendered as towers`}
                     </p>
                   </>
@@ -2167,8 +2047,8 @@ export function CityCanvas({
       {/* Navigation + minimap (street mode) */}
       {streetMode && (
         <div className="absolute right-4 top-4 z-30 flex flex-col items-end gap-3">
-          <div className="pointer-events-auto w-[280px] rounded-2xl border border-emerald-500/35 bg-black/70 px-3 py-3 backdrop-blur-md shadow-[0_0_30px_rgba(16,185,129,0.25)]">
-            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-emerald-300/80">
+          <div className="pointer-events-auto w-[280px] rounded-2xl border border-purple-500/35 bg-black/70 px-3 py-3 backdrop-blur-md shadow-[0_0_30px_rgba(168,85,247,0.25)]">
+            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-pink-300/90">
               Navigation
             </p>
             <div className="flex items-center gap-2">
@@ -2183,11 +2063,11 @@ export function CityCanvas({
                   if (target) computeRouteTo(target);
                 }}
                 placeholder="Type @username and press Enter"
-                className="h-9 flex-1 rounded-xl border border-emerald-500/25 bg-black/40 px-3 text-xs text-emerald-50 placeholder:text-emerald-400/40 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                className="h-9 flex-1 rounded-xl border border-purple-500/30 bg-black/40 px-3 text-xs text-slate-100 placeholder:text-purple-300/50 focus:outline-none focus:ring-2 focus:ring-pink-500/40"
               />
               <button
                 type="button"
-                className="h-9 rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-3 text-[11px] font-medium text-emerald-100 hover:bg-emerald-500/20"
+                className="h-9 rounded-xl border border-pink-500/40 bg-pink-500/15 px-3 text-[11px] font-medium text-slate-100 hover:bg-pink-500/25"
                 onClick={() => {
                   const needle = navQuery.trim().replace(/^@/, "").toLowerCase();
                   if (!needle) return;
@@ -2202,7 +2082,7 @@ export function CityCanvas({
             <div className="mt-2 flex items-center justify-between gap-2">
               <button
                 type="button"
-                className="rounded-xl border border-emerald-500/25 bg-black/30 px-2 py-1 text-[10px] font-mono uppercase tracking-[0.22em] text-emerald-200/80 hover:bg-emerald-500/10"
+                className="rounded-xl border border-purple-500/30 bg-black/30 px-2 py-1 text-[10px] font-mono uppercase tracking-[0.22em] text-pink-200/90 hover:bg-pink-500/15"
                 onClick={() => {
                   if (!buildings.length) return;
                   const idx = Math.floor((Math.abs(Math.sin(Date.now())) % 1) * buildings.length);
@@ -2217,7 +2097,7 @@ export function CityCanvas({
               </button>
               <button
                 type="button"
-                className="rounded-xl border border-emerald-500/25 bg-black/30 px-2 py-1 text-[10px] font-mono uppercase tracking-[0.22em] text-emerald-200/80 hover:bg-emerald-500/10"
+                className="rounded-xl border border-purple-500/30 bg-black/30 px-2 py-1 text-[10px] font-mono uppercase tracking-[0.22em] text-pink-200/90 hover:bg-pink-500/15"
                 onClick={() => setShowTuning((v) => !v)}
               >
                 {showTuning ? "Hide tuning" : "Tuning"}
@@ -2225,21 +2105,21 @@ export function CityCanvas({
             </div>
 
             {uiPose && (
-              <div className="mt-2 text-[11px] text-emerald-200/70">
-                Speed: <span className="font-semibold text-emerald-100">{Math.round(Math.abs(uiPose.speed))}</span>
+              <div className="mt-2 text-[11px] text-purple-200/80">
+                Speed: <span className="font-semibold text-sky-100">{Math.round(Math.abs(uiPose.speed))}</span>
               </div>
             )}
 
             {navTarget && (
-              <div className="mt-2 text-[11px] text-emerald-200/90">
-                Destination: <span className="font-semibold text-emerald-100">@{navTarget.username}</span>
+              <div className="mt-2 text-[11px] text-purple-200/90">
+                Destination: <span className="font-semibold text-pink-100">@{navTarget.username}</span>
                 {navRoute.length > 0 && (
-                  <span className="ml-2 text-emerald-400/70">
+                  <span className="ml-2 text-sky-300/80">
                     ({navRoute.length - 1} hops)
                   </span>
                 )}
                 {navHint && (
-                  <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-emerald-300/70">
+                  <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-pink-300/80">
                     {navHint.turn} · {Math.round(navHint.dist)}m
                   </div>
                 )}
@@ -2247,10 +2127,10 @@ export function CityCanvas({
             )}
 
             {showTuning && (
-              <div className="mt-3 space-y-2 rounded-xl border border-emerald-500/20 bg-black/30 p-2">
-                <div className="flex items-center justify-between gap-2 text-[10px] text-emerald-200/70">
+              <div className="mt-3 space-y-2 rounded-xl border border-purple-500/25 bg-black/30 p-2">
+                <div className="flex items-center justify-between gap-2 text-[10px] text-purple-200/80">
                   <span className="font-mono uppercase tracking-[0.22em]">Max speed</span>
-                  <span className="font-mono text-emerald-100">{Math.round(playerTuning.maxSpeed)}</span>
+                  <span className="font-mono text-sky-100">{Math.round(playerTuning.maxSpeed)}</span>
                 </div>
                 <input
                   type="range"
@@ -2258,12 +2138,12 @@ export function CityCanvas({
                   max={180}
                   value={playerTuning.maxSpeed}
                   onChange={(e) => setPlayerTuning((p) => ({ ...p, maxSpeed: Number(e.target.value) }))}
-                  className="w-full accent-emerald-500"
+                  className="w-full accent-pink-500"
                 />
 
-                <div className="flex items-center justify-between gap-2 text-[10px] text-emerald-200/70">
+                <div className="flex items-center justify-between gap-2 text-[10px] text-purple-200/80">
                   <span className="font-mono uppercase tracking-[0.22em]">Acceleration</span>
-                  <span className="font-mono text-emerald-100">{Math.round(playerTuning.accel)}</span>
+                  <span className="font-mono text-sky-100">{Math.round(playerTuning.accel)}</span>
                 </div>
                 <input
                   type="range"
@@ -2271,12 +2151,12 @@ export function CityCanvas({
                   max={120}
                   value={playerTuning.accel}
                   onChange={(e) => setPlayerTuning((p) => ({ ...p, accel: Number(e.target.value) }))}
-                  className="w-full accent-emerald-500"
+                  className="w-full accent-pink-500"
                 />
 
-                <div className="flex items-center justify-between gap-2 text-[10px] text-emerald-200/70">
+                <div className="flex items-center justify-between gap-2 text-[10px] text-purple-200/80">
                   <span className="font-mono uppercase tracking-[0.22em]">Grip</span>
-                  <span className="font-mono text-emerald-100">{playerTuning.grip.toFixed(2)}</span>
+                  <span className="font-mono text-sky-100">{playerTuning.grip.toFixed(2)}</span>
                 </div>
                 <input
                   type="range"
@@ -2285,13 +2165,13 @@ export function CityCanvas({
                   step={0.01}
                   value={playerTuning.grip}
                   onChange={(e) => setPlayerTuning((p) => ({ ...p, grip: Number(e.target.value) }))}
-                  className="w-full accent-emerald-500"
+                  className="w-full accent-pink-500"
                 />
               </div>
             )}
           </div>
 
-          <div className="rounded-3xl border border-emerald-500/30 bg-black/40 p-2 shadow-[0_0_35px_rgba(16,185,129,0.18)] backdrop-blur-md">
+          <div className="rounded-3xl border border-purple-500/35 bg-black/40 p-2 shadow-[0_0_35px_rgba(168,85,247,0.2)] backdrop-blur-md">
             <Minimap
               graph={roadGraph}
               playerXZ={uiPose ? { x: uiPose.x, z: uiPose.z } : null}
@@ -2305,7 +2185,7 @@ export function CityCanvas({
 
       {toast && (
         <div className="pointer-events-none absolute inset-x-4 top-4 z-40 flex justify-center">
-          <div className="rounded-full border border-emerald-500/35 bg-black/70 px-4 py-2 text-[11px] font-mono uppercase tracking-[0.25em] text-emerald-100 shadow-[0_0_25px_rgba(16,185,129,0.35)] backdrop-blur-md">
+          <div className="rounded-full border border-pink-500/40 bg-black/70 px-4 py-2 text-[11px] font-mono uppercase tracking-[0.25em] text-pink-100 shadow-[0_0_25px_rgba(236,72,153,0.4)] backdrop-blur-md">
             {toast}
           </div>
         </div>

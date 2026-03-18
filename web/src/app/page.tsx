@@ -1,288 +1,178 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CityId, PositionedBuilding } from "@/lib/types";
 import type { CityLayoutResult } from "@/lib/city/layout";
 import { loadCityCsv } from "@/lib/data/csvClient";
 import { mapCsvToBuildings } from "@/lib/city/scaling";
 import { computeCityLayout } from "@/lib/city/layout";
+import { loadAllAssets } from "@/lib/loadAssets";
 import { CitySelector } from "@/components/CitySelector";
 import { LoadingScreen } from "@/components/LoadingScreen";
-import { CityCanvas, type CarVariant } from "@/components/CityCanvas";
+import { CityCanvas } from "@/components/CityCanvas";
+import { CarShowroom } from "@/components/CarShowroom";
+import { DEFAULT_CAR_VARIANT, type CarVariant } from "@/game/content/cars";
 
-type Status = "idle" | "loading" | "ready";
+type Phase = "boot" | "carSelect" | "transition" | "play";
 
 export default function Home() {
-  const [selectedCity, setSelectedCity] = useState<CityId | null>(null);
-  const [status, setStatus] = useState<Status>("idle");
+  const [phase, setPhase] = useState<Phase>("boot");
+  const [selectedCity, setSelectedCity] = useState<CityId>("lahore");
   const [buildings, setBuildings] = useState<PositionedBuilding[]>([]);
   const [layoutResult, setLayoutResult] = useState<CityLayoutResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [focusedUsername, setFocusedUsername] = useState<string | null>(null);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const [showLeaderboard, setShowLeaderboard] = useState(false);
-  const [carVariant, setCarVariant] = useState<CarVariant>("mr-bean");
-
-  const carOptions: { id: CarVariant; label: string }[] = [
-    { id: "mr-bean", label: "Mr Bean" },
-    { id: "batmobile", label: "Batmobile" },
-    { id: "harry-potter", label: "Harry Potter" },
-    { id: "mc-queen", label: "Mc Queen" },
-    { id: "Stradale 67", label: "Stradale 67" },
-    { id: "ZIS 101A", label: "ZIS 101A" },
-    { id: "Beetle", label: "Beetle" },
-    { id: "Ferrai SF23", label: "Ferrari SF23" },
-    { id: "Wagon", label: "Wagon" },
-  ];
-
-  const isLoading = status === "loading";
+  const [carVariant, setCarVariant] = useState<CarVariant>(DEFAULT_CAR_VARIANT);
+  const [bootMessage, setBootMessage] = useState("Loading city data…");
+  const [bootProgress, setBootProgress] = useState(0);
+  const [fade, setFade] = useState<"none" | "out" | "in">("none");
 
   useEffect(() => {
     let canceled = false;
 
-    async function run(city: CityId) {
+    async function boot() {
       try {
-        setStatus("loading");
         setError(null);
-        setLayoutResult(null);
-        const csv = await loadCityCsv(city);
+        setBootMessage("Downloading city data…");
+        setBootProgress(5);
+
+        const csv = await loadCityCsv(selectedCity);
         if (canceled) return;
-        const mapped = mapCsvToBuildings(city, csv);
+        setBootMessage("Generating skyline and roads…");
+        setBootProgress(15);
+
+        const mapped = mapCsvToBuildings(selectedCity, csv);
         const layout = computeCityLayout(mapped);
         setBuildings(layout.buildings);
         setLayoutResult(layout);
-        setStatus("ready");
+        if (canceled) return;
+
+        setBootMessage("Loading 3D models…");
+        setBootProgress(20);
+
+        await loadAllAssets((p) => {
+          if (canceled) return;
+          setBootMessage(p.message);
+          setBootProgress(20 + (p.progress * 80) / 100);
+        });
+
+        if (canceled) return;
+        setBootMessage("Ready");
+        setBootProgress(100);
+        window.setTimeout(() => {
+          if (!canceled) setPhase("carSelect");
+        }, 300);
       } catch (err) {
         console.error(err);
-        if (!canceled) {
-          setError("Failed to load city data. Please try again.");
-          setStatus("idle");
-        }
+        if (!canceled) setError("Failed to load. Please try again.");
       }
     }
 
-    if (selectedCity) {
-      run(selectedCity);
-    }
-
+    if (phase === "boot") boot();
     return () => {
       canceled = true;
     };
-  }, [selectedCity]);
-
-  const heading = useMemo(() => {
-    if (!selectedCity) return "Choose a city to enter Git City.";
-    if (status === "loading") return "Assembling your skyline...";
-    return "Explore the developers of your city.";
-  }, [selectedCity, status]);
-
-  const showLoadingOverlay = isLoading && selectedCity !== null;
+  }, [phase, selectedCity]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4 py-10 font-sans text-slate-100">
-      <main className="relative w-full max-w-6xl overflow-hidden rounded-3xl border border-emerald-500/50 bg-black/60 p-6 shadow-[0_0_70px_rgba(16,185,129,0.4)] backdrop-blur-xl sm:p-10">
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-mono uppercase tracking-[0.4em] text-emerald-400/80">
-              Git City Prototype
-            </p>
-            <h1 className="mt-3 text-2xl font-semibold tracking-tight text-emerald-100 sm:text-3xl">
-              Your GitHub profile as a building.
-            </h1>
-            <p className="mt-2 max-w-xl text-sm text-emerald-100/80">
-              Each developer becomes a glowing tower. Width is based on public
-              repositories, height on lifetime commits.
-            </p>
-          </div>
-        </div>
-
-        <section className="mb-8">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm font-medium text-emerald-200/90">
-              Select a city:
-            </p>
-            <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-              <CitySelector
-                selected={selectedCity}
-                onSelect={(city) => {
-                  if (city !== selectedCity) {
-                    setSelectedCity(city);
-                    setFocusedUsername(null);
-                    setSearch("");
-                    setSearchError(null);
-                  }
-                }}
-                disabled={isLoading}
-              />
-              <div className="flex w-full max-w-xs items-center gap-2 rounded-full border border-emerald-500/40 bg-black/40 px-3 py-1.5 text-xs">
-                <input
-                  className="h-6 flex-1 bg-transparent text-emerald-50 placeholder:text-emerald-400/50 focus:outline-none"
-                  placeholder="Search username in this city…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      const query = search.trim().toLowerCase();
-                      if (!query || buildings.length === 0) {
-                        setFocusedUsername(null);
-                        setSearchError(null);
-                        return;
-                      }
-                      const match = buildings.find(
-                        (b) => b.username.toLowerCase() === query,
-                      );
-                      if (match) {
-                        setFocusedUsername(match.username);
-                        setSearchError(null);
-                      } else {
-                        setFocusedUsername(null);
-                        setSearchError("No matching user in this city.");
-                      }
-                    }
-                  }}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-100 shadow-[0_0_15px_rgba(16,185,129,0.45)] transition hover:bg-emerald-500/20 hover:text-emerald-50 disabled:opacity-40"
-                  disabled={!selectedCity || status !== "ready" || buildings.length === 0}
-                  onClick={() => setShowLeaderboard((v) => !v)}
-                >
-                  {showLeaderboard ? "Hide leaderboard" : "Show leaderboard"}
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-100 shadow-[0_0_15px_rgba(16,185,129,0.45)] transition hover:bg-emerald-500/20 hover:text-emerald-50 disabled:opacity-40"
-                  disabled={!selectedCity || status !== "ready" || buildings.length === 0}
-                  onClick={() => {
-                    if (typeof window === "undefined") return;
-                    window.dispatchEvent(new Event("gc-proto-street-toggle"));
-                  }}
-                >
-                  Street view (WASD)
-                </button>
-              </div>
-            </div>
-          </div>
-          {/* Car variant selector */}
-          <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-            <span className="mr-1 text-emerald-200/80">Street vehicle:</span>
-            {carOptions.map(({ id, label }) => (
-              <button
-                key={id}
-                type="button"
-                className={`rounded-full border px-2 py-1 font-mono ${
-                  carVariant === id
-                    ? "border-emerald-400 bg-emerald-500/20 text-emerald-50"
-                    : "border-emerald-500/40 bg-black/30 text-emerald-200/80"
-                }`}
-                onClick={() => setCarVariant(id)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <p className="mt-4 text-xs text-emerald-100/70">{heading}</p>
-          {error && (
-            <p className="mt-2 text-xs text-red-400/90">{error}</p>
-          )}
-          {!error && searchError && (
-            <p className="mt-2 text-xs text-amber-300/90">{searchError}</p>
-          )}
-        </section>
-
-        <section>
-          {selectedCity && status === "ready" && buildings.length > 0 && layoutResult ? (
-            <CityCanvas
-              city={selectedCity}
-              buildings={buildings}
-              layoutResult={layoutResult}
-              focusUsername={focusedUsername}
-              carVariant={carVariant}
-            />
-          ) : (
-            <div className="flex h-[340px] items-center justify-center rounded-2xl border border-emerald-500/40 bg-black/40">
-              <p className="text-xs text-emerald-200/80">
-                {selectedCity
-                  ? "Loading city data..."
-                  : "Pick Lahore, Karachi, or Islamabad to generate the skyline."}
-              </p>
-            </div>
-          )}
-        </section>
-
-        {selectedCity && status === "ready" && buildings.length > 0 && showLeaderboard && (
-          <section className="mt-6">
-            <div className="max-h-80 overflow-y-auto rounded-2xl border border-emerald-500/30 bg-black/60 px-4 py-3 text-xs shadow-[0_0_35px_rgba(16,185,129,0.4)]">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-300/90">
-                  {selectedCity.toUpperCase()} Leaderboard
-                </p>
-                <p className="text-[10px] text-emerald-200/70">
-                  Sorted by lifetime commits (top 100)
-                </p>
-              </div>
-              <div className="grid grid-cols-[auto,1fr,auto,auto] gap-x-3 border-b border-emerald-500/30 pb-1.5 text-[10px] text-emerald-300/80">
-                <span>#</span>
-                <span>User</span>
-                <span className="text-right">Repos</span>
-                <span className="text-right">Commits</span>
-              </div>
-              <ul className="mt-1 space-y-0.5">
-                {buildings
-                  .slice()
-                  .sort(
-                    (a, b) => b.lifetimeCommits - a.lifetimeCommits || b.publicRepos - a.publicRepos,
-                  )
-                  .slice(0, 100)
-                  .map((b, idx) => {
-                    const isFocused =
-                      focusedUsername &&
-                      b.username.toLowerCase() === focusedUsername.toLowerCase();
-                    return (
-                      <li
-                        key={b.id}
-                        className={`grid cursor-pointer grid-cols-[auto,1fr,auto,auto] items-center gap-x-3 rounded-xl px-2 py-1 transition hover:bg-emerald-500/10 ${
-                          isFocused ? "bg-emerald-500/15 text-emerald-50" : ""
-                        }`}
-                        onClick={() => {
-                          setFocusedUsername(b.username);
-                          setSearch(b.username);
-                          setSearchError(null);
-                        }}
-                      >
-                        <span className="text-[10px] text-emerald-400/80">
-                          {idx + 1}
-                        </span>
-                        <span className="truncate text-[11px] font-medium">
-                          {b.username}
-                        </span>
-                        <span className="text-right text-[10px] text-emerald-200/80">
-                          {b.publicRepos.toLocaleString()}
-                        </span>
-                        <span className="text-right text-[10px] text-emerald-200/80">
-                          {b.lifetimeCommits.toLocaleString()}
-                        </span>
-                      </li>
-                    );
-                  })}
-              </ul>
-            </div>
-          </section>
-        )}
-
-        {showLoadingOverlay && (
+    <div className="min-h-screen font-sans text-slate-100">
+      {/* Phase: boot */}
+      {phase === "boot" && (
+        <>
+          <div className="min-h-screen bg-black" />
           <LoadingScreen
-            message={
-              selectedCity
-                ? `Gathering developers from ${selectedCity.toUpperCase()}...`
-                : undefined
-            }
+            title="Booting Git City"
+            message={error ?? bootMessage}
+            progress={bootProgress}
           />
-        )}
-      </main>
+        </>
+      )}
+
+      {/* Phase: car selection */}
+      {phase === "carSelect" && layoutResult && buildings.length > 0 && (
+        <div className="flex min-h-screen items-center justify-center px-4 py-10">
+          <main className="relative w-full max-w-6xl">
+            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-[10px] font-mono uppercase tracking-[0.45em] text-pink-400/80">
+                  Git City
+                </p>
+                <p className="mt-2 text-sm text-slate-100/80">
+                  Pick your car. Pick your map. Then drive.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl border border-purple-500/30 bg-black/40 px-4 py-3 backdrop-blur-md">
+                  <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-purple-300/80">
+                    Map
+                  </p>
+                  <div className="mt-2">
+                    <CitySelector
+                      selected={selectedCity}
+                      onSelect={(city) => {
+                        setSelectedCity(city);
+                        setPhase("boot");
+                      }}
+                      disabled={false}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <CarShowroom
+              initialCar={carVariant}
+              cityLabel={selectedCity.toUpperCase()}
+              onStart={(car) => {
+                setCarVariant(car);
+                setFade("out");
+                setPhase("transition");
+                // Fullscreen request during user gesture
+                try {
+                  document.documentElement.requestFullscreen?.();
+                } catch {
+                  // ignore
+                }
+                window.setTimeout(() => {
+                  setPhase("play");
+                  setFade("in");
+                  window.setTimeout(() => setFade("none"), 650);
+                }, 650);
+              }}
+            />
+          </main>
+        </div>
+      )}
+
+      {/* Phase: transition */}
+      {phase === "transition" && (
+        <div className="min-h-screen bg-black" />
+      )}
+
+      {/* Phase: gameplay fullscreen */}
+      {phase === "play" && layoutResult && buildings.length > 0 && (
+        <div className="fixed inset-0 z-10 flex flex-col bg-black">
+          <CityCanvas
+            city={selectedCity}
+            buildings={buildings}
+            layoutResult={layoutResult}
+            carVariant={carVariant}
+            startInStreetMode
+            fullHeight
+          />
+        </div>
+      )}
+
+      {/* Cinematic fade overlay */}
+      {fade !== "none" && (
+        <div
+          className="pointer-events-none fixed inset-0 z-50"
+          style={{
+            background: "radial-gradient(circle at 50% 45%, rgba(236,72,153,0.15), rgba(168,85,247,0.08) 40%, rgba(0,0,0,0.95) 70%, rgba(0,0,0,1) 100%)",
+            opacity: fade === "out" ? 1 : 0,
+            transition: "opacity 650ms cubic-bezier(0.2, 0.9, 0.2, 1)",
+          }}
+        />
+      )}
     </div>
   );
 }
