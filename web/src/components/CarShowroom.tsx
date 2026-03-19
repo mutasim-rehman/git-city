@@ -1,8 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
-import { useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Html, Environment, useGLTF, useProgress } from "@react-three/drei";
 import * as THREE from "three";
 import type { CarVariant } from "@/game/content/cars";
@@ -30,9 +29,11 @@ function CarModel({ variant, scaleMul = 1 }: { variant: CarVariant; scaleMul?: n
 
 function Turntable({ children, speed = 0.35 }: { children: React.ReactNode; speed?: number }) {
   const ref = React.useRef<THREE.Group>(null);
+  const { invalidate } = useThree();
   useFrame((_, dt) => {
     if (!ref.current) return;
     ref.current.rotation.y += dt * speed;
+    invalidate();
   });
   return <group ref={ref}>{children}</group>;
 }
@@ -353,7 +354,11 @@ export function CarShowroom({
 
   return (
     <div className="relative h-[100dvh] w-[100dvw] overflow-hidden bg-black">
-      <Canvas shadows camera={{ position: cameraPos, fov: cameraFov, near: 0.1, far: 250 }}>
+      <Canvas
+        shadows
+        frameloop="demand"
+        camera={{ position: cameraPos, fov: cameraFov, near: 0.1, far: 250 }}
+      >
         <React.Suspense
           fallback={
             <Html center>

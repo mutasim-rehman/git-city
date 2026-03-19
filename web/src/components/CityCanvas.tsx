@@ -1540,6 +1540,8 @@ function StreetView({
   onVehiclePose,
   roadGraph,
   playerTuning,
+  npcMaxCars,
+  viewRadius,
 }: {
   onExit: () => void;
   focusBuilding: PositionedBuilding | null;
@@ -1547,6 +1549,8 @@ function StreetView({
   onVehiclePose: (pose: { x: number; z: number; yaw: number; speed: number }) => void;
   roadGraph: ReturnType<typeof createPolarRoadGraph>;
   playerTuning: { maxSpeed: number; accel: number; grip: number };
+  npcMaxCars: number;
+  viewRadius: number;
 }) {
   const { camera } = useThree();
 
@@ -1593,7 +1597,7 @@ function StreetView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spawnConfig.pos.x, spawnConfig.pos.z, spawnConfig.yaw, carVariant]);
 
-  const npcTraffic = useMemo(() => new NpcTraffic(roadGraph, 12), [roadGraph]);
+  const npcTraffic = useMemo(() => new NpcTraffic(roadGraph, npcMaxCars), [roadGraph, npcMaxCars]);
   const npcMeshRef = useRef<THREE.InstancedMesh | null>(null);
   const tmpObj = useMemo(() => new THREE.Object3D(), []);
 
@@ -1627,6 +1631,8 @@ function StreetView({
   const tmpForward = useRef(new THREE.Vector3());
   const tmpDesired = useRef(new THREE.Vector3());
   const tmpToTarget = useRef(new THREE.Vector3());
+
+  const maxNpcDist2 = viewRadius * viewRadius;
 
   useFrame((_, delta) => {
     const snapshot = game.update(delta, (fixedDt) => {
@@ -1678,14 +1684,20 @@ function StreetView({
     if (m) {
       const cars = npcTraffic.getCars();
       const count = Math.min(m.count, cars.length);
+      let visibleIdx = 0;
       for (let i = 0; i < count; i++) {
         const c = cars[i].vehicle;
+        const dx = c.position.x - v.position.x;
+        const dz = c.position.z - v.position.z;
+        if (dx * dx + dz * dz > maxNpcDist2) continue;
         tmpObj.position.set(c.position.x, c.position.y - 0.6, c.position.z);
         tmpObj.rotation.set(0, c.yaw, 0);
         tmpObj.scale.set(3.2, 1.4, 6.0);
         tmpObj.updateMatrix();
-        m.setMatrixAt(i, tmpObj.matrix);
+        m.setMatrixAt(visibleIdx, tmpObj.matrix);
+        visibleIdx++;
       }
+      m.count = visibleIdx;
       m.instanceMatrix.needsUpdate = true;
     }
   });
@@ -1699,6 +1711,45 @@ function StreetView({
       </instancedMesh>
     </group>
   );
+}
+
+// ─── Performance sampler ──────────────────────────────────────────────────────
+
+type PerfSample = {
+  fps: number;
+  drawCalls: number;
+  triangles: number;
+};
+
+function PerfCollector({
+  enabled,
+  onSample,
+}: {
+  enabled: boolean;
+  onSample: (sample: PerfSample) => void;
+}) {
+  const { gl } = useThree();
+  const frameCount = useRef(0);
+  const accTime = useRef(0);
+
+  useFrame((_, delta) => {
+    if (!enabled) return;
+    frameCount.current += 1;
+    accTime.current += delta;
+    if (accTime.current >= 0.5) {
+      const fps = frameCount.current / accTime.current;
+      const info = gl.info;
+      onSample({
+        fps: Math.round(fps),
+        drawCalls: info.render.calls,
+        triangles: info.render.triangles,
+      });
+      frameCount.current = 0;
+      accTime.current = 0;
+    }
+  });
+
+  return null;
 }
 
 // ─── Street Target Tracker ─────────────────────────────────────────────────────
@@ -1809,6 +1860,50 @@ export function CityCanvas({
   });
   const arrivalLatchRef = useRef<string | null>(null);
 
+  type QualityLevel = "low" | "medium" | "high";
+  const [quality, setQuality] = useState<QualityLevel>("high");
+
+  const qualityConfig = useMemo(() => {
+    switch (quality) {
+      case "low":
+        return {
+          npcMaxCars: 6,
+          npcViewRadius: 700,
+          shadowMapSize: 512,
+          cameraFar: 4200,
+        };
+      case "medium":
+        return {
+          npcMaxCars: 10,
+          npcViewRadius: 950,
+          shadowMapSize: 1024,
+          cameraFar: 6000,
+        };
+      case "high":
+      default:
+        return {
+          npcMaxCars: 16,
+          npcViewRadius: 1200,
+          shadowMapSize: 2048,
+          cameraFar: 8000,
+        };
+    }
+  }, [quality]);
+
+  // Lightweight performance sampling for debug overlay (toggled with F3)
+  const [perfSample, setPerfSample] = useState<PerfSample | null>(null);
+  const [showPerf, setShowPerf] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "F3") {
+        setShowPerf((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   useEffect(() => {
     if (!streetMode) return;
     const id = window.setInterval(() => {
@@ -1895,26 +1990,26 @@ export function CityCanvas({
     >
       <Canvas
         shadows
-        camera={{ position: [800, 700, 1000], fov: 55, near: 1, far: 10000 }}
+        camera={{ position: [800, 700, 1000], fov: 55, near: 1, far: qualityConfig.cameraFar }}
       >
         <color attach="background" args={["#020c1b"]} />
         <fog attach="fog" args={[theme.fogColor, theme.fogNear, theme.fogFar]} />
 
         {/* Lights */}
-        <ambientLight intensity={theme.ambientIntensity * 1.3} color={theme.ambientColor} />
+        <ambientLight intensity={theme.ambientIntensity * 1.1} color={theme.ambientColor} />
         <directionalLight
           position={theme.sunPos}
-          intensity={theme.sunIntensity * 3.2}
+          intensity={theme.sunIntensity * 2.4}
           color={theme.sunColor}
           castShadow
-          shadow-mapSize-width={2048}
-          shadow-mapSize-height={2048}
+          shadow-mapSize-width={qualityConfig.shadowMapSize}
+          shadow-mapSize-height={qualityConfig.shadowMapSize}
           shadow-camera-near={50}
-          shadow-camera-far={4000}
-          shadow-camera-left={-2200}
-          shadow-camera-right={2200}
-          shadow-camera-top={2200}
-          shadow-camera-bottom={-2200}
+          shadow-camera-far={3200}
+          shadow-camera-left={-1800}
+          shadow-camera-right={1800}
+          shadow-camera-top={1800}
+          shadow-camera-bottom={-1800}
         />
         <directionalLight position={theme.fillPos} intensity={theme.fillIntensity * 1.8} color={theme.fillColor} />
         <hemisphereLight args={[theme.hemiSky, theme.hemiGround, theme.hemiIntensity * 2.8]} />
@@ -1992,6 +2087,8 @@ export function CityCanvas({
               }}
               roadGraph={roadGraph}
               playerTuning={playerTuning}
+              npcMaxCars={qualityConfig.npcMaxCars}
+              viewRadius={qualityConfig.npcViewRadius}
             />
             <StreetTargetTracker
               enabled={streetMode}
@@ -2001,7 +2098,29 @@ export function CityCanvas({
             />
           </>
         )}
+
+        <PerfCollector enabled={showPerf} onSample={setPerfSample} />
       </Canvas>
+
+      {showPerf && perfSample && (
+        <div className="pointer-events-none absolute left-4 top-4 z-40 rounded-xl border border-emerald-400/40 bg-black/80 px-3 py-2 text-[10px] font-mono text-emerald-100 shadow-[0_0_24px_rgba(16,185,129,0.45)] backdrop-blur">
+          <div className="flex items-baseline gap-2">
+            <span className="text-[9px] uppercase tracking-[0.25em] text-emerald-300/80">
+              Perf
+            </span>
+            <span className="text-xs font-semibold text-emerald-100">
+              {perfSample.fps} fps
+            </span>
+          </div>
+          <div className="mt-1 flex gap-3">
+            <span>draws {perfSample.drawCalls}</span>
+            <span>tris {Math.round(perfSample.triangles / 1000)}k</span>
+          </div>
+          <div className="mt-1 text-[9px] text-emerald-300/70">
+            Toggle with F3
+          </div>
+        </div>
+      )}
 
       {/* HUD */}
       <div className="pointer-events-none absolute inset-x-4 bottom-4 flex justify-center">
@@ -2102,6 +2221,15 @@ export function CityCanvas({
               >
                 {showTuning ? "Hide tuning" : "Tuning"}
               </button>
+              <select
+                value={quality}
+                onChange={(e) => setQuality(e.target.value as typeof quality)}
+                className="h-8 rounded-xl border border-purple-500/40 bg-black/40 px-2 text-[10px] font-mono uppercase tracking-[0.18em] text-purple-200/90"
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
             </div>
 
             {uiPose && (
