@@ -2,6 +2,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { CAR_CONFIGS, CAR_VARIANTS } from "@/game/content/cars";
 
 const MONUMENT_PATH = "/models/v-cruiser.glb";
+const MOON_PATH = "/models/moon.glb";
 
 export type LoadProgress = {
   phase: "city" | "models";
@@ -18,7 +19,7 @@ export async function loadAllAssets(
 ): Promise<void> {
   const loader = new GLTFLoader();
   const carPaths = CAR_VARIANTS.map((v) => CAR_CONFIGS[v].modelPath);
-  const allPaths = [...carPaths, MONUMENT_PATH];
+  const allPaths = [...carPaths, MONUMENT_PATH, MOON_PATH];
   const total = allPaths.length;
   let loaded = 0;
 

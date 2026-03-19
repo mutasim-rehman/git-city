@@ -19,41 +19,49 @@ import { Minimap } from "@/game/ui/Minimap";
 import { NpcTraffic } from "@/game/ai/NpcTraffic";
 import { CAR_CONFIGS, DEFAULT_CAR_VARIANT, type CarVariant } from "@/game/content/cars";
 
+function lerpAngle(a: number, b: number, t: number): number {
+  const twoPi = Math.PI * 2;
+  const diff = ((b - a + Math.PI) % twoPi) - Math.PI;
+  return a + diff * t;
+}
+
 const EMERALD_THEME: CityTheme = {
+  // Sunset / dusk palette (still keeping your neon/pink vibe)
   sky: [
-    [0, "#020c1b"],
-    [0.15, "#0a1628"],
-    [0.35, "#0f2d4a"],
-    [0.55, "#1a5276"],
-    [0.75, "#2e86ab"],
-    [0.88, "#74c0e0"],
-    [1, "#c8eaf5"],
+    [0, "#05010f"],
+    [0.12, "#120523"],
+    [0.28, "#2a0a3d"],
+    [0.45, "#5b146a"],
+    [0.62, "#a21caf"],
+    [0.78, "#ff7a18"],
+    [0.9, "#fbbf24"],
+    [1, "#ffe4b5"],
   ],
-  fogColor: "#0d2233",
-  fogNear: 600,
-  fogFar: 5000,
-  ambientColor: "#b0d4f0",
-  ambientIntensity: 0.55,
-  sunColor: "#ffe5b0",
-  sunIntensity: 1.6,
-  sunPos: [800, 2400, -600],
-  fillColor: "#4da6d9",
-  fillIntensity: 0.45,
+  fogColor: "#2a0f3a",
+  fogNear: 520,
+  fogFar: 4200,
+  ambientColor: "#ffb4c8",
+  ambientIntensity: 0.5,
+  sunColor: "#ffd08a",
+  sunIntensity: 1.45,
+  sunPos: [1200, 1600, -900],
+  fillColor: "#7dd3fc",
+  fillIntensity: 0.28,
   fillPos: [-300, 120, 280],
-  hemiSky: "#4da6d9",
-  hemiGround: "#0b2416",
-  hemiIntensity: 0.65,
-  groundColor: "#0b2f26",
-  grid1: "#0d1a12",
-  grid2: "#d1d5db",
+  hemiSky: "#ff77b7",
+  hemiGround: "#2a0f2f",
+  hemiIntensity: 0.6,
+  groundColor: "#0b1b2a",
+  grid1: "#120c1a",
+  grid2: "#facc15",
   roadMarkingColor: "#e5e7eb",
-  sidewalkColor: "#6b7280",
+  sidewalkColor: "#6b6f7a",
   building: {
-    windowLit: ["#0e4429", "#006d32", "#26a641", "#39d353", "#c8e64a"],
+    windowLit: ["#ff7a18", "#ec4899", "#a855f7", "#7dd3fc", "#ffe4b5"],
     windowOff: "#111827",
     face: "#4b5563",
     roof: "#374151",
-    accent: "#facc15",
+    accent: "#ec4899",
   },
 };
 
@@ -834,6 +842,44 @@ function Monument() {
   );
 }
 
+// ─── Moon (whimsical, tinted) ───────────────────────────────────────────────
+
+function Moon({ position }: { position: [number, number, number] }) {
+  const gltf = useGLTF("/models/moon.glb");
+
+  // Clone so material overrides do not pollute the shared GLTF cache
+  const scene = useMemo(() => gltf.scene.clone(true), [gltf.scene]);
+
+  useMemo(() => {
+    const pink = new THREE.Color("#ec4899");
+    scene.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mat of mats) {
+        if (!mat) continue;
+        const m = mat as THREE.MeshStandardMaterial;
+        // Slightly tint existing moon materials instead of replacing them entirely.
+        if ((m as any).color && typeof (m as any).color.lerp === "function") {
+          m.color.lerp(pink, 0.28);
+        } else {
+          m.color = pink;
+        }
+        m.emissive = pink;
+        m.emissiveIntensity = 0.28;
+        m.needsUpdate = true;
+      }
+    });
+  }, [scene]);
+
+  // Intentionally no shadowing; moon is purely visual.
+  return <primitive object={scene} position={position} scale={1.0} />;
+}
+
 // ─── River ────────────────────────────────────────────────────────────────────
 //  A wedge-shaped water body occupying the river gap sector, radiating outward.
 
@@ -1542,6 +1588,7 @@ function StreetView({
   playerTuning,
   npcMaxCars,
   viewRadius,
+  moonPosition,
 }: {
   onExit: () => void;
   focusBuilding: PositionedBuilding | null;
@@ -1551,6 +1598,7 @@ function StreetView({
   playerTuning: { maxSpeed: number; accel: number; grip: number };
   npcMaxCars: number;
   viewRadius: number;
+  moonPosition: [number, number, number];
 }) {
   const { camera } = useThree();
 
@@ -1570,14 +1618,18 @@ function StreetView({
         bz + dir.z * -18 + right.z * 10,
       );
       const toBuilding = buildingPos.clone().sub(spawnPos).normalize();
-      const yaw = Math.atan2(-toBuilding.x, -toBuilding.z);
+      // Always face the moon for a consistent “story” direction.
+      const toMoon = new THREE.Vector3(moonPosition[0] - spawnPos.x, 0, moonPosition[2] - spawnPos.z).normalize();
+      const yaw = toMoon.lengthSq() > 1e-6 ? Math.atan2(-toMoon.x, -toMoon.z) : Math.atan2(-toBuilding.x, -toBuilding.z);
       return { pos: spawnPos, yaw };
     }
 
     const spawnR = PLAZA_RADIUS + 40;
     const spawnPos = new THREE.Vector3(spawnR, 1.5, 0);
-    return { pos: spawnPos, yaw: Math.PI };
-  }, [focusBuilding]);
+    const toMoon = new THREE.Vector3(moonPosition[0] - spawnPos.x, 0, moonPosition[2] - spawnPos.z).normalize();
+    const yaw = toMoon.lengthSq() > 1e-6 ? Math.atan2(-toMoon.x, -toMoon.z) : Math.PI;
+    return { pos: spawnPos, yaw };
+  }, [focusBuilding, moonPosition]);
 
   // Separate ref for the car group — positioned and rotated every frame
   const carRef = useRef<THREE.Group | null>(null);
@@ -1628,6 +1680,9 @@ function StreetView({
   // Camera spring state (world space)
   const camPos = useRef(new THREE.Vector3(spawnConfig.pos.x, spawnConfig.pos.y + cfg.eyeOffset + 10, spawnConfig.pos.z + 30));
   const camVel = useRef(new THREE.Vector3());
+  // Smooth camera target (reduces perceived shake from fast steering / physics jitter)
+  const targetPosSmoothed = useRef(new THREE.Vector3(spawnConfig.pos.x, spawnConfig.pos.y, spawnConfig.pos.z));
+  const targetYawSmoothed = useRef(spawnConfig.yaw);
   const tmpForward = useRef(new THREE.Vector3());
   const tmpDesired = useRef(new THREE.Vector3());
   const tmpToTarget = useRef(new THREE.Vector3());
@@ -1650,15 +1705,22 @@ function StreetView({
     }
 
     // Chase camera (spring-damper) behind the car
-    const forward = tmpForward.current.set(-Math.sin(v.yaw), 0, -Math.cos(v.yaw)).normalize();
+    const smoothAlpha = 1 - Math.exp(-delta * 6);
+    targetPosSmoothed.current.lerp(v.position, smoothAlpha);
+    targetYawSmoothed.current = lerpAngle(targetYawSmoothed.current, v.yaw, smoothAlpha);
+
+    const forward = tmpForward.current
+      .set(-Math.sin(targetYawSmoothed.current), 0, -Math.cos(targetYawSmoothed.current))
+      .normalize();
     const desired = tmpDesired.current
-      .copy(v.position)
+      .copy(targetPosSmoothed.current)
       .addScaledVector(forward, -Math.max(18, cfg.forwardOffset * 0.6));
     desired.y += cfg.eyeOffset + 10;
 
     // critically damped-ish spring
-    const k = 18;
-    const c = 2 * Math.sqrt(k);
+    const k = 14;
+    // Slightly overdamp to avoid “shaky” oscillation
+    const c = 2.2 * Math.sqrt(k);
     const x = camPos.current;
     const xd = camVel.current;
     const toTarget = tmpToTarget.current.copy(desired).sub(x);
@@ -1984,6 +2046,17 @@ export function CityCanvas({
   // Outer radius used for river and road extent
   const cityOuterR = Math.max(ringRadii.ring3Outer, ringRadii.ring1Outer) + 60;
 
+  // Moon direction: place it above mountains facing the “empty wedge” (river gap sector).
+  const moonPosition = useMemo((): [number, number, number] => {
+    // Keep it a bit outside the city so it reads as sky-object, not a mountain prop.
+    const moonR = cityOuterR + 1450;
+    const moonAngle = RIVER_CENTER + 0.12; // slight offset from the wedge center
+    const moonX = Math.cos(moonAngle) * moonR;
+    const moonZ = Math.sin(moonAngle) * moonR;
+    const moonY = 1550;
+    return [moonX, moonY, moonZ];
+  }, [cityOuterR]);
+
   return (
     <div
       className={`relative w-full overflow-hidden border border-purple-500/40 bg-gradient-to-br from-slate-900 via-purple-950/30 to-pink-950/40 shadow-[0_0_60px_rgba(15,23,42,0.9)] ${fullHeight ? "min-h-0 flex-1 rounded-none" : "h-[560px] rounded-3xl"}`}
@@ -2017,6 +2090,8 @@ export function CityCanvas({
         {/* Sky & atmosphere */}
         <SkyDome stops={theme.sky} />
         <Stars />
+
+        <Moon position={moonPosition} />
 
         {/* Sun disc */}
         <mesh position={theme.sunPos as [number, number, number]}>
@@ -2089,6 +2164,7 @@ export function CityCanvas({
               playerTuning={playerTuning}
               npcMaxCars={qualityConfig.npcMaxCars}
               viewRadius={qualityConfig.npcViewRadius}
+              moonPosition={moonPosition}
             />
             <StreetTargetTracker
               enabled={streetMode}
