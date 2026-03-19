@@ -877,7 +877,7 @@ function Moon({ position }: { position: [number, number, number] }) {
   }, [scene]);
 
   // Intentionally no shadowing; moon is purely visual.
-  return <primitive object={scene} position={position} scale={1.0} />;
+  return <primitive object={scene} position={position} scale={1000.0} />;
 }
 
 // ─── River ────────────────────────────────────────────────────────────────────
@@ -1495,7 +1495,7 @@ function CameraFocus({
   focusPosition: [number, number, number] | null;
   controlsRef: RefObject<OrbitControlsImpl | null>;
 }) {
-  const { camera } = useThree();
+  const { camera, gl } = useThree();
   const currentTarget = useRef<THREE.Vector3 | null>(null);
   const target = useRef<THREE.Vector3 | null>(null);
 
@@ -1600,7 +1600,7 @@ function StreetView({
   viewRadius: number;
   moonPosition: [number, number, number];
 }) {
-  const { camera } = useThree();
+  const { camera, gl } = useThree();
 
   const spawnConfig = useMemo(() => {
     if (focusBuilding) {
@@ -1680,10 +1680,146 @@ function StreetView({
   // Camera spring state (world space)
   const camPos = useRef(new THREE.Vector3(spawnConfig.pos.x, spawnConfig.pos.y + cfg.eyeOffset + 10, spawnConfig.pos.z + 30));
   const camVel = useRef(new THREE.Vector3());
+
+  // Orbit-style driving camera: mouse controls yaw/pitch around the car.
+  const baseOrbitPitch = 0.24;
+  const minOrbitPitch = -0.32;
+  const maxOrbitPitch = 1.02;
+  const lookYawTarget = useRef(0);
+  const lookPitchTarget = useRef(0);
+  const zoomTarget = useRef(1);
+  const lookYaw = useRef(0);
+  const lookPitch = useRef(0);
+  const zoom = useRef(1);
+  const draggingRef = useRef(false);
+  const lastPointerRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const pointerLockedRef = useRef(false);
+  const lastLookInputAt = useRef(typeof performance !== "undefined" ? performance.now() : 0);
+
+  useEffect(() => {
+    const el = gl.domElement;
+    const maxPitchOffset = maxOrbitPitch - baseOrbitPitch;
+    const minPitchOffset = minOrbitPitch - baseOrbitPitch;
+
+    const markLookInput = () => {
+      lastLookInputAt.current = performance.now();
+    };
+
+    const applyLookDelta = (dx: number, dy: number) => {
+      markLookInput();
+      // Normal third-person feel: moving right looks right, moving up looks skyward.
+      lookYawTarget.current -= dx * 0.0046;
+      lookPitchTarget.current += dy * 0.0032;
+      lookPitchTarget.current = THREE.MathUtils.clamp(lookPitchTarget.current, minPitchOffset, maxPitchOffset);
+    };
+
+    const onPointerLockChange = () => {
+      pointerLockedRef.current = document.pointerLockElement === el;
+      if (!pointerLockedRef.current) draggingRef.current = false;
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      draggingRef.current = true;
+      lastPointerRef.current.x = e.clientX;
+      lastPointerRef.current.y = e.clientY;
+      if (e.pointerType === "mouse" && document.pointerLockElement !== el && typeof el.requestPointerLock === "function") {
+        try {
+          el.requestPointerLock();
+        } catch {
+          // ignore and keep drag fallback
+        }
+      }
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {
+        // ignore (some browsers)
+      }
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (pointerLockedRef.current) {
+        applyLookDelta(e.movementX, e.movementY);
+        return;
+      }
+      if (!draggingRef.current) return;
+      const dx = e.clientX - lastPointerRef.current.x;
+      const dy = e.clientY - lastPointerRef.current.y;
+      lastPointerRef.current.x = e.clientX;
+      lastPointerRef.current.y = e.clientY;
+      applyLookDelta(dx, dy);
+    };
+
+    const endDrag = () => {
+      draggingRef.current = false;
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const factor = 1 - e.deltaY * 0.0012;
+      const next = zoomTarget.current * factor;
+      zoomTarget.current = Math.max(0.7, Math.min(1.35, next));
+    };
+
+    el.addEventListener("pointerdown", onPointerDown);
+    el.addEventListener("pointermove", onPointerMove);
+    el.addEventListener("pointerup", endDrag);
+    el.addEventListener("pointercancel", endDrag);
+    window.addEventListener("blur", endDrag);
+    document.addEventListener("pointerlockchange", onPointerLockChange);
+    el.addEventListener("wheel", onWheel, { passive: false } as AddEventListenerOptions);
+
+    return () => {
+      el.removeEventListener("pointerdown", onPointerDown);
+      el.removeEventListener("pointermove", onPointerMove);
+      el.removeEventListener("pointerup", endDrag);
+      el.removeEventListener("pointercancel", endDrag);
+      window.removeEventListener("blur", endDrag);
+      document.removeEventListener("pointerlockchange", onPointerLockChange);
+      el.removeEventListener("wheel", onWheel as any);
+    };
+  }, [gl]);
+
+  // Classic driving-camera distance cycle (V key).
+  // 0 → Far (default), 1 → Medium, 2 → Close, 3 → Reset back to original Far.
+  useEffect(() => {
+    const camZoomFar = 1.0;
+    const camZoomMedium = 0.85;
+    const camZoomClose = 0.7;
+    const zoomByState: number[] = [camZoomFar, camZoomMedium, camZoomClose, camZoomFar];
+
+    let camState = 0;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "v" && e.key !== "V") return;
+      if (e.repeat) return;
+
+      const t = e.target as HTMLElement | null;
+      const tag = (t?.tagName ?? "").toLowerCase();
+      const isTyping =
+        tag === "input" ||
+        tag === "textarea" ||
+        (t?.getAttribute?.("contenteditable") === "true");
+      if (isTyping) return;
+
+      camState = (camState + 1) % 4;
+
+      zoomTarget.current = zoomByState[camState];
+
+      // State 3 is "reset": restore default behind-car orientation too.
+      if (camState === 3) {
+        lookYawTarget.current = 0;
+        lookPitchTarget.current = 0;
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   // Smooth camera target (reduces perceived shake from fast steering / physics jitter)
   const targetPosSmoothed = useRef(new THREE.Vector3(spawnConfig.pos.x, spawnConfig.pos.y, spawnConfig.pos.z));
   const targetYawSmoothed = useRef(spawnConfig.yaw);
-  const tmpForward = useRef(new THREE.Vector3());
   const tmpDesired = useRef(new THREE.Vector3());
   const tmpToTarget = useRef(new THREE.Vector3());
 
@@ -1709,13 +1845,30 @@ function StreetView({
     targetPosSmoothed.current.lerp(v.position, smoothAlpha);
     targetYawSmoothed.current = lerpAngle(targetYawSmoothed.current, v.yaw, smoothAlpha);
 
-    const forward = tmpForward.current
-      .set(-Math.sin(targetYawSmoothed.current), 0, -Math.cos(targetYawSmoothed.current))
-      .normalize();
-    const desired = tmpDesired.current
-      .copy(targetPosSmoothed.current)
-      .addScaledVector(forward, -Math.max(18, cfg.forwardOffset * 0.6));
-    desired.y += cfg.eyeOffset + 10;
+    // Smooth user offsets too (prevents abrupt camera jumps when dragging)
+    const idleLookMs = performance.now() - lastLookInputAt.current;
+    if (idleLookMs > 900 && Math.abs(v.speed) > 1.5) {
+      const recenterAlpha = 1 - Math.exp(-delta * 1.75);
+      lookYawTarget.current += (0 - lookYawTarget.current) * recenterAlpha;
+      lookPitchTarget.current += (0 - lookPitchTarget.current) * recenterAlpha;
+    }
+
+    const lookAlpha = 1 - Math.exp(-delta * 10);
+    lookYaw.current += (lookYawTarget.current - lookYaw.current) * lookAlpha;
+    lookPitch.current += (lookPitchTarget.current - lookPitch.current) * lookAlpha;
+    zoom.current += (zoomTarget.current - zoom.current) * lookAlpha;
+
+    const distance = Math.max(20, cfg.forwardOffset * 0.72) * zoom.current;
+    const orbitYaw = targetYawSmoothed.current + lookYaw.current;
+    const orbitPitch = THREE.MathUtils.clamp(baseOrbitPitch + lookPitch.current, minOrbitPitch, maxOrbitPitch);
+    const horizontalDistance = Math.cos(orbitPitch) * distance;
+    const focusY = targetPosSmoothed.current.y + cfg.eyeOffset * 0.42 + 2.4;
+    const desired = tmpDesired.current.set(
+      targetPosSmoothed.current.x + Math.sin(orbitYaw) * horizontalDistance,
+      focusY + Math.sin(orbitPitch) * distance + 3.5,
+      targetPosSmoothed.current.z + Math.cos(orbitYaw) * horizontalDistance,
+    );
+    desired.y = Math.max(v.position.y + 3.5, desired.y);
 
     // critically damped-ish spring
     const k = 14;
@@ -1729,7 +1882,7 @@ function StreetView({
     x.addScaledVector(xd, Math.min(delta, 0.05));
 
     camera.position.copy(x);
-    camera.lookAt(v.position.x, v.position.y + cfg.eyeOffset * 0.4, v.position.z);
+    camera.lookAt(targetPosSmoothed.current.x, focusY, targetPosSmoothed.current.z);
 
     // Subtle speed feel: widen FOV a bit at high speed
     const cam = camera as THREE.PerspectiveCamera;
@@ -2048,12 +2201,13 @@ export function CityCanvas({
 
   // Moon direction: place it above mountains facing the “empty wedge” (river gap sector).
   const moonPosition = useMemo((): [number, number, number] => {
-    // Keep it a bit outside the city so it reads as sky-object, not a mountain prop.
-    const moonR = cityOuterR + 1450;
-    const moonAngle = RIVER_CENTER + 0.12; // slight offset from the wedge center
+    // North-East direction (x+, z+ in our polar layout where x=cos(a), z=sin(a))
+    // and slightly above the highest mountain band.
+    const moonR = cityOuterR + 900;
+    const moonAngle = Math.PI / 4;
     const moonX = Math.cos(moonAngle) * moonR;
     const moonZ = Math.sin(moonAngle) * moonR;
-    const moonY = 1550;
+    const moonY = 1280;
     return [moonX, moonY, moonZ];
   }, [cityOuterR]);
 
