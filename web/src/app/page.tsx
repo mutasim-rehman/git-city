@@ -89,57 +89,45 @@ export default function Home() {
 
       {/* Phase: car selection */}
       {phase === "carSelect" && layoutResult && buildings.length > 0 && (
-        <div className="flex min-h-screen items-center justify-center px-4 py-10">
-          <main className="relative w-full max-w-6xl">
-            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-[10px] font-mono uppercase tracking-[0.45em] text-pink-400/80">
-                  Git City
-                </p>
-                <p className="mt-2 text-sm text-slate-100/80">
-                  Pick your car. Pick your map. Then drive.
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="rounded-2xl border border-purple-500/30 bg-black/40 px-4 py-3 backdrop-blur-md">
-                  <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-purple-300/80">
-                    Map
-                  </p>
-                  <div className="mt-2">
-                    <CitySelector
-                      selected={selectedCity}
-                      onSelect={(city) => {
-                        setSelectedCity(city);
-                        setPhase("boot");
-                      }}
-                      disabled={false}
-                    />
-                  </div>
-                </div>
+        <div className="fixed inset-0 z-10 bg-black">
+          <CarShowroom
+            initialCar={carVariant}
+            cityLabel={selectedCity.toUpperCase()}
+            onStart={(car) => {
+              setCarVariant(car);
+              setFade("out");
+              setPhase("transition");
+              // Fullscreen request during user gesture
+              try {
+                document.documentElement.requestFullscreen?.();
+              } catch {
+                // ignore
+              }
+              window.setTimeout(() => {
+                setPhase("play");
+                setFade("in");
+                window.setTimeout(() => setFade("none"), 650);
+              }, 650);
+            }}
+          />
+
+          <div className="absolute right-6 top-6 z-50">
+            <div className="rounded-2xl border border-purple-500/30 bg-black/40 px-4 py-3 backdrop-blur-md">
+              <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-purple-300/80">
+                Map
+              </p>
+              <div className="mt-2">
+                <CitySelector
+                  selected={selectedCity}
+                  onSelect={(city) => {
+                    setSelectedCity(city);
+                    setPhase("boot");
+                  }}
+                  disabled={false}
+                />
               </div>
             </div>
-
-            <CarShowroom
-              initialCar={carVariant}
-              cityLabel={selectedCity.toUpperCase()}
-              onStart={(car) => {
-                setCarVariant(car);
-                setFade("out");
-                setPhase("transition");
-                // Fullscreen request during user gesture
-                try {
-                  document.documentElement.requestFullscreen?.();
-                } catch {
-                  // ignore
-                }
-                window.setTimeout(() => {
-                  setPhase("play");
-                  setFade("in");
-                  window.setTimeout(() => setFade("none"), 650);
-                }, 650);
-              }}
-            />
-          </main>
+          </div>
         </div>
       )}
 
