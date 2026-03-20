@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CityId, PositionedBuilding } from "@/lib/types";
 import type { CityLayoutResult } from "@/lib/city/layout";
 import { loadCityCsv } from "@/lib/data/csvClient";
@@ -15,9 +15,13 @@ import { DEFAULT_CAR_VARIANT, type CarVariant } from "@/game/content/cars";
 
 type Phase = "boot" | "carSelect" | "transition" | "play";
 
+function tryPlayAudio(audio: HTMLAudioElement) {
+  void audio.play().catch(() => {});
+}
+
 export default function Home() {
   const [phase, setPhase] = useState<Phase>("boot");
-  const [selectedCity, setSelectedCity] = useState<CityId>("lahore");
+  const [selectedCity, setSelectedCity] = useState<CityId>("islamabad");
   const [buildings, setBuildings] = useState<PositionedBuilding[]>([]);
   const [layoutResult, setLayoutResult] = useState<CityLayoutResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -25,6 +29,39 @@ export default function Home() {
   const [bootMessage, setBootMessage] = useState("Loading city data…");
   const [bootProgress, setBootProgress] = useState(0);
   const [fade, setFade] = useState<"none" | "out" | "in">("none");
+  const [musicStarted, setMusicStarted] = useState(false);
+  const showroomMusicRef = useRef<HTMLAudioElement | null>(null);
+  const assetsLoadedRef = useRef(false);
+
+  useEffect(() => {
+    const audio = new Audio("/audios/showroom.mp3");
+    audio.loop = true;
+    audio.preload = "auto";
+    audio.volume = 0.34;
+    showroomMusicRef.current = audio;
+    return () => {
+      audio.pause();
+      audio.currentTime = 0;
+      if (showroomMusicRef.current === audio) showroomMusicRef.current = null;
+    };
+  }, []);
+
+  const startMusic = useCallback(() => {
+    setMusicStarted(true);
+    const audio = showroomMusicRef.current;
+    if (audio) tryPlayAudio(audio);
+  }, []);
+
+  useEffect(() => {
+    const audio = showroomMusicRef.current;
+    if (!audio || !musicStarted) return;
+    if (phase === "play") {
+      audio.pause();
+      audio.currentTime = 0;
+      return;
+    }
+    tryPlayAudio(audio);
+  }, [musicStarted, phase]);
 
   useEffect(() => {
     let canceled = false;
@@ -46,14 +83,20 @@ export default function Home() {
         setLayoutResult(layout);
         if (canceled) return;
 
-        setBootMessage("Loading 3D models…");
-        setBootProgress(20);
+        if (!assetsLoadedRef.current) {
+          setBootMessage("Loading 3D models…");
+          setBootProgress(20);
 
-        await loadAllAssets((p) => {
-          if (canceled) return;
-          setBootMessage(p.message);
-          setBootProgress(20 + (p.progress * 80) / 100);
-        });
+          await loadAllAssets((p) => {
+            if (canceled) return;
+            setBootMessage(p.message);
+            setBootProgress(20 + (p.progress * 80) / 100);
+          });
+          assetsLoadedRef.current = true;
+        } else {
+          setBootMessage("Rebuilding city from cached assets…");
+          setBootProgress(92);
+        }
 
         if (canceled) return;
         setBootMessage("Ready");
@@ -83,6 +126,8 @@ export default function Home() {
             title="Booting Git City"
             message={error ?? bootMessage}
             progress={bootProgress}
+            audioStarted={musicStarted}
+            onStartAudio={startMusic}
           />
         </>
       )}

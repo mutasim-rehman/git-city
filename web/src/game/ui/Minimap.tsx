@@ -6,6 +6,7 @@ import type { RoadGraph, RoadNodeId } from "../world/RoadGraph";
 type Props = {
   graph: RoadGraph;
   playerXZ: { x: number; z: number } | null;
+  playerYaw?: number | null;
   destinationXZ: { x: number; z: number } | null;
   route: RoadNodeId[];
   size?: number;
@@ -17,7 +18,7 @@ function project(graph: RoadGraph, x: number, z: number, size: number) {
   return { x: size / 2 + x * s, y: size / 2 + z * s };
 }
 
-export function Minimap({ graph, playerXZ, destinationXZ, route, size = 180 }: Props) {
+export function Minimap({ graph, playerXZ, playerYaw = null, destinationXZ, route, size = 180 }: Props) {
   const ringPaths = React.useMemo(() => {
     const paths: Array<{ r: number; key: string }> = [];
     for (let i = 0; i < graph.radii.length; i++) {
@@ -38,6 +39,17 @@ export function Minimap({ graph, playerXZ, destinationXZ, route, size = 180 }: P
 
   const playerP = playerXZ ? project(graph, playerXZ.x, playerXZ.z, size) : null;
   const destP = destinationXZ ? project(graph, destinationXZ.x, destinationXZ.z, size) : null;
+  const playerArrow = React.useMemo(() => {
+    if (!playerP || playerYaw == null) return "";
+    const heading = playerYaw - Math.PI;
+    const tipX = playerP.x + Math.sin(heading) * 10;
+    const tipY = playerP.y + Math.cos(heading) * 10;
+    const leftX = playerP.x + Math.sin(heading + 2.45) * 6;
+    const leftY = playerP.y + Math.cos(heading + 2.45) * 6;
+    const rightX = playerP.x + Math.sin(heading - 2.45) * 6;
+    const rightY = playerP.y + Math.cos(heading - 2.45) * 6;
+    return `${tipX.toFixed(1)},${tipY.toFixed(1)} ${leftX.toFixed(1)},${leftY.toFixed(1)} ${rightX.toFixed(1)},${rightY.toFixed(1)}`;
+  }, [playerP, playerYaw]);
 
   return (
     <div
@@ -102,6 +114,7 @@ export function Minimap({ graph, playerXZ, destinationXZ, route, size = 180 }: P
         {/* Destination */}
         {destP && (
           <>
+            <circle cx={destP.x} cy={destP.y} r={18} fill="rgba(125,211,252,0.08)" />
             <circle cx={destP.x} cy={destP.y} r={6} fill="rgba(125,211,252,0.95)" />
             <circle cx={destP.x} cy={destP.y} r={12} fill="rgba(125,211,252,0.15)" />
           </>
@@ -110,6 +123,15 @@ export function Minimap({ graph, playerXZ, destinationXZ, route, size = 180 }: P
         {/* Player */}
         {playerP && (
           <>
+            {playerArrow && (
+              <polygon
+                points={playerArrow}
+                fill="rgba(250,204,21,0.95)"
+                stroke="rgba(15,23,42,0.9)"
+                strokeWidth={1.2}
+                strokeLinejoin="round"
+              />
+            )}
             <circle cx={playerP.x} cy={playerP.y} r={5.5} fill="rgba(236,72,153,0.95)" />
             <circle cx={playerP.x} cy={playerP.y} r={11} fill="rgba(236,72,153,0.2)" />
           </>

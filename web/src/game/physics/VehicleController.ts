@@ -49,31 +49,41 @@ export class VehicleController {
     const throttle = clamp(input.throttle, 0, 1);
     const brake = clamp(input.brake, 0, 1);
 
-    const accel = throttle * t.accel;
-    let decel = brake * t.brakeDecel;
-    if (input.handbrake) decel = Math.max(decel, t.brakeDecel * 0.85);
+    let signedSpeed = state.speed;
 
-    // Coast deceleration when no inputs
-    const coasting = throttle === 0 && brake === 0;
-    if (coasting) decel = Math.max(decel, t.rollDecel);
+    if (throttle > 0) {
+      if (signedSpeed < -0.5) {
+        signedSpeed = Math.min(0, signedSpeed + brake * t.brakeDecel * safeDt + throttle * t.brakeDecel * 0.8 * safeDt);
+      }
+      signedSpeed += throttle * t.accel * safeDt;
+    }
 
-    // Apply acceleration opposite direction if braking while moving
-    const speedAbs = Math.abs(state.speed);
+    if (brake > 0) {
+      if (signedSpeed > 0.5) {
+        signedSpeed = Math.max(0, signedSpeed - brake * t.brakeDecel * safeDt);
+      } else {
+        signedSpeed -= brake * t.reverseAccel * safeDt;
+      }
+    }
 
-    const speedAfter = clamp(
-      speedAbs + accel * safeDt - decel * safeDt,
-      0,
-      t.maxSpeed,
-    );
+    if (input.handbrake) {
+      const handbrakeDecel = t.brakeDecel * 0.85 * safeDt;
+      if (signedSpeed > 0) signedSpeed = Math.max(0, signedSpeed - handbrakeDecel);
+      else if (signedSpeed < 0) signedSpeed = Math.min(0, signedSpeed + handbrakeDecel);
+    }
 
-    // Allow reversing gently if braking while stopped and no throttle
-    const reverseIntent = throttle === 0 && brake > 0.2 && speedAbs < 0.5;
-    const desiredSign = reverseIntent ? -1 : 1;
-    state.speed = speedAfter * desiredSign;
+    if (throttle === 0 && brake === 0) {
+      const coast = t.rollDecel * safeDt;
+      if (signedSpeed > 0) signedSpeed = Math.max(0, signedSpeed - coast);
+      else if (signedSpeed < 0) signedSpeed = Math.min(0, signedSpeed + coast);
+    }
+
+    state.speed = clamp(signedSpeed, -t.maxReverseSpeed, t.maxSpeed);
 
     // --- Heading update (speed-scaled yaw rate) ---
     // Reduce steer at low speed to avoid twitch, and at high speed to avoid instant spins
-    const speed01 = clamp(speedAbs / Math.max(1, t.maxSpeed), 0, 1);
+    const speedAbs = Math.abs(state.speed);
+    const speed01 = clamp(Math.abs(state.speed) / Math.max(1, t.maxSpeed), 0, 1);
     const steerEffect = (0.25 + 0.75 * (1 - speed01 * 0.45)) * (0.35 + 0.65 * clamp(speedAbs / 25, 0, 1));
     const yawRate = state.steerAngle * (state.speed / 18) * steerEffect;
     state.yaw = wrapAngleRadians(state.yaw + yawRate * safeDt);

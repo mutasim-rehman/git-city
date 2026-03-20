@@ -9,7 +9,9 @@ export type VehicleControlState = {
 
 export type VehicleTuning = {
   maxSpeed: number; // units/s
+  maxReverseSpeed: number; // units/s
   accel: number; // units/s^2
+  reverseAccel: number; // units/s^2
   brakeDecel: number; // units/s^2
   rollDecel: number; // units/s^2 (coast)
   maxSteerAngle: number; // radians
@@ -46,7 +48,9 @@ export function createDefaultVehicleState(pos: THREE.Vector3, yaw: number): Vehi
 
 export const DEFAULT_VEHICLE_TUNING: VehicleTuning = {
   maxSpeed: 140,
+  maxReverseSpeed: 32,
   accel: 65,
+  reverseAccel: 34,
   brakeDecel: 95,
   rollDecel: 18,
   maxSteerAngle: 0.55,

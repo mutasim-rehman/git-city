@@ -14,6 +14,7 @@ export const DEFAULT_CAR_VARIANT: CarVariant = "mr-bean";
 export type CarConfig = {
   label: string;
   modelPath: string;
+  audioPath: string;
   scale: number;
   modelYaw: number;
   modelTilt: number;
@@ -28,6 +29,7 @@ export const CAR_CONFIGS: Record<CarVariant, CarConfig> = {
   "mr-bean": {
     label: "Mr Bean",
     modelPath: "/models/car1.glb",
+    audioPath: "/audios/mr_bean.mp3",
     scale: 1.8,
     modelYaw: Math.PI / 2,
     modelTilt: 0,
@@ -40,6 +42,7 @@ export const CAR_CONFIGS: Record<CarVariant, CarConfig> = {
   batmobile: {
     label: "Batmobile",
     modelPath: "/models/car2.glb",
+    audioPath: "/audios/batmobile.mp3",
     scale: 1.2,
     modelYaw: Math.PI / 2,
     modelTilt: 0,
@@ -52,6 +55,7 @@ export const CAR_CONFIGS: Record<CarVariant, CarConfig> = {
   "harry-potter": {
     label: "Harry Potter",
     modelPath: "/models/car4.glb",
+    audioPath: "/audios/harry_potter.mp3",
     scale: 1.0,
     modelYaw: 3.5 * Math.PI,
     modelTilt: 0,
@@ -64,6 +68,7 @@ export const CAR_CONFIGS: Record<CarVariant, CarConfig> = {
   "mc-queen": {
     label: "Mc Queen",
     modelPath: "/models/car3.glb",
+    audioPath: "/audios/mcqueen.mp3",
     scale: 1.5,
     modelYaw: Math.PI / 1,
     modelTilt: 0,
@@ -76,6 +81,7 @@ export const CAR_CONFIGS: Record<CarVariant, CarConfig> = {
   "Stradale 67": {
     label: "Stradale 67",
     modelPath: "/models/car_stradale.glb",
+    audioPath: "/audios/stradale67.mp3",
     scale: 200.0,
     modelYaw: Math.PI,
     modelTilt: 0,
@@ -88,6 +94,7 @@ export const CAR_CONFIGS: Record<CarVariant, CarConfig> = {
   "ZIS 101A": {
     label: "ZIS 101A",
     modelPath: "/models/car_zis101.glb",
+    audioPath: "/audios/zis101a.mp3",
     scale: 2.0,
     modelYaw: Math.PI / 1,
     modelTilt: 0,
@@ -100,6 +107,7 @@ export const CAR_CONFIGS: Record<CarVariant, CarConfig> = {
   Beetle: {
     label: "Beetle",
     modelPath: "/models/car_beetle.glb",
+    audioPath: "/audios/beetle.mp3",
     scale: 150.0,
     modelYaw: Math.PI / 1,
     modelTilt: 0,
@@ -112,6 +120,7 @@ export const CAR_CONFIGS: Record<CarVariant, CarConfig> = {
   "Ferrai SF23": {
     label: "Ferrari SF23",
     modelPath: "/models/car_f1f.glb",
+    audioPath: "/audios/ferrari_f123.mp3",
     scale: 2.0,
     modelYaw: Math.PI / 1,
     modelTilt: 0,
@@ -124,6 +133,7 @@ export const CAR_CONFIGS: Record<CarVariant, CarConfig> = {
   Wagon: {
     label: "Wagon",
     modelPath: "/models/car_wagon.glb",
+    audioPath: "/audios/wagon.mp3",
     scale: 1.0,
     modelYaw: (3 * Math.PI) / 2,
     modelTilt: 0,

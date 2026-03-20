@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Html, Environment, useGLTF, useProgress } from "@react-three/drei";
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
 import type { CarVariant } from "@/game/content/cars";
 import { CAR_CONFIGS, CAR_VARIANTS, DEFAULT_CAR_VARIANT, getCarStats } from "@/game/content/cars";
@@ -13,6 +14,16 @@ function seededRng(seed: number): number {
 
 function clamp(x: number, a: number, b: number) {
   return Math.max(a, Math.min(b, x));
+}
+
+function updateTriple(
+  value: [number, number, number],
+  axisIdx: number,
+  nextValue: number,
+): [number, number, number] {
+  const next: [number, number, number] = [value[0], value[1], value[2]];
+  next[axisIdx] = nextValue;
+  return next;
 }
 
 function CarModel({ variant, scaleMul = 1 }: { variant: CarVariant; scaleMul?: number }) {
@@ -156,7 +167,7 @@ function ShowroomScene({
 }) {
   const { camera: threeCamera } = useThree();
   const camRig = React.useRef<THREE.Group>(null);
-  const controlsRef = React.useRef<any>(null);
+  const controlsRef = React.useRef<OrbitControlsImpl | null>(null);
   const isApplyingClampRef = React.useRef(false);
 
   const clamp3 = React.useCallback(
@@ -486,11 +497,7 @@ export function CarShowroom({
                       value={garagePos[axisIdx]}
                       onChange={(e) => {
                         const v = parseFloat(e.target.value);
-                        setGaragePos((p) => {
-                          const n: [number, number, number] = [...p] as any;
-                          n[axisIdx] = v;
-                          return n;
-                        });
+                        setGaragePos((p) => updateTriple(p, axisIdx, v));
                       }}
                     />
                   </label>
@@ -575,11 +582,7 @@ export function CarShowroom({
                           value={cameraPos[axisIdx]}
                           onChange={(e) => {
                             const v = parseFloat(e.target.value);
-                            setCameraPos((p) => {
-                              const n: [number, number, number] = [...p] as any;
-                              n[axisIdx] = v;
-                              return n;
-                            });
+                            setCameraPos((p) => updateTriple(p, axisIdx, v));
                           }}
                         />
                       </label>
@@ -602,11 +605,7 @@ export function CarShowroom({
                           value={cameraTarget[axisIdx]}
                           onChange={(e) => {
                             const v = parseFloat(e.target.value);
-                            setCameraTarget((p) => {
-                              const n: [number, number, number] = [...p] as any;
-                              n[axisIdx] = v;
-                              return n;
-                            });
+                            setCameraTarget((p) => updateTriple(p, axisIdx, v));
                           }}
                         />
                       </label>
@@ -647,11 +646,7 @@ export function CarShowroom({
                       value={carPos[axisIdx]}
                       onChange={(e) => {
                         const v = parseFloat(e.target.value);
-                        setCarPos((p) => {
-                          const n: [number, number, number] = [...p] as any;
-                          n[axisIdx] = v;
-                          return n;
-                        });
+                        setCarPos((p) => updateTriple(p, axisIdx, v));
                       }}
                     />
                   </label>
@@ -674,11 +669,7 @@ export function CarShowroom({
                       value={pivot[axisIdx]}
                       onChange={(e) => {
                         const v = parseFloat(e.target.value);
-                        setPivot((p) => {
-                          const n: [number, number, number] = [...p] as any;
-                          n[axisIdx] = v;
-                          return n;
-                        });
+                        setPivot((p) => updateTriple(p, axisIdx, v));
                       }}
                     />
                   </label>

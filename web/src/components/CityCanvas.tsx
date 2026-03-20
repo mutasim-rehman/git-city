@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import type { CityId, CityTheme, PositionedBuilding } from "@/lib/types";
 import { createWindowAtlas } from "@/lib/city/windowAtlas";
 import { InstancedBuildings } from "./InstancedBuildings";
-import { OrbitControls, useGLTF } from "@react-three/drei";
+import { Html, OrbitControls, useGLTF } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { CityLayoutResult, GreenRing } from "@/lib/city/layout";
 import { PLAZA_RADIUS, RIVER_CENTER, RIVER_HALF_WIDTH, RIVER_SKIP } from "@/lib/city/layout";
@@ -23,6 +23,34 @@ function lerpAngle(a: number, b: number, t: number): number {
   const twoPi = Math.PI * 2;
   const diff = ((b - a + Math.PI) % twoPi) - Math.PI;
   return a + diff * t;
+}
+
+function normalizeAngle(a: number) {
+  const twoPi = Math.PI * 2;
+  let x = a % twoPi;
+  if (x < 0) x += twoPi;
+  return x;
+}
+
+function shortestAngleDiff(a: number, b: number) {
+  const diff = Math.abs(normalizeAngle(a) - normalizeAngle(b));
+  return diff > Math.PI ? Math.PI * 2 - diff : diff;
+}
+
+function isAngleInRiverSector(angle: number, padding = 0) {
+  return shortestAngleDiff(angle, RIVER_CENTER) < RIVER_SKIP / 2 + padding;
+}
+
+function sameRoute(a: RoadNodeId[], b: RoadNodeId[]) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function tryPlayAudio(audio: HTMLAudioElement) {
+  void audio.play().catch(() => {});
 }
 
 const EMERALD_THEME: CityTheme = {
@@ -556,11 +584,7 @@ function computeSpokeAngles(): number[] {
   const angles: number[] = [];
   for (let i = 0; i < SPOKE_COUNT; i++) {
     const a = (i / SPOKE_COUNT) * Math.PI * 2;
-    const norm      = (a + Math.PI * 2) % (Math.PI * 2);
-    const riverNorm = (RIVER_CENTER + Math.PI * 2) % (Math.PI * 2);
-    const diff      = Math.abs(norm - riverNorm);
-    const angDiff   = diff > Math.PI ? Math.PI * 2 - diff : diff;
-    if (angDiff > RIVER_SKIP * 0.7) angles.push(a);
+    if (!isAngleInRiverSector(a, -RIVER_SKIP * 0.2)) angles.push(a);
   }
   return angles;
 }
@@ -601,17 +625,13 @@ function GreenSpaces({ rings }: { rings: GreenRing[] }) {
       leafMatrices: THREE.Matrix4[];
     }> = [];
 
-    // Precompute tree transforms per ring (deterministic-ish)
+    // Tree rows are planted as boulevard lines and soft park clusters instead of random scatter.
     for (let ri = 0; ri < rings.length; ri++) {
       const ring = rings[ri];
       const inner = Math.max(0, ring.innerR);
       const outer = Math.max(inner + 1, ring.outerR);
       const width = outer - inner;
       const midR = inner + width / 2;
-
-      const baseSpacing = ring.kind === "district" ? 14 : 11;
-      const approx = Math.max(12, Math.floor((Math.PI * 2 * midR) / baseSpacing));
-      const treeCount = Math.min(420, approx);
 
       const rand = mulberry32((ri + 1) * 991 + Math.floor(midR));
 
@@ -620,56 +640,73 @@ function GreenSpaces({ rings }: { rings: GreenRing[] }) {
 
       // Avoid planting right on the connector roads: carve angular corridors around spokes
       const corridorWorld = ring.kind === "district" ? 34 : 26;
+      const rowCount = Math.max(1, Math.round(width / (ring.kind === "district" ? 18 : 15)));
+      const laneInset = ring.kind === "district" ? 9 : 7;
+      const usableInner = Math.min(outer - 2, inner + laneInset);
+      const usableOuter = Math.max(usableInner + 2, outer - laneInset);
+      const rowSpacing = rowCount === 1 ? 0 : (usableOuter - usableInner) / (rowCount - 1);
 
-      for (let i = 0; i < treeCount; i++) {
-        const angle = rand() * Math.PI * 2;
+      for (let row = 0; row < rowCount; row++) {
+        const rowRadius = THREE.MathUtils.clamp(
+          rowCount === 1 ? midR : usableInner + rowSpacing * row,
+          inner + 3,
+          outer - 3,
+        );
+        const spacing = ring.kind === "district" ? 18 : 14;
+        const angleStep = spacing / Math.max(60, rowRadius);
+        const phase = rand() * angleStep;
+        const clusterFreq = 2 + Math.floor(rand() * 3);
+        const clusterPhase = rand() * Math.PI * 2;
 
-        // Skip river sector entirely (match road/ring arc rendering)
-        const riverStart = (RIVER_CENTER - RIVER_SKIP / 2 + Math.PI * 2) % (Math.PI * 2);
-        const riverEnd   = (RIVER_CENTER + RIVER_SKIP / 2 + Math.PI * 2) % (Math.PI * 2);
-        const aNorm      = (angle + Math.PI * 2) % (Math.PI * 2);
-        const inRiver = riverStart < riverEnd
-          ? (aNorm > riverStart && aNorm < riverEnd)
-          : (aNorm > riverStart || aNorm < riverEnd);
-        if (inRiver) continue;
+        for (let angle = phase; angle < Math.PI * 2 + phase; angle += angleStep) {
+          const wrappedAngle = normalizeAngle(angle);
+          if (isAngleInRiverSector(wrappedAngle, 0.04)) continue;
 
-        // Skip near spoke angles so roads "cut" through green rings
-        const rForCorr = Math.max(80, midR);
-        const corridorAng = corridorWorld / rForCorr;
-        let nearSpoke = false;
-        for (const s of spokeAngles) {
-          const d = Math.abs(((angle - s + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
-          if (d < corridorAng) { nearSpoke = true; break; }
-        }
-        if (nearSpoke) continue;
+          const rForCorr = Math.max(80, rowRadius);
+          const corridorAng = corridorWorld / rForCorr;
+          let nearSpoke = false;
+          for (const s of spokeAngles) {
+            if (shortestAngleDiff(wrappedAngle, s) < corridorAng) {
+              nearSpoke = true;
+              break;
+            }
+          }
+          if (nearSpoke) continue;
 
-        const r = inner + rand() * width;
-        const x = Math.cos(angle) * r;
-        const z = Math.sin(angle) * r;
+          if (ring.kind !== "district") {
+            const clusterSignal = Math.sin(wrappedAngle * clusterFreq + clusterPhase + row * 0.8);
+            if (clusterSignal < -0.15) continue;
+          }
 
-        const tall = ring.treeStyle === "tall";
-        const h = (tall ? 34 : 22) + rand() * (tall ? 22 : 16);
-        const trunkH = h * (0.34 + rand() * 0.06);
-        const trunkR = (tall ? 1.15 : 0.95) + rand() * 0.4;
-        const leafR  = (tall ? 7.5 : 6.0) + rand() * 3.0;
-        const leafH  = h * (0.68 + rand() * 0.06);
-        const rotY   = rand() * Math.PI * 2;
+          const radialJitter = (rand() - 0.5) * Math.min(3.2, Math.max(1.2, rowSpacing * 0.18));
+          const angleJitter = (rand() - 0.5) * angleStep * 0.16;
+          const plantedR = THREE.MathUtils.clamp(rowRadius + radialJitter, inner + 2, outer - 2);
+          const plantedAngle = normalizeAngle(wrappedAngle + angleJitter);
+          const x = Math.cos(plantedAngle) * plantedR;
+          const z = Math.sin(plantedAngle) * plantedR;
 
-        const trunkM = new THREE.Matrix4()
-          .compose(
+          const tall = ring.treeStyle === "tall";
+          const h = (tall ? 32 : 21) + rand() * (tall ? 18 : 12);
+          const trunkH = h * (0.34 + rand() * 0.05);
+          const trunkR = (tall ? 1.1 : 0.9) + rand() * 0.35;
+          const leafR  = (tall ? 7.2 : 5.6) + rand() * 2.4;
+          const leafH  = h * (0.7 + rand() * 0.05);
+          const rotY   = plantedAngle + (rand() - 0.5) * 0.35;
+
+          const trunkM = new THREE.Matrix4().compose(
             new THREE.Vector3(x, trunkH / 2, z),
             new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotY, 0)),
             new THREE.Vector3(trunkR, trunkH, trunkR),
           );
-        const leafM = new THREE.Matrix4()
-          .compose(
+          const leafM = new THREE.Matrix4().compose(
             new THREE.Vector3(x, trunkH + leafH / 2 - 1.2, z),
             new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotY, 0)),
             new THREE.Vector3(leafR, leafH, leafR),
           );
 
-        treeMatrices.push(trunkM);
-        leafMatrices.push(leafM);
+          treeMatrices.push(trunkM);
+          leafMatrices.push(leafM);
+        }
       }
 
       data.push({ ring, treeCount: treeMatrices.length, treeMatrices, leafMatrices });
@@ -842,42 +879,145 @@ function Monument() {
   );
 }
 
-// ─── Moon (whimsical, tinted) ───────────────────────────────────────────────
+// Moon-only render layer: main city lights stay on default layer 0; moon + “beam from city” use this layer.
+const MOON_LIGHT_LAYER = 10;
+
+/** Tweaks — rotate the GLB so the lunar “face” you want points toward the city (degrees).  
+ *  X = pitch, Y = yaw (spin around up), Z = roll. Example: `[0, 45, 0]` turns the moon 45° around vertical. */
+const MOON_ROTATION_DEG: [number, number, number] = [180, -40, 180];
+
+function EnableMoonLayerOnCamera({ layer }: { layer: number }) {
+  const { camera } = useThree();
+  useLayoutEffect(() => {
+    camera.layers.enable(layer);
+  }, [camera, layer]);
+  return null;
+}
+
+/** Soft fill so the moon (on `layer` only) isn’t pitch-black without the main scene ambient. */
+function MoonOnlyAmbient({
+  layer,
+  intensity,
+  color,
+}: {
+  layer: number;
+  intensity: number;
+  color: string;
+}) {
+  const ref = useRef<THREE.AmbientLight>(null);
+  useLayoutEffect(() => {
+    if (ref.current) ref.current.layers.set(layer);
+  }, [layer]);
+  return <ambientLight ref={ref} intensity={intensity} color={color} />;
+}
+
+/** Directional light from plaza/city center toward the moon — only affects meshes on `MOON_LIGHT_LAYER`. */
+function MoonBeamFromCity({
+  moonPosition,
+  layer,
+}: {
+  moonPosition: [number, number, number];
+  layer: number;
+}) {
+  const ref = useRef<THREE.DirectionalLight>(null);
+  const { scene } = useThree();
+  useLayoutEffect(() => {
+    const light = ref.current;
+    if (!light) return;
+    light.layers.set(layer);
+    light.target.position.set(moonPosition[0], moonPosition[1], moonPosition[2]);
+    scene.add(light.target);
+    return () => {
+      scene.remove(light.target);
+    };
+  }, [scene, moonPosition, layer]);
+
+  return (
+    <directionalLight
+      ref={ref}
+      position={[0, 260, 0]}
+      intensity={5.2}
+      color="#fff4e6"
+      castShadow={false}
+    />
+  );
+}
+
+// ─── Moon ───────────────────────────────────────────────────────────────────
 
 function Moon({ position }: { position: [number, number, number] }) {
-  const gltf = useGLTF("/models/moon.glb");
+  const gltf = useGLTF("/models/moon_nasa.glb");
 
-  // Clone so material overrides do not pollute the shared GLTF cache
+  // Clone so moon lighting tweaks do not pollute the shared GLTF cache.
   const scene = useMemo(() => gltf.scene.clone(true), [gltf.scene]);
+
+  const moonRotRad = useMemo(() => {
+    const D = Math.PI / 180;
+    return [MOON_ROTATION_DEG[0] * D, MOON_ROTATION_DEG[1] * D, MOON_ROTATION_DEG[2] * D] as [number, number, number];
+  }, []);
 
   useMemo(() => {
     const pink = new THREE.Color("#ec4899");
     scene.traverse((obj) => {
+      const o = obj as THREE.Object3D;
+      o.layers.set(MOON_LIGHT_LAYER);
+
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
 
       mesh.castShadow = false;
       mesh.receiveShadow = false;
+      mesh.renderOrder = 2;
 
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const mat of mats) {
         if (!mat) continue;
-        const m = mat as THREE.MeshStandardMaterial;
-        // Slightly tint existing moon materials instead of replacing them entirely.
-        if ((m as any).color && typeof (m as any).color.lerp === "function") {
-          m.color.lerp(pink, 0.28);
-        } else {
-          m.color = pink;
+
+        // Always-visible moon: ignore fog + strong self-light (not affected by sun/shadows at distance).
+        const mAny = mat as THREE.Material & {
+          fog?: boolean;
+          transparent?: boolean;
+          opacity?: number;
+          depthWrite?: boolean;
+          depthTest?: boolean;
+        };
+        mAny.fog = false;
+        mAny.transparent = false;
+        mAny.opacity = 1;
+        mAny.depthWrite = true;
+        mAny.depthTest = true;
+
+        if ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
+          const m = mat as THREE.MeshStandardMaterial;
+          m.metalness = 0;
+          m.roughness = 0.92;
+          m.envMapIntensity = 0.15;
+          m.emissive = new THREE.Color(0xf0e8ff).lerp(pink, 0.12);
+          m.emissiveIntensity = 0.05;
+          m.toneMapped = true;
+          m.needsUpdate = true;
+        } else if ((mat as THREE.MeshBasicMaterial).isMeshBasicMaterial) {
+          const b = mat as THREE.MeshBasicMaterial;
+          b.color.lerp(pink, 0.08);
+          b.toneMapped = true;
+          b.needsUpdate = true;
+        } else if ((mat as THREE.MeshPhysicalMaterial).isMeshPhysicalMaterial) {
+          const p = mat as THREE.MeshPhysicalMaterial;
+          p.metalness = 0;
+          p.roughness = 0.9;
+          p.envMapIntensity = 0.15;
+          p.emissive = new THREE.Color(0xf0e8ff).lerp(pink, 0.12);
+          p.emissiveIntensity = 1.85;
+          p.needsUpdate = true;
         }
-        m.emissive = pink;
-        m.emissiveIntensity = 0.28;
-        m.needsUpdate = true;
       }
     });
   }, [scene]);
 
-  // Intentionally no shadowing; moon is purely visual.
-  return <primitive object={scene} position={position} scale={1000.0} />;
+  // rotation={moonRotRad} ← tweak MOON_ROTATION_DEG above to spin which face points toward the city
+  return (
+    <primitive object={scene} position={position} rotation={moonRotRad} scale={500.0} />
+  );
 }
 
 // ─── River ────────────────────────────────────────────────────────────────────
@@ -971,6 +1111,113 @@ function River({ outerRadius }: RiverProps) {
           </mesh>
         );
       })}
+    </group>
+  );
+}
+
+function BuildingSignBoards({ buildings }: { buildings: PositionedBuilding[] }) {
+  const signData = useMemo(() => {
+    return buildings.map((b) => {
+      const label = b.username.startsWith("@") ? b.username : `@${b.username}`;
+      const signWidth = THREE.MathUtils.clamp(Math.max(b.width, b.depth) * 1.25, 40, 110);
+      const signHeight = THREE.MathUtils.clamp(signWidth * 0.24, 12, 26);
+      const mountY = THREE.MathUtils.clamp(signHeight * 0.7 + 5, 12, Math.max(14, b.height - 10));
+      const frontOffset = b.depth / 2 + 3.2;
+      const sideOffset = b.width / 2 + 3.2;
+      return {
+        id: b.id,
+        x: b.x,
+        z: b.z,
+        rotationY: b.rotationY ?? 0,
+        label,
+        signWidth,
+        signHeight,
+        mountY,
+        frontOffset,
+        sideOffset,
+      };
+    });
+  }, [buildings]);
+
+  return (
+    <group>
+      {signData.map((sign) => {
+        return (
+          <group key={`sign-${sign.id}`} position={[sign.x, 0, sign.z]} rotation-y={sign.rotationY}>
+            {[
+              { key: "front", pos: [0, sign.mountY, sign.frontOffset] as [number, number, number], rot: 0 },
+              { key: "back", pos: [0, sign.mountY, -sign.frontOffset] as [number, number, number], rot: Math.PI },
+              { key: "left", pos: [-sign.sideOffset, sign.mountY, 0] as [number, number, number], rot: Math.PI / 2 },
+              { key: "right", pos: [sign.sideOffset, sign.mountY, 0] as [number, number, number], rot: -Math.PI / 2 },
+            ].map((face) => (
+              <group key={face.key} position={face.pos} rotation-y={face.rot}>
+                <mesh position={[0, -(sign.signHeight / 2 + 2.1), 0]}>
+                  <boxGeometry args={[1.1, 4.6, 0.7]} />
+                  <meshStandardMaterial color="#1f2937" metalness={0.42} roughness={0.56} />
+                </mesh>
+                <Html
+                  transform
+                  distanceFactor={20}
+                  position={[0, 0, 0.45]}
+                  style={{ pointerEvents: "none" }}
+                >
+                  <div
+                    style={{
+                      width: `${Math.round(sign.signWidth * 4)}px`,
+                      minHeight: `${Math.round(sign.signHeight * 4)}px`,
+                    }}
+                    className="flex items-center justify-center rounded-[18px] border border-pink-400/80 bg-gradient-to-br from-slate-950/95 via-fuchsia-950/90 to-slate-950/95 px-4 py-2 text-center text-[22px] font-bold tracking-[0.08em] text-amber-200 shadow-[0_0_30px_rgba(236,72,153,0.35)]"
+                  >
+                    {sign.label}
+                  </div>
+                </Html>
+              </group>
+            ))}
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+function NavTargetPulse({ target }: { target: PositionedBuilding | null }) {
+  const shellRef = useRef<THREE.Mesh | null>(null);
+  const ringRef = useRef<THREE.Mesh | null>(null);
+
+  useFrame(({ clock }) => {
+    if (!target) return;
+    const t = clock.getElapsedTime();
+    const pulse = 0.5 + 0.5 * Math.sin(t * 3.4);
+
+    if (shellRef.current) {
+      shellRef.current.scale.setScalar(1.035 + pulse * 0.06);
+      const mat = shellRef.current.material as THREE.MeshBasicMaterial;
+      mat.opacity = 0.08 + pulse * 0.12;
+    }
+
+    if (ringRef.current) {
+      ringRef.current.scale.setScalar(0.88 + pulse * 0.28);
+      const mat = ringRef.current.material as THREE.MeshBasicMaterial;
+      mat.opacity = 0.18 + pulse * 0.22;
+    }
+  });
+
+  if (!target) return null;
+
+  const shellHeight = target.height + 10;
+  const shellY = shellHeight / 2 - 1;
+  const ringSize = Math.max(target.width, target.depth) * 1.5;
+
+  return (
+    <group position={[target.x, 0, target.z]} rotation-y={target.rotationY ?? 0}>
+      <mesh ref={shellRef} position={[0, shellY, 0]}>
+        <boxGeometry args={[target.width + 10, shellHeight, target.depth + 10]} />
+        <meshBasicMaterial color="#f472b6" transparent opacity={0.14} blending={THREE.AdditiveBlending} depthWrite={false} />
+      </mesh>
+      <mesh ref={ringRef} rotation-x={-Math.PI / 2} position={[0, 2.2, 0]}>
+        <ringGeometry args={[ringSize * 0.48, ringSize * 0.62, 48]} />
+        <meshBasicMaterial color="#7dd3fc" transparent opacity={0.22} blending={THREE.AdditiveBlending} depthWrite={false} />
+      </mesh>
     </group>
   );
 }
@@ -1337,36 +1584,49 @@ interface MountainPeak {
 
 function Mountains({ buildings }: { buildings: PositionedBuilding[] }) {
   const peaks = useMemo<MountainPeak[]>(() => {
-    let maxDist = 400;
-    for (const b of buildings) { const d = Math.sqrt(b.x * b.x + b.z * b.z); if (d > maxDist) maxDist = d; }
-    const cityEdge = maxDist + 380;
-    const result: MountainPeak[] = []; let seed = 1;
+    let cityEdge = PLAZA_RADIUS + 260;
+    for (const b of buildings) {
+      const centerDist = Math.sqrt(b.x * b.x + b.z * b.z);
+      const footprintRadius = Math.hypot(b.width, b.depth) * 0.75;
+      cityEdge = Math.max(cityEdge, centerDist + footprintRadius);
+    }
+
+    cityEdge += 520;
+
+    const result: MountainPeak[] = [];
+    let seed = 1;
     const bands = [
-      { rMin: cityEdge,        rMax: cityEdge + 420,  rings: 2, hMin: 60,   hMax: 160,  wMin: 280, wMax: 440, profileMin: 0.55, profileMax: 0.80, snowMin: 0.95, snowMax: 0.99, treeMin: 0.15, treeMax: 0.30 },
-      { rMin: cityEdge + 240,  rMax: cityEdge + 900,  rings: 3, hMin: 200,  hMax: 380,  wMin: 300, wMax: 480, profileMin: 0.85, profileMax: 1.15, snowMin: 0.68, snowMax: 0.82, treeMin: 0.22, treeMax: 0.40 },
-      { rMin: cityEdge + 700,  rMax: cityEdge + 1800, rings: 4, hMin: 380,  hMax: 640,  wMin: 340, wMax: 560, profileMin: 1.0,  profileMax: 1.5,  snowMin: 0.55, snowMax: 0.72, treeMin: 0.20, treeMax: 0.35 },
-      { rMin: cityEdge + 1500, rMax: cityEdge + 3000, rings: 3, hMin: 600,  hMax: 950,  wMin: 420, wMax: 680, profileMin: 1.1,  profileMax: 1.7,  snowMin: 0.48, snowMax: 0.64, treeMin: 0.16, treeMax: 0.28 },
-      { rMin: cityEdge + 2800, rMax: cityEdge + 4800, rings: 2, hMin: 800,  hMax: 1200, wMin: 600, wMax: 950, profileMin: 0.9,  profileMax: 1.4,  snowMin: 0.42, snowMax: 0.58, treeMin: 0.12, treeMax: 0.22 },
+      { rMin: cityEdge,        rMax: cityEdge + 540,  rangeCount: 8, spread: 0.22, minPeaks: 2, maxPeaks: 3, hMin: 110, hMax: 240, wMin: 260, wMax: 420, profileMin: 0.58, profileMax: 0.88, snowMin: 0.94, snowMax: 0.99, treeMin: 0.18, treeMax: 0.30, vistaPad: 0.08 },
+      { rMin: cityEdge + 260,  rMax: cityEdge + 1100, rangeCount: 9, spread: 0.24, minPeaks: 2, maxPeaks: 4, hMin: 240, hMax: 420, wMin: 320, wMax: 500, profileMin: 0.82, profileMax: 1.18, snowMin: 0.68, snowMax: 0.82, treeMin: 0.24, treeMax: 0.38, vistaPad: 0.10 },
+      { rMin: cityEdge + 900,  rMax: cityEdge + 2100, rangeCount: 10, spread: 0.28, minPeaks: 2, maxPeaks: 4, hMin: 420, hMax: 700, wMin: 380, wMax: 620, profileMin: 0.95, profileMax: 1.48, snowMin: 0.56, snowMax: 0.72, treeMin: 0.18, treeMax: 0.31, vistaPad: 0.12 },
+      { rMin: cityEdge + 1800, rMax: cityEdge + 3600, rangeCount: 8, spread: 0.32, minPeaks: 2, maxPeaks: 3, hMin: 700, hMax: 1060, wMin: 520, wMax: 760, profileMin: 1.08, profileMax: 1.62, snowMin: 0.46, snowMax: 0.62, treeMin: 0.14, treeMax: 0.24, vistaPad: 0.16 },
     ];
+
     for (const band of bands) {
-      for (let ring = 0; ring < band.rings; ring++) {
-        const t = band.rings === 1 ? 0.5 : ring / (band.rings - 1);
-        const ringR = band.rMin + t * (band.rMax - band.rMin);
-        const meanW = (band.wMin + band.wMax) / 2;
-        const count = Math.ceil((Math.PI * 2) / ((2 * meanW) / ringR) * 1.7);
-        for (let i = 0; i < count; i++) {
-          seed++;
-          const baseAngle = (i / count) * Math.PI * 2;
-          const jitter    = (seededRng(seed + 11) - 0.5) * (Math.PI * 2 / count) * 0.65;
-          const angle     = baseAngle + jitter + ring * 0.41;
-          const rJitter   = (seededRng(seed + 22) - 0.5) * (band.rMax - band.rMin) * 0.38;
-          const r         = Math.max(band.rMin, Math.min(band.rMax, ringR + rJitter));
-          const height     = band.hMin + seededRng(seed + 33) * (band.hMax - band.hMin);
-          const baseRadius = band.wMin + seededRng(seed + 44) * (band.wMax - band.wMin);
-          const profile    = band.profileMin + seededRng(seed + 55) * (band.profileMax - band.profileMin);
-          const snowFrac   = band.snowMin + seededRng(seed + 66) * (band.snowMax - band.snowMin);
-          const treeFrac   = band.treeMin + seededRng(seed + 77) * (band.treeMax - band.treeMin);
-          const { mainGeo, snowGeo, screeGeo } = buildRealisticMountain(baseRadius, height, profile, seed * 0.07 + 1.3, snowFrac, treeFrac);
+      for (let rangeIdx = 0; rangeIdx < band.rangeCount; rangeIdx++) {
+        seed++;
+        const baseAngle = (rangeIdx / band.rangeCount) * Math.PI * 2;
+        const angleJitter = (seededRng(seed + 11) - 0.5) * ((Math.PI * 2) / band.rangeCount) * 0.65;
+        const anchorAngle = normalizeAngle(baseAngle + angleJitter + rangeIdx * 0.07);
+        const inRiverVista = isAngleInRiverSector(anchorAngle, band.vistaPad);
+        const anchorRadius = band.rMin + seededRng(seed + 22) * (band.rMax - band.rMin);
+        const peakCount = band.minPeaks + Math.floor(seededRng(seed + 33) * (band.maxPeaks - band.minPeaks + 1));
+
+        for (let peakIdx = 0; peakIdx < peakCount; peakIdx++) {
+          const primary = peakIdx === 0;
+          const shoulderScale = primary ? 1 : 0.52 + seededRng(seed + 44 + peakIdx) * 0.28;
+          const angleOffset = primary ? 0 : (seededRng(seed + 55 + peakIdx) - 0.5) * band.spread;
+          const radialOffset = primary ? 0 : (seededRng(seed + 66 + peakIdx) - 0.35) * (band.rMax - band.rMin) * 0.14;
+          const angle = normalizeAngle(anchorAngle + angleOffset);
+          const r = THREE.MathUtils.clamp(anchorRadius + radialOffset, band.rMin, band.rMax);
+          const vistaScale = inRiverVista ? (primary ? 0.76 : 0.62) : 1;
+          const height = (band.hMin + seededRng(seed + 77 + peakIdx) * (band.hMax - band.hMin)) * shoulderScale * vistaScale;
+          const baseRadius = (band.wMin + seededRng(seed + 88 + peakIdx) * (band.wMax - band.wMin)) * (primary ? 1 : 0.82 + seededRng(seed + 99 + peakIdx) * 0.16) * (inRiverVista ? 0.88 : 1);
+          const profile = band.profileMin + seededRng(seed + 111 + peakIdx) * (band.profileMax - band.profileMin);
+          const snowFrac = band.snowMin + seededRng(seed + 122 + peakIdx) * (band.snowMax - band.snowMin);
+          const treeFrac = band.treeMin + seededRng(seed + 133 + peakIdx) * (band.treeMax - band.treeMin);
+          const peakSeed = seed * 0.07 + peakIdx * 1.13 + 1.3;
+          const { mainGeo, snowGeo, screeGeo } = buildRealisticMountain(baseRadius, height, profile, peakSeed, snowFrac, treeFrac);
           result.push({ x: Math.cos(angle) * r, z: Math.sin(angle) * r, height, baseRadius, snowFrac, treeFrac, profile, mainGeo, snowGeo, screeGeo });
         }
       }
@@ -1380,11 +1640,6 @@ function Mountains({ buildings }: { buildings: PositionedBuilding[] }) {
     <group>
       {peaks.map((p, i) => {
         const worldY    = p.height / 2 - 12;
-        const halfH     = p.height / 2;
-        const treeH     = p.height * p.treeFrac;
-        const treeR     = p.baseRadius * Math.pow(1 - p.treeFrac, p.profile) * 1.14;
-        const treeR2    = p.baseRadius * Math.pow(1 - p.treeFrac * 0.7, p.profile) * 1.06;
-        const treeBaseY = -halfH + treeH * 0.5 - 2;
 
         return (
           <group key={i} position={[p.x, worldY, p.z]}>
@@ -1404,26 +1659,6 @@ function Mountains({ buildings }: { buildings: PositionedBuilding[] }) {
                 emissive="#9ab8d0" emissiveIntensity={0.06}
               />
             </mesh>
-
-            {treeH > 20 && (
-              <mesh position={[0, treeBaseY, 0]} castShadow receiveShadow>
-                <coneGeometry args={[treeR, treeH, 28, 6]} />
-                <meshPhysicalMaterial color="#111f13" roughness={0.96} metalness={0.0} emissive="#040d06" emissiveIntensity={0.18} />
-              </mesh>
-            )}
-            {treeH > 30 && (
-              <mesh position={[0, -halfH + treeH * 0.35 - 2, 0]} castShadow>
-                <coneGeometry args={[treeR2, treeH * 0.70, 22, 4]} />
-                <meshPhysicalMaterial color="#18421f" roughness={0.95} metalness={0.0} emissive="#061509" emissiveIntensity={0.12} transparent opacity={0.88} />
-              </mesh>
-            )}
-            {treeH > 50 && (
-              <mesh position={[0, -halfH + treeH * 0.62, 0]} castShadow>
-                <coneGeometry args={[treeR * 0.62, treeH * 0.38, 16, 3]} />
-                <meshPhysicalMaterial color="#1d5c2a" roughness={0.93} metalness={0.0} transparent opacity={0.72} />
-              </mesh>
-            )}
-
           </group>
         );
       })}
@@ -1495,7 +1730,7 @@ function CameraFocus({
   focusPosition: [number, number, number] | null;
   controlsRef: RefObject<OrbitControlsImpl | null>;
 }) {
-  const { camera, gl } = useThree();
+  const { camera } = useThree();
   const currentTarget = useRef<THREE.Vector3 | null>(null);
   const target = useRef<THREE.Vector3 | null>(null);
 
@@ -1681,10 +1916,10 @@ function StreetView({
   const camPos = useRef(new THREE.Vector3(spawnConfig.pos.x, spawnConfig.pos.y + cfg.eyeOffset + 10, spawnConfig.pos.z + 30));
   const camVel = useRef(new THREE.Vector3());
 
-  // Orbit-style driving camera: mouse controls yaw/pitch around the car.
-  const baseOrbitPitch = 0.24;
-  const minOrbitPitch = -0.32;
-  const maxOrbitPitch = 1.02;
+  // Orbit-style driving camera: faster response and a wider vertical arc.
+  const baseOrbitPitch = 0.18;
+  const minOrbitPitch = -1.08;
+  const maxOrbitPitch = 1.22;
   const lookYawTarget = useRef(0);
   const lookPitchTarget = useRef(0);
   const zoomTarget = useRef(1);
@@ -1708,8 +1943,8 @@ function StreetView({
     const applyLookDelta = (dx: number, dy: number) => {
       markLookInput();
       // Normal third-person feel: moving right looks right, moving up looks skyward.
-      lookYawTarget.current -= dx * 0.0046;
-      lookPitchTarget.current += dy * 0.0032;
+      lookYawTarget.current -= dx * 0.0062;
+      lookPitchTarget.current += dy * 0.0048;
       lookPitchTarget.current = THREE.MathUtils.clamp(lookPitchTarget.current, minPitchOffset, maxPitchOffset);
     };
 
@@ -1758,7 +1993,7 @@ function StreetView({
       e.preventDefault();
       const factor = 1 - e.deltaY * 0.0012;
       const next = zoomTarget.current * factor;
-      zoomTarget.current = Math.max(0.7, Math.min(1.35, next));
+      zoomTarget.current = Math.max(0.55, Math.min(1.6, next));
     };
 
     el.addEventListener("pointerdown", onPointerDown);
@@ -1776,9 +2011,9 @@ function StreetView({
       el.removeEventListener("pointercancel", endDrag);
       window.removeEventListener("blur", endDrag);
       document.removeEventListener("pointerlockchange", onPointerLockChange);
-      el.removeEventListener("wheel", onWheel as any);
+      el.removeEventListener("wheel", onWheel);
     };
-  }, [gl]);
+  }, [gl, maxOrbitPitch, minOrbitPitch]);
 
   // Classic driving-camera distance cycle (V key).
   // 0 → Far (default), 1 → Medium, 2 → Close, 3 → Reset back to original Far.
@@ -1841,24 +2076,24 @@ function StreetView({
     }
 
     // Chase camera (spring-damper) behind the car
-    const smoothAlpha = 1 - Math.exp(-delta * 6);
+    const smoothAlpha = 1 - Math.exp(-delta * 9);
     targetPosSmoothed.current.lerp(v.position, smoothAlpha);
     targetYawSmoothed.current = lerpAngle(targetYawSmoothed.current, v.yaw, smoothAlpha);
 
     // Smooth user offsets too (prevents abrupt camera jumps when dragging)
     const idleLookMs = performance.now() - lastLookInputAt.current;
-    if (idleLookMs > 900 && Math.abs(v.speed) > 1.5) {
-      const recenterAlpha = 1 - Math.exp(-delta * 1.75);
+    if (!pointerLockedRef.current && idleLookMs > 1800 && Math.abs(v.speed) > 1.5) {
+      const recenterAlpha = 1 - Math.exp(-delta * 0.9);
       lookYawTarget.current += (0 - lookYawTarget.current) * recenterAlpha;
       lookPitchTarget.current += (0 - lookPitchTarget.current) * recenterAlpha;
     }
 
-    const lookAlpha = 1 - Math.exp(-delta * 10);
+    const lookAlpha = 1 - Math.exp(-delta * 18);
     lookYaw.current += (lookYawTarget.current - lookYaw.current) * lookAlpha;
     lookPitch.current += (lookPitchTarget.current - lookPitch.current) * lookAlpha;
     zoom.current += (zoomTarget.current - zoom.current) * lookAlpha;
 
-    const distance = Math.max(20, cfg.forwardOffset * 0.72) * zoom.current;
+    const distance = Math.max(18, cfg.forwardOffset * 0.7) * zoom.current;
     const orbitYaw = targetYawSmoothed.current + lookYaw.current;
     const orbitPitch = THREE.MathUtils.clamp(baseOrbitPitch + lookPitch.current, minOrbitPitch, maxOrbitPitch);
     const horizontalDistance = Math.cos(orbitPitch) * distance;
@@ -1871,9 +2106,9 @@ function StreetView({
     desired.y = Math.max(v.position.y + 3.5, desired.y);
 
     // critically damped-ish spring
-    const k = 14;
-    // Slightly overdamp to avoid “shaky” oscillation
-    const c = 2.2 * Math.sqrt(k);
+    const k = 24;
+    // Slightly overdamp to avoid “shaky” oscillation while keeping the orbit snappy.
+    const c = 2.05 * Math.sqrt(k);
     const x = camPos.current;
     const xd = camVel.current;
     const toTarget = tmpToTarget.current.copy(desired).sub(x);
@@ -1963,6 +2198,59 @@ function PerfCollector({
       accTime.current = 0;
     }
   });
+
+  return null;
+}
+
+function CityAmbientAudio() {
+  useEffect(() => {
+    const cityMusic = new Audio("/audios/city_music.mp3");
+    const cityAmbience = new Audio("/audios/distrant_city_noise.mp3");
+    const wind = new Audio("/audios/wind.mp3");
+
+    cityMusic.loop = true;
+    cityMusic.preload = "auto";
+    cityMusic.volume = 0.16;
+
+    cityAmbience.loop = true;
+    cityAmbience.preload = "auto";
+    cityAmbience.volume = 0.11;
+
+    wind.preload = "auto";
+    wind.volume = 0.2;
+
+    const unlock = () => {
+      tryPlayAudio(cityMusic);
+      tryPlayAudio(cityAmbience);
+    };
+
+    let windTimer: number | null = null;
+    const queueWind = () => {
+      const delay = 18000 + Math.random() * 22000;
+      windTimer = window.setTimeout(() => {
+        wind.currentTime = 0;
+        tryPlayAudio(wind);
+        queueWind();
+      }, delay);
+    };
+
+    unlock();
+    queueWind();
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+
+    return () => {
+      if (windTimer !== null) window.clearTimeout(windTimer);
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+      cityMusic.pause();
+      cityMusic.currentTime = 0;
+      cityAmbience.pause();
+      cityAmbience.currentTime = 0;
+      wind.pause();
+      wind.currentTime = 0;
+    };
+  }, []);
 
   return null;
 }
@@ -2133,6 +2421,8 @@ export function CityCanvas({
           if (arrivalLatchRef.current !== key) {
             arrivalLatchRef.current = key;
             setToast(`Arrived at @${navTarget.username}`);
+            setNavTarget(null);
+            setNavQuery("");
             setNavRoute([]);
             window.setTimeout(() => setToast(null), 1800);
           }
@@ -2145,12 +2435,10 @@ export function CityCanvas({
     return () => window.clearInterval(id);
   }, [streetMode, navTarget]);
 
-  const destinationXZ = navTarget ? { x: navTarget.x, z: navTarget.z } : null;
+  const destinationXZ = useMemo(() => (navTarget ? { x: navTarget.x, z: navTarget.z } : null), [navTarget]);
+  const navMetrics = useMemo(() => {
+    if (!uiPose || !destinationXZ || navRoute.length === 0) return null;
 
-  const navHint = useMemo(() => {
-    if (!uiPose || navRoute.length < 2) return null;
-
-    // Find closest route node to player
     let bestIdx = 0;
     let bestD = Infinity;
     for (let i = 0; i < navRoute.length; i++) {
@@ -2165,7 +2453,36 @@ export function CityCanvas({
       }
     }
 
-    const nextId = navRoute[Math.min(navRoute.length - 1, bestIdx + 1)];
+    let remaining = 0;
+    const closestNode = roadGraph.nodes.get(navRoute[bestIdx]);
+    if (closestNode) {
+      remaining += Math.hypot(closestNode.x - uiPose.x, closestNode.z - uiPose.z);
+    }
+
+    for (let i = bestIdx; i < navRoute.length - 1; i++) {
+      const a = roadGraph.nodes.get(navRoute[i]);
+      const b = roadGraph.nodes.get(navRoute[i + 1]);
+      if (!a || !b) continue;
+      remaining += Math.hypot(a.x - b.x, a.z - b.z);
+    }
+
+    const lastNode = roadGraph.nodes.get(navRoute[navRoute.length - 1]);
+    if (lastNode) {
+      remaining += Math.hypot(lastNode.x - destinationXZ.x, lastNode.z - destinationXZ.z);
+    }
+
+    return {
+      closestIndex: bestIdx,
+      closestNode,
+      remaining,
+      offRouteDistance: Math.sqrt(bestD),
+    };
+  }, [destinationXZ, navRoute, roadGraph, uiPose]);
+
+  const navHint = useMemo(() => {
+    if (!uiPose || !navMetrics || navRoute.length < 2) return null;
+
+    const nextId = navRoute[Math.min(navRoute.length - 1, navMetrics.closestIndex + 1)];
     const next = roadGraph.nodes.get(nextId);
     if (!next) return null;
 
@@ -2180,7 +2497,7 @@ export function CityCanvas({
     const turn = abs < 0.35 ? "Go straight" : delta > 0 ? "Turn left" : "Turn right";
     const dist = Math.sqrt(toX * toX + toZ * toZ);
     return { turn, dist };
-  }, [uiPose, navRoute, roadGraph]);
+  }, [navMetrics, navRoute, roadGraph, uiPose]);
 
   const computeRouteTo = useCallback((target: PositionedBuilding) => {
     const start = nearestRoadNode(roadGraph, playerPoseRef.current.x, playerPoseRef.current.z);
@@ -2191,6 +2508,18 @@ export function CityCanvas({
   }, [roadGraph]);
 
   useEffect(() => {
+    if (!streetMode || !navTarget) return;
+    const id = window.setInterval(() => {
+      const start = nearestRoadNode(roadGraph, playerPoseRef.current.x, playerPoseRef.current.z);
+      const goal = nearestRoadNode(roadGraph, navTarget.x, navTarget.z);
+      const nextPath = aStar(roadGraph, start, goal);
+      if (!nextPath.length) return;
+      setNavRoute((prev) => (sameRoute(prev, nextPath) ? prev : nextPath));
+    }, 900);
+    return () => window.clearInterval(id);
+  }, [navTarget, roadGraph, streetMode]);
+
+  useEffect(() => {
     const handler = () => setStreetMode(prev => !prev);
     window.addEventListener("gc-proto-street-toggle", handler);
     return () => window.removeEventListener("gc-proto-street-toggle", handler);
@@ -2199,15 +2528,13 @@ export function CityCanvas({
   // Outer radius used for river and road extent
   const cityOuterR = Math.max(ringRadii.ring3Outer, ringRadii.ring1Outer) + 60;
 
-  // Moon direction: place it above mountains facing the “empty wedge” (river gap sector).
+  // Place the moon over the open river wedge so it reads clearly from the central plaza.
   const moonPosition = useMemo((): [number, number, number] => {
-    // North-East direction (x+, z+ in our polar layout where x=cos(a), z=sin(a))
-    // and slightly above the highest mountain band.
-    const moonR = cityOuterR + 900;
-    const moonAngle = Math.PI / 4;
+    const moonR = cityOuterR + 3600;
+    const moonAngle = RIVER_CENTER;
     const moonX = Math.cos(moonAngle) * moonR;
     const moonZ = Math.sin(moonAngle) * moonR;
-    const moonY = 1280;
+    const moonY = 1720;
     return [moonX, moonY, moonZ];
   }, [cityOuterR]);
 
@@ -2215,6 +2542,7 @@ export function CityCanvas({
     <div
       className={`relative w-full overflow-hidden border border-purple-500/40 bg-gradient-to-br from-slate-900 via-purple-950/30 to-pink-950/40 shadow-[0_0_60px_rgba(15,23,42,0.9)] ${fullHeight ? "min-h-0 flex-1 rounded-none" : "h-[560px] rounded-3xl"}`}
     >
+      <CityAmbientAudio />
       <Canvas
         shadows
         camera={{ position: [800, 700, 1000], fov: 55, near: 1, far: qualityConfig.cameraFar }}
@@ -2244,6 +2572,11 @@ export function CityCanvas({
         {/* Sky & atmosphere */}
         <SkyDome stops={theme.sky} />
         <Stars />
+
+        {/* Moon-only lighting: camera must see MOON_LIGHT_LAYER; beam runs from city center toward moon */}
+        <EnableMoonLayerOnCamera layer={MOON_LIGHT_LAYER} />
+        <MoonOnlyAmbient layer={MOON_LIGHT_LAYER} intensity={0.42} color="#dcd6ff" />
+        <MoonBeamFromCity moonPosition={moonPosition} layer={MOON_LIGHT_LAYER} />
 
         <Moon position={moonPosition} />
 
@@ -2283,6 +2616,8 @@ export function CityCanvas({
           onHover={setHovered}
           meshRef={instancedRef}
         />
+        <NavTargetPulse target={navTarget} />
+        <BuildingSignBoards buildings={buildings} />
 
         {/* Scenery */}
         <Mountains buildings={buildings} />
@@ -2395,7 +2730,18 @@ export function CityCanvas({
 
       {/* Navigation + minimap (street mode) */}
       {streetMode && (
-        <div className="absolute right-4 top-4 z-30 flex flex-col items-end gap-3">
+        <div className="absolute bottom-4 left-4 z-30 flex flex-col-reverse items-start gap-3">
+          <div className="rounded-3xl border border-purple-500/35 bg-black/40 p-2 shadow-[0_0_35px_rgba(168,85,247,0.2)] backdrop-blur-md">
+            <Minimap
+              graph={roadGraph}
+              playerXZ={uiPose ? { x: uiPose.x, z: uiPose.z } : null}
+              playerYaw={uiPose?.yaw ?? null}
+              destinationXZ={destinationXZ}
+              route={navRoute}
+              size={200}
+            />
+          </div>
+
           <div className="pointer-events-auto w-[280px] rounded-2xl border border-purple-500/35 bg-black/70 px-3 py-3 backdrop-blur-md shadow-[0_0_30px_rgba(168,85,247,0.25)]">
             <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-pink-300/90">
               Navigation
@@ -2463,8 +2809,19 @@ export function CityCanvas({
             </div>
 
             {uiPose && (
-              <div className="mt-2 text-[11px] text-purple-200/80">
-                Speed: <span className="font-semibold text-sky-100">{Math.round(Math.abs(uiPose.speed))}</span>
+              <div className="mt-2 space-y-1 text-[11px] text-purple-200/80">
+                <div>
+                  Speed: <span className="font-semibold text-sky-100">{Math.round(Math.abs(uiPose.speed))}</span>
+                </div>
+                <div>
+                  Position:{" "}
+                  <span className="font-semibold text-sky-100">
+                    {Math.round(uiPose.x)}, {Math.round(uiPose.z)}
+                  </span>
+                </div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-purple-300/70">
+                  W forward · S reverse
+                </div>
               </div>
             )}
 
@@ -2479,6 +2836,12 @@ export function CityCanvas({
                 {navHint && (
                   <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-pink-300/80">
                     {navHint.turn} · {Math.round(navHint.dist)}m
+                  </div>
+                )}
+                {navMetrics && (
+                  <div className="mt-1 space-y-1 text-[10px] font-mono uppercase tracking-[0.18em] text-sky-200/75">
+                    <div>Distance {Math.round(navMetrics.remaining)}m</div>
+                    <div>Route drift {Math.round(navMetrics.offRouteDistance)}m</div>
                   </div>
                 )}
               </div>
@@ -2527,16 +2890,6 @@ export function CityCanvas({
                 />
               </div>
             )}
-          </div>
-
-          <div className="rounded-3xl border border-purple-500/35 bg-black/40 p-2 shadow-[0_0_35px_rgba(168,85,247,0.2)] backdrop-blur-md">
-            <Minimap
-              graph={roadGraph}
-              playerXZ={uiPose ? { x: uiPose.x, z: uiPose.z } : null}
-              destinationXZ={destinationXZ}
-              route={navRoute}
-              size={190}
-            />
           </div>
         </div>
       )}

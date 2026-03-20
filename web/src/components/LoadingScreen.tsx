@@ -4,12 +4,14 @@ interface Props {
   message?: string;
   progress?: number; // 0..100
   title?: string;
+  audioStarted?: boolean;
+  onStartAudio?: () => void;
 }
 
-export function LoadingScreen({ message, progress, title }: Props) {
+export function LoadingScreen({ message, progress, title, audioStarted = false, onStartAudio }: Props) {
   const pct = typeof progress === "number" ? Math.max(0, Math.min(100, progress)) : null;
   return (
-    <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-gradient-to-br from-black via-purple-950/60 to-pink-950/50">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-gradient-to-br from-black via-purple-950/60 to-pink-950/50">
       <div className="relative flex flex-col items-center gap-6 px-8 py-10">
         <div className="relative h-28 w-28">
           <div className="absolute inset-3 rounded-md bg-pink-400 shadow-[0_0_35px_rgba(236,72,153,0.8)]" />
@@ -42,6 +44,18 @@ export function LoadingScreen({ message, progress, title }: Props) {
             <p className="mt-2 text-[10px] font-mono uppercase tracking-[0.3em] text-purple-300/70">
               {Math.round(pct)}%
             </p>
+          )}
+          {onStartAudio && (
+            <div className="mt-4 flex justify-center">
+              <button
+                type="button"
+                onClick={onStartAudio}
+                disabled={audioStarted}
+                className="pointer-events-auto rounded-full border border-pink-500/45 bg-black/55 px-4 py-2 text-[10px] font-mono uppercase tracking-[0.28em] text-pink-100 shadow-[0_0_22px_rgba(236,72,153,0.28)] transition hover:bg-pink-500/15 disabled:cursor-default disabled:border-emerald-400/40 disabled:text-emerald-200"
+              >
+                {audioStarted ? "Music On" : "Start Music"}
+              </button>
+            </div>
           )}
         </div>
       </div>
