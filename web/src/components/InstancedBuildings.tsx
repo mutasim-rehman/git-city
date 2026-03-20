@@ -22,6 +22,7 @@ const vertexShader = /* glsl */ `
   attribute vec4 aUvFront;
   attribute vec4 aUvSide;
   attribute vec3 aFacadeColor;
+  attribute float aPulseFlag;
 
   varying vec2 vUv;
   varying vec3 vNormal;
@@ -29,6 +30,7 @@ const vertexShader = /* glsl */ `
   varying vec4 vUvSide;
   varying vec3 vViewPos;
   varying vec3 vFacadeColor;
+  varying float vPulseFlag;
 
   void main() {
     vUv = uv;
@@ -36,6 +38,7 @@ const vertexShader = /* glsl */ `
     vUvFront = aUvFront;
     vUvSide = aUvSide;
     vFacadeColor = aFacadeColor;
+    vPulseFlag = aPulseFlag;
 
     vec4 mvPos = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
     vViewPos = mvPos.xyz;
@@ -49,6 +52,7 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uFogColor;
   uniform float uFogNear;
   uniform float uFogFar;
+  uniform float uPulseTime;
 
   varying vec2 vUv;
   varying vec3 vNormal;
@@ -56,6 +60,7 @@ const fragmentShader = /* glsl */ `
   varying vec4 vUvSide;
   varying vec3 vViewPos;
   varying vec3 vFacadeColor;
+  varying float vPulseFlag;
 
   void main() {
     float fogDepth = length(vViewPos);
@@ -78,6 +83,9 @@ const fragmentShader = /* glsl */ `
     float diffuse = max(dot(normalize(vNormal), lightDir), 0.0) * 0.4 + 0.6;
     color *= diffuse;
 
+    float pulse = 0.5 + 0.5 * sin(uPulseTime * 4.8);
+    color = mix(color, vec3(1.0), pulse * vPulseFlag * 0.82);
+
     float fogFactor = smoothstep(uFogNear, uFogFar, fogDepth);
     color = mix(color, uFogColor, fogFactor);
 
@@ -89,6 +97,7 @@ interface InstancedBuildingsProps {
   buildings: PositionedBuilding[];
   atlasTexture: THREE.CanvasTexture;
   colors: BuildingColors;
+  pulseBuildingId?: string | null;
   onHover?: (building: PositionedBuilding | null) => void;
   meshRef?: RefObject<THREE.InstancedMesh | null>;
 }
@@ -103,6 +112,7 @@ export const InstancedBuildings = memo(function InstancedBuildings({
   buildings,
   atlasTexture,
   colors,
+  pulseBuildingId = null,
   onHover,
   meshRef: externalMeshRef,
 }: InstancedBuildingsProps) {
@@ -120,6 +130,7 @@ export const InstancedBuildings = memo(function InstancedBuildings({
         uFogColor: { value: new THREE.Color("#020617") },
         uFogNear: { value: 400 },
         uFogFar: { value: 2500 },
+        uPulseTime: { value: 0 },
       },
       vertexShader,
       fragmentShader,
@@ -133,10 +144,11 @@ export const InstancedBuildings = memo(function InstancedBuildings({
     material.needsUpdate = true;
   }, [material, atlasTexture, colors.roof]);
 
-  const { uvFrontData, uvSideData, facadeData } = useMemo(() => {
+  const { uvFrontData, uvSideData, facadeData, pulseData } = useMemo(() => {
     const uvF = new Float32Array(count * 4);
     const uvS = new Float32Array(count * 4);
     const facade = new Float32Array(count * 3);
+    const pulse = new Float32Array(count);
 
     // Muted architectural facade palette.
     const palette = [
@@ -258,10 +270,11 @@ export const InstancedBuildings = memo(function InstancedBuildings({
       uvS[i * 4 + 1] = bandRowOffset / ATLAS_COLS;
       uvS[i * 4 + 2] = sideCols / ATLAS_COLS;
       uvS[i * 4 + 3] = b.floors / ATLAS_COLS;
+      pulse[i] = b.id === pulseBuildingId ? 1 : 0;
     }
 
-    return { uvFrontData: uvF, uvSideData: uvS, facadeData: facade };
-  }, [buildings, count]);
+    return { uvFrontData: uvF, uvSideData: uvS, facadeData: facade, pulseData: pulse };
+  }, [buildings, count, pulseBuildingId]);
 
   useEffect(() => {
     const mesh = meshRef.current;
@@ -301,18 +314,21 @@ export const InstancedBuildings = memo(function InstancedBuildings({
     const uvFrontAttr = new THREE.InstancedBufferAttribute(uvFrontData, 4);
     const uvSideAttr = new THREE.InstancedBufferAttribute(uvSideData, 4);
     const facadeAttr = new THREE.InstancedBufferAttribute(facadeData, 3);
+    const pulseAttr = new THREE.InstancedBufferAttribute(pulseData, 1);
     mesh.geometry.setAttribute("aUvFront", uvFrontAttr);
     mesh.geometry.setAttribute("aUvSide", uvSideAttr);
     mesh.geometry.setAttribute("aFacadeColor", facadeAttr);
+    mesh.geometry.setAttribute("aPulseFlag", pulseAttr);
 
     mesh.count = count;
-  }, [buildings, count, uvFrontData, uvSideData, facadeData]);
+  }, [buildings, count, uvFrontData, uvSideData, facadeData, pulseData]);
 
   const lastFogNear = useRef(0);
   const lastFogFar = useRef(0);
   useFrame(({ scene }) => {
     if (!material.uniforms) return;
     const fog = scene.fog as THREE.Fog | null;
+    material.uniforms.uPulseTime.value += 1 / 60;
     if (!fog) return;
     if (fog.near !== lastFogNear.current || fog.far !== lastFogFar.current) {
       material.uniforms.uFogColor.value.copy(fog.color);

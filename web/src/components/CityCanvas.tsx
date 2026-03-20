@@ -7,7 +7,7 @@ import * as THREE from "three";
 import type { CityId, CityTheme, PositionedBuilding } from "@/lib/types";
 import { createWindowAtlas } from "@/lib/city/windowAtlas";
 import { InstancedBuildings } from "./InstancedBuildings";
-import { Html, OrbitControls, useGLTF } from "@react-three/drei";
+import { OrbitControls, useGLTF } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { CityLayoutResult, GreenRing } from "@/lib/city/layout";
 import { PLAZA_RADIUS, RIVER_CENTER, RIVER_HALF_WIDTH, RIVER_SKIP } from "@/lib/city/layout";
@@ -51,6 +51,52 @@ function sameRoute(a: RoadNodeId[], b: RoadNodeId[]) {
 
 function tryPlayAudio(audio: HTMLAudioElement) {
   void audio.play().catch(() => {});
+}
+
+function createBuildingSignTexture(username: string) {
+  const label = username.startsWith("@") ? username : `@${username}`;
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 320;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+  gradient.addColorStop(0, "rgba(10,10,18,0.96)");
+  gradient.addColorStop(1, "rgba(36,10,48,0.96)");
+  ctx.fillStyle = gradient;
+  ctx.strokeStyle = "rgba(236,72,153,0.92)";
+  ctx.lineWidth = 14;
+
+  const radius = 34;
+  ctx.beginPath();
+  ctx.moveTo(radius, 20);
+  ctx.lineTo(canvas.width - radius, 20);
+  ctx.quadraticCurveTo(canvas.width - 20, 20, canvas.width - 20, 20 + radius);
+  ctx.lineTo(canvas.width - 20, canvas.height - 20 - radius);
+  ctx.quadraticCurveTo(canvas.width - 20, canvas.height - 20, canvas.width - 20 - radius, canvas.height - 20);
+  ctx.lineTo(radius, canvas.height - 20);
+  ctx.quadraticCurveTo(20, canvas.height - 20, 20, canvas.height - 20 - radius);
+  ctx.lineTo(20, 20 + radius);
+  ctx.quadraticCurveTo(20, 20, radius, 20);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(255,244,181,0.98)";
+  ctx.font = "700 108px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.shadowColor = "rgba(0,0,0,0.65)";
+  ctx.shadowBlur = 18;
+  ctx.fillText(label, canvas.width / 2, canvas.height / 2 + 8, canvas.width - 100);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  tex.needsUpdate = true;
+  return tex;
 }
 
 const EMERALD_THEME: CityTheme = {
@@ -1115,21 +1161,39 @@ function River({ outerRadius }: RiverProps) {
   );
 }
 
-function BuildingSignBoards({ buildings }: { buildings: PositionedBuilding[] }) {
+function BuildingSignBoards({
+  buildings,
+  activeBuildingId,
+}: {
+  buildings: PositionedBuilding[];
+  activeBuildingId?: string | null;
+}) {
+  const taggedBuildings = useMemo(() => {
+    if (!activeBuildingId) return [];
+    return buildings.filter((b) => b.id === activeBuildingId);
+  }, [buildings, activeBuildingId]);
+
   const signData = useMemo(() => {
-    return buildings.map((b) => {
-      const label = b.username.startsWith("@") ? b.username : `@${b.username}`;
-      const signWidth = THREE.MathUtils.clamp(Math.max(b.width, b.depth) * 1.25, 40, 110);
-      const signHeight = THREE.MathUtils.clamp(signWidth * 0.24, 12, 26);
-      const mountY = THREE.MathUtils.clamp(signHeight * 0.7 + 5, 12, Math.max(14, b.height - 10));
-      const frontOffset = b.depth / 2 + 3.2;
-      const sideOffset = b.width / 2 + 3.2;
+    return taggedBuildings.map((b) => {
+      const texture = createBuildingSignTexture(b.username);
+
+      // "Banner size" is the in-world sign plate + housing.
+      // Halve the original proportions.
+      const baseSignWidth = THREE.MathUtils.clamp(Math.max(b.width, b.depth) * 1.05, 34, 82);
+      const baseSignHeight = THREE.MathUtils.clamp(baseSignWidth * 0.24, 10, 18);
+      const signWidth = baseSignWidth * 0.5;
+      const signHeight = baseSignHeight * 0.5;
+
+      const mountY = THREE.MathUtils.clamp(18, 16, Math.max(20, b.height * 0.3));
+      const frontOffset = b.depth / 2 + 4.2;
+      const sideOffset = b.width / 2 + 4.2;
+
       return {
         id: b.id,
         x: b.x,
         z: b.z,
         rotationY: b.rotationY ?? 0,
-        label,
+        texture,
         signWidth,
         signHeight,
         mountY,
@@ -1137,11 +1201,22 @@ function BuildingSignBoards({ buildings }: { buildings: PositionedBuilding[] }) 
         sideOffset,
       };
     });
-  }, [buildings]);
+  }, [taggedBuildings]);
+
+  useEffect(() => {
+    return () => {
+      for (const sign of signData) {
+        sign.texture?.dispose();
+      }
+    };
+  }, [signData]);
+
+  if (signData.length === 0) return null;
 
   return (
     <group>
       {signData.map((sign) => {
+        if (!sign.texture) return null;
         return (
           <group key={`sign-${sign.id}`} position={[sign.x, 0, sign.z]} rotation-y={sign.rotationY}>
             {[
@@ -1150,27 +1225,35 @@ function BuildingSignBoards({ buildings }: { buildings: PositionedBuilding[] }) 
               { key: "left", pos: [-sign.sideOffset, sign.mountY, 0] as [number, number, number], rot: Math.PI / 2 },
               { key: "right", pos: [sign.sideOffset, sign.mountY, 0] as [number, number, number], rot: -Math.PI / 2 },
             ].map((face) => (
-              <group key={face.key} position={face.pos} rotation-y={face.rot}>
-                <mesh position={[0, -(sign.signHeight / 2 + 2.1), 0]}>
-                  <boxGeometry args={[1.1, 4.6, 0.7]} />
+              <group key={face.key} position={face.pos} rotation-y={face.rot} renderOrder={20}>
+                <mesh position={[0, 0, -0.24]} renderOrder={20}>
+                  <planeGeometry args={[sign.signWidth + 2, sign.signHeight + 1.5]} />
+                  <meshStandardMaterial
+                    color="#120814"
+                    emissive="#3b0764"
+                    emissiveIntensity={0.35}
+                    roughness={0.45}
+                    metalness={0.22}
+                    side={THREE.DoubleSide}
+                    depthWrite={false}
+                    depthTest={false}
+                  />
+                </mesh>
+                <mesh renderOrder={21}>
+                  <planeGeometry args={[sign.signWidth, sign.signHeight]} />
+                  <meshBasicMaterial
+                    map={sign.texture}
+                    transparent
+                    toneMapped={false}
+                    side={THREE.DoubleSide}
+                    depthWrite={false}
+                    depthTest={false}
+                  />
+                </mesh>
+                <mesh position={[0, -(sign.signHeight / 2 + 1.4), -0.3]} renderOrder={19}>
+                  <boxGeometry args={[0.55, 2.3, 0.35]} />
                   <meshStandardMaterial color="#1f2937" metalness={0.42} roughness={0.56} />
                 </mesh>
-                <Html
-                  transform
-                  distanceFactor={20}
-                  position={[0, 0, 0.45]}
-                  style={{ pointerEvents: "none" }}
-                >
-                  <div
-                    style={{
-                      width: `${Math.round(sign.signWidth * 4)}px`,
-                      minHeight: `${Math.round(sign.signHeight * 4)}px`,
-                    }}
-                    className="flex items-center justify-center rounded-[18px] border border-pink-400/80 bg-gradient-to-br from-slate-950/95 via-fuchsia-950/90 to-slate-950/95 px-4 py-2 text-center text-[22px] font-bold tracking-[0.08em] text-amber-200 shadow-[0_0_30px_rgba(236,72,153,0.35)]"
-                  >
-                    {sign.label}
-                  </div>
-                </Html>
               </group>
             ))}
           </group>
@@ -1180,45 +1263,38 @@ function BuildingSignBoards({ buildings }: { buildings: PositionedBuilding[] }) 
   );
 }
 
-function NavTargetPulse({ target }: { target: PositionedBuilding | null }) {
-  const shellRef = useRef<THREE.Mesh | null>(null);
-  const ringRef = useRef<THREE.Mesh | null>(null);
+function PulseTargetBuilding({ building }: { building: PositionedBuilding | null }) {
+  const materialRef = useRef<THREE.MeshStandardMaterial | null>(null);
 
   useFrame(({ clock }) => {
-    if (!target) return;
-    const t = clock.getElapsedTime();
-    const pulse = 0.5 + 0.5 * Math.sin(t * 3.4);
-
-    if (shellRef.current) {
-      shellRef.current.scale.setScalar(1.035 + pulse * 0.06);
-      const mat = shellRef.current.material as THREE.MeshBasicMaterial;
-      mat.opacity = 0.08 + pulse * 0.12;
-    }
-
-    if (ringRef.current) {
-      ringRef.current.scale.setScalar(0.88 + pulse * 0.28);
-      const mat = ringRef.current.material as THREE.MeshBasicMaterial;
-      mat.opacity = 0.18 + pulse * 0.22;
-    }
+    if (!materialRef.current || !building) return;
+    const pulse = 0.5 + 0.5 * Math.sin(clock.getElapsedTime() * 4.6);
+    materialRef.current.opacity = 0.08 + pulse * 0.45;
+    materialRef.current.emissiveIntensity = 0.15 + pulse * 0.85;
+    materialRef.current.color.setScalar(0.82 + pulse * 0.18);
+    materialRef.current.emissive.setScalar(0.55 + pulse * 0.45);
   });
 
-  if (!target) return null;
-
-  const shellHeight = target.height + 10;
-  const shellY = shellHeight / 2 - 1;
-  const ringSize = Math.max(target.width, target.depth) * 1.5;
+  if (!building) return null;
 
   return (
-    <group position={[target.x, 0, target.z]} rotation-y={target.rotationY ?? 0}>
-      <mesh ref={shellRef} position={[0, shellY, 0]}>
-        <boxGeometry args={[target.width + 10, shellHeight, target.depth + 10]} />
-        <meshBasicMaterial color="#f472b6" transparent opacity={0.14} blending={THREE.AdditiveBlending} depthWrite={false} />
-      </mesh>
-      <mesh ref={ringRef} rotation-x={-Math.PI / 2} position={[0, 2.2, 0]}>
-        <ringGeometry args={[ringSize * 0.48, ringSize * 0.62, 48]} />
-        <meshBasicMaterial color="#7dd3fc" transparent opacity={0.22} blending={THREE.AdditiveBlending} depthWrite={false} />
-      </mesh>
-    </group>
+    <mesh
+      position={[building.x, building.height / 2, building.z]}
+      rotation-y={building.rotationY ?? 0}
+      renderOrder={18}
+    >
+      <boxGeometry args={[building.width + 4, building.height + 4, building.depth + 4]} />
+      <meshStandardMaterial
+        ref={materialRef}
+        color="#ffffff"
+        emissive="#ffffff"
+        transparent
+        opacity={0.28}
+        depthWrite={false}
+        metalness={0}
+        roughness={0.22}
+      />
+    </mesh>
   );
 }
 
@@ -2436,6 +2512,13 @@ export function CityCanvas({
   }, [streetMode, navTarget]);
 
   const destinationXZ = useMemo(() => (navTarget ? { x: navTarget.x, z: navTarget.z } : null), [navTarget]);
+  const pulseBuildingId = navTarget?.id ?? focusBuilding?.id ?? null;
+  const pulseBuilding = navTarget ?? focusBuilding ?? null;
+  const signTagBuildingId = navTarget?.id ?? null;
+  const signTargetBuildings = useMemo(() => {
+    if (!signTagBuildingId) return [];
+    return buildings.filter((b) => b.id === signTagBuildingId);
+  }, [buildings, signTagBuildingId]);
   const navMetrics = useMemo(() => {
     if (!uiPose || !destinationXZ || navRoute.length === 0) return null;
 
@@ -2613,11 +2696,12 @@ export function CityCanvas({
           buildings={buildings}
           atlasTexture={atlasTexture}
           colors={theme.building}
+          pulseBuildingId={pulseBuildingId}
           onHover={setHovered}
           meshRef={instancedRef}
         />
-        <NavTargetPulse target={navTarget} />
-        <BuildingSignBoards buildings={buildings} />
+        <PulseTargetBuilding building={pulseBuilding} />
+        <BuildingSignBoards buildings={signTargetBuildings} activeBuildingId={signTagBuildingId} />
 
         {/* Scenery */}
         <Mountains buildings={buildings} />
