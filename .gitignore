@@ -1,2 +1,8 @@
 .idea/
 .env
+
+#huggging face space
+gitcity/
+
+#local crash arifact
+.hs_err_pid*.log
