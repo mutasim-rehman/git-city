@@ -2558,8 +2558,26 @@ export function CityCanvas({
   );
 
   useEffect(() => {
-    const wsUrl = `ws://${window.location.hostname}:8787`;
-    const ws = new WebSocket(wsUrl);
+    const envWsUrl = process.env.NEXT_PUBLIC_MULTIPLAYER_WS_URL?.trim();
+    const isLocalHost =
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
+    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const wsUrl = envWsUrl || (isLocalHost ? `${protocol}://${window.location.hostname}:8787` : null);
+
+    if (!wsUrl) {
+      // Do not attempt insecure/unknown multiplayer endpoints in hosted deployments.
+      return;
+    }
+
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch {
+      setToast("Multiplayer unavailable: invalid websocket endpoint");
+      window.setTimeout(() => setToast(null), 2600);
+      return;
+    }
     wsRef.current = ws;
     ws.onopen = () => {
       ws.send(
