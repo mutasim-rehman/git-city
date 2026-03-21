@@ -26,6 +26,7 @@ export default function Home() {
   const [layoutResult, setLayoutResult] = useState<CityLayoutResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [carVariant, setCarVariant] = useState<CarVariant>(DEFAULT_CAR_VARIANT);
+  const [playerName, setPlayerName] = useState("");
   const [bootMessage, setBootMessage] = useState("Loading city data…");
   const [bootProgress, setBootProgress] = useState(0);
   const [fade, setFade] = useState<"none" | "out" | "in">("none");
@@ -139,6 +140,11 @@ export default function Home() {
             initialCar={carVariant}
             cityLabel={selectedCity.toUpperCase()}
             onStart={(car) => {
+              const cleaned = playerName.trim();
+              if (!cleaned) {
+                setError("Enter a player name before starting.");
+                return;
+              }
               setCarVariant(car);
               setFade("out");
               setPhase("transition");
@@ -162,6 +168,13 @@ export default function Home() {
                 Map
               </p>
               <div className="mt-2">
+                <input
+                  value={playerName}
+                  onChange={(e) => setPlayerName(e.target.value)}
+                  maxLength={24}
+                  placeholder="Your name"
+                  className="mb-2 h-9 w-full rounded-xl border border-purple-500/40 bg-black/40 px-3 text-xs text-slate-100 placeholder:text-purple-300/50 focus:outline-none focus:ring-2 focus:ring-pink-500/40"
+                />
                 <CitySelector
                   selected={selectedCity}
                   onSelect={(city) => {
@@ -188,6 +201,7 @@ export default function Home() {
             city={selectedCity}
             buildings={buildings}
             layoutResult={layoutResult}
+            playerName={playerName.trim() || "player"}
             carVariant={carVariant}
             startInStreetMode
             fullHeight

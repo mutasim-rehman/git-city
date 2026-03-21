@@ -7,7 +7,7 @@ import * as THREE from "three";
 import type { CityId, CityTheme, PositionedBuilding } from "@/lib/types";
 import { createWindowAtlas } from "@/lib/city/windowAtlas";
 import { InstancedBuildings } from "./InstancedBuildings";
-import { OrbitControls, useGLTF } from "@react-three/drei";
+import { Html, OrbitControls, useGLTF } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { CityLayoutResult, GreenRing } from "@/lib/city/layout";
 import { PLAZA_RADIUS, RIVER_CENTER, RIVER_HALF_WIDTH, RIVER_SKIP } from "@/lib/city/layout";
@@ -790,12 +790,14 @@ function GreenSpaces({ rings }: { rings: GreenRing[] }) {
           args={[trunkGeom, treeTrunkMat, count]}
           castShadow
           receiveShadow
+          frustumCulled={false}
         />
         <instancedMesh
           ref={leafRef}
           args={[leafGeom, treeLeafMat, count]}
           castShadow
           receiveShadow
+          frustumCulled={false}
         />
       </group>
     );
@@ -1872,6 +1874,19 @@ function CameraFocus({
 
 export type { CarVariant };
 
+type NetPlayerState = {
+  id: string;
+  name: string;
+  city: CityId;
+  carVariant: CarVariant;
+  color: string;
+  x: number;
+  z: number;
+  yaw: number;
+  speed: number;
+  isNpc?: boolean;
+};
+
 function StreetCar({
   carGroupRef,
   variant,
@@ -1890,6 +1905,43 @@ function StreetCar({
   );
 }
 
+function VehicleLabel({
+  name,
+  color,
+}: {
+  name: string;
+  color: string;
+}) {
+  return (
+    <Html center distanceFactor={28} style={{ pointerEvents: "none" }}>
+      <div
+        className="rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white shadow-[0_0_18px_rgba(0,0,0,0.5)]"
+        style={{ borderColor: color, background: "rgba(2,6,23,0.78)" }}
+      >
+        {name}
+      </div>
+    </Html>
+  );
+}
+
+function RemoteStreetCar({ player }: { player: NetPlayerState }) {
+  const groupRef = useRef<THREE.Group | null>(null);
+  const cfg = CAR_CONFIGS[player.carVariant] ?? CAR_CONFIGS[DEFAULT_CAR_VARIANT];
+  useFrame(() => {
+    if (!groupRef.current) return;
+    groupRef.current.position.set(player.x, 1.5 - cfg.downOffset, player.z);
+    groupRef.current.rotation.set(0, player.yaw, 0);
+  });
+  return (
+    <group>
+      <StreetCar carGroupRef={groupRef} variant={player.carVariant} />
+      <group position={[player.x, 10.5, player.z]}>
+        <VehicleLabel name={player.name} color={player.color} />
+      </group>
+    </group>
+  );
+}
+
 function StreetView({
   onExit,
   focusBuilding,
@@ -1900,6 +1952,9 @@ function StreetView({
   npcMaxCars,
   viewRadius,
   moonPosition,
+  remotePlayers,
+  localPlayerName,
+  localPlayerColor,
 }: {
   onExit: () => void;
   focusBuilding: PositionedBuilding | null;
@@ -1910,6 +1965,9 @@ function StreetView({
   npcMaxCars: number;
   viewRadius: number;
   moonPosition: [number, number, number];
+  remotePlayers: NetPlayerState[];
+  localPlayerName: string;
+  localPlayerColor: string;
 }) {
   const { camera, gl } = useThree();
 
@@ -1991,6 +2049,7 @@ function StreetView({
   // Camera spring state (world space)
   const camPos = useRef(new THREE.Vector3(spawnConfig.pos.x, spawnConfig.pos.y + cfg.eyeOffset + 10, spawnConfig.pos.z + 30));
   const camVel = useRef(new THREE.Vector3());
+  const localLabelRef = useRef<THREE.Group | null>(null);
 
   // Orbit-style driving camera: faster response and a wider vertical arc.
   const baseOrbitPitch = 0.18;
@@ -2150,6 +2209,9 @@ function StreetView({
       carRef.current.position.set(v.position.x, v.position.y - cfg.downOffset, v.position.z);
       carRef.current.rotation.set(0, v.yaw, 0);
     }
+    if (localLabelRef.current) {
+      localLabelRef.current.position.set(v.position.x, v.position.y + 9.2, v.position.z);
+    }
 
     // Chase camera (spring-damper) behind the car
     const smoothAlpha = 1 - Math.exp(-delta * 9);
@@ -2231,6 +2293,12 @@ function StreetView({
   return (
     <group>
       <StreetCar carGroupRef={carRef} variant={carVariant} />
+      <group ref={localLabelRef} position={[spawnConfig.pos.x, 10.5, spawnConfig.pos.z]}>
+        <VehicleLabel name={localPlayerName} color={localPlayerColor} />
+      </group>
+      {remotePlayers.map((p) => (
+        <RemoteStreetCar key={p.id} player={p} />
+      ))}
       <instancedMesh ref={npcMeshRef} args={[undefined, undefined, 12]} castShadow receiveShadow>
         <boxGeometry args={[1, 1, 1]} />
         <meshStandardMaterial color="#ffffff" roughness={0.7} metalness={0.1} vertexColors />
@@ -2386,6 +2454,7 @@ interface CityCanvasProps {
   city: CityId;
   buildings: PositionedBuilding[];
   layoutResult: CityLayoutResult;
+  playerName: string;
   focusUsername?: string | null;
   carVariant?: CarVariant;
   startInStreetMode?: boolean;
@@ -2397,6 +2466,7 @@ export function CityCanvas({
   city,
   buildings,
   layoutResult,
+  playerName,
   focusUsername,
   carVariant = DEFAULT_CAR_VARIANT,
   startInStreetMode = false,
@@ -2472,6 +2542,69 @@ export function CityCanvas({
   // Lightweight performance sampling for debug overlay (toggled with F3)
   const [perfSample, setPerfSample] = useState<PerfSample | null>(null);
   const [showPerf, setShowPerf] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const [selfId, setSelfId] = useState<string | null>(null);
+  const [allPlayers, setAllPlayers] = useState<NetPlayerState[]>([]);
+  const [localPlayerColor, setLocalPlayerColor] = useState<string>("#ec4899");
+  const lastPoseSentAtRef = useRef(0);
+
+  const sessionPlayers = useMemo(
+    () => allPlayers.filter((p) => p.city === city),
+    [allPlayers, city],
+  );
+  const otherPlayers = useMemo(
+    () => sessionPlayers.filter((p) => p.id !== selfId),
+    [sessionPlayers, selfId],
+  );
+
+  useEffect(() => {
+    const wsUrl = `ws://${window.location.hostname}:8787`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+    ws.onopen = () => {
+      ws.send(
+        JSON.stringify({
+          type: "join",
+          name: playerName,
+          city,
+          carVariant,
+        }),
+      );
+    };
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(String(event.data)) as
+          | { type: "welcome"; selfId: string; players: NetPlayerState[] }
+          | { type: "state"; players: NetPlayerState[] }
+          | { type: "error"; message: string };
+        if (msg.type === "welcome") {
+          setSelfId(msg.selfId);
+          setAllPlayers(msg.players);
+          const me = msg.players.find((p) => p.id === msg.selfId);
+          if (me?.color) setLocalPlayerColor(me.color);
+          return;
+        }
+        if (msg.type === "state") {
+          setAllPlayers(msg.players);
+          return;
+        }
+        if (msg.type === "error") {
+          setToast(msg.message);
+          window.setTimeout(() => setToast(null), 2400);
+        }
+      } catch {
+        // ignore malformed payloads
+      }
+    };
+    ws.onerror = () => {
+      setToast("Multiplayer server offline (start npm run multiplayer:server)");
+      window.setTimeout(() => setToast(null), 2600);
+    };
+    return () => {
+      ws.close();
+      if (wsRef.current === ws) wsRef.current = null;
+    };
+  }, [carVariant, city, playerName]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2732,12 +2865,29 @@ export function CityCanvas({
               carVariant={carVariant}
               onVehiclePose={(pose) => {
                 playerPoseRef.current = pose;
+                const now = performance.now();
+                if (now - lastPoseSentAtRef.current < 45) return;
+                lastPoseSentAtRef.current = now;
+                const ws = wsRef.current;
+                if (!ws || ws.readyState !== WebSocket.OPEN || !selfId) return;
+                ws.send(
+                  JSON.stringify({
+                    type: "pose",
+                    x: pose.x,
+                    z: pose.z,
+                    yaw: pose.yaw,
+                    speed: pose.speed,
+                  }),
+                );
               }}
               roadGraph={roadGraph}
               playerTuning={playerTuning}
               npcMaxCars={qualityConfig.npcMaxCars}
               viewRadius={qualityConfig.npcViewRadius}
               moonPosition={moonPosition}
+              remotePlayers={otherPlayers}
+              localPlayerName={playerName}
+              localPlayerColor={localPlayerColor}
             />
             <StreetTargetTracker
               enabled={streetMode}
@@ -2820,6 +2970,8 @@ export function CityCanvas({
               graph={roadGraph}
               playerXZ={uiPose ? { x: uiPose.x, z: uiPose.z } : null}
               playerYaw={uiPose?.yaw ?? null}
+              playerColor={localPlayerColor}
+              otherPlayers={otherPlayers.map((p) => ({ id: p.id, x: p.x, z: p.z, color: p.color, name: p.name }))}
               destinationXZ={destinationXZ}
               route={navRoute}
               size={200}

@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "multiplayer:server": "node server/multiplayer-server.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
@@ -15,7 +16,8 @@
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "three": "^0.183.2"
+    "three": "^0.183.2",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

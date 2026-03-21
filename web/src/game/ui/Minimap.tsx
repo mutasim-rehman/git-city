@@ -7,6 +7,8 @@ type Props = {
   graph: RoadGraph;
   playerXZ: { x: number; z: number } | null;
   playerYaw?: number | null;
+  playerColor?: string;
+  otherPlayers?: Array<{ id: string; x: number; z: number; color: string; name: string }>;
   destinationXZ: { x: number; z: number } | null;
   route: RoadNodeId[];
   size?: number;
@@ -18,7 +20,16 @@ function project(graph: RoadGraph, x: number, z: number, size: number) {
   return { x: size / 2 + x * s, y: size / 2 + z * s };
 }
 
-export function Minimap({ graph, playerXZ, playerYaw = null, destinationXZ, route, size = 180 }: Props) {
+export function Minimap({
+  graph,
+  playerXZ,
+  playerYaw = null,
+  playerColor = "rgba(236,72,153,0.95)",
+  otherPlayers = [],
+  destinationXZ,
+  route,
+  size = 180,
+}: Props) {
   const ringPaths = React.useMemo(() => {
     const paths: Array<{ r: number; key: string }> = [];
     for (let i = 0; i < graph.radii.length; i++) {
@@ -39,6 +50,9 @@ export function Minimap({ graph, playerXZ, playerYaw = null, destinationXZ, rout
 
   const playerP = playerXZ ? project(graph, playerXZ.x, playerXZ.z, size) : null;
   const destP = destinationXZ ? project(graph, destinationXZ.x, destinationXZ.z, size) : null;
+  const remotePoints = React.useMemo(() => {
+    return otherPlayers.map((p) => ({ ...p, pt: project(graph, p.x, p.z, size) }));
+  }, [graph, otherPlayers, size]);
   const playerArrow = React.useMemo(() => {
     if (!playerP || playerYaw == null) return "";
     const heading = playerYaw - Math.PI;
@@ -132,10 +146,18 @@ export function Minimap({ graph, playerXZ, playerYaw = null, destinationXZ, rout
                 strokeLinejoin="round"
               />
             )}
-            <circle cx={playerP.x} cy={playerP.y} r={5.5} fill="rgba(236,72,153,0.95)" />
+            <circle cx={playerP.x} cy={playerP.y} r={5.5} fill={playerColor} />
             <circle cx={playerP.x} cy={playerP.y} r={11} fill="rgba(236,72,153,0.2)" />
           </>
         )}
+
+        {/* Other players (including NPC) */}
+        {remotePoints.map((p) => (
+          <g key={`other-${p.id}`}>
+            <circle cx={p.pt.x} cy={p.pt.y} r={4.5} fill={p.color} />
+            <circle cx={p.pt.x} cy={p.pt.y} r={8.5} fill="rgba(2,6,23,0.25)" />
+          </g>
+        ))}
       </svg>
     </div>
   );
