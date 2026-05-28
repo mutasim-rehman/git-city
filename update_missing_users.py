@@ -30,9 +30,12 @@ import aiohttp
 DEFAULT_CSV = "docs/github_users_islamabad_full.csv"
 CHECKPOINT_FILE = "checkpoint_unified.json"
 GRAPHQL_URL = "https://api.github.com/graphql"
-MAX_CONCURRENT = 5
-CHECKPOINT_EVERY = 100
+MAX_CONCURRENT = 3
+CHECKPOINT_EVERY = 50
 MAX_REPOS_METADATA = 30
+REQUEST_DELAY_SEC = 0.4
+TRANSIENT_HTTP = frozenset({502, 503, 504})
+CHECKPOINT_MISSING_KEY = "_account_missing"
 
 API_COLUMNS = [
     "Public_Repositories",
@@ -43,22 +46,7 @@ API_COLUMNS = [
     "Repo_Metadata",
 ]
 
-UNIFIED_USER_QUERY = """
-query($login: String!, $cursor: String) {
-  user(login: $login) {
-    followers { totalCount }
-    publicRepos: repositories(ownerAffiliations: OWNER, privacy: PUBLIC) {
-      totalCount
-    }
-    ownedRepos: repositories(
-      first: 100
-      after: $cursor
-      ownerAffiliations: OWNER
-      isFork: false
-      orderBy: { field: UPDATED_AT, direction: DESC }
-    ) {
-      pageInfo { hasNextPage endCursor }
-      nodes {
+REPO_NODES_FRAGMENT = """
         name
         description
         stargazerCount
@@ -78,11 +66,54 @@ query($login: String!, $cursor: String) {
             }
           }
         }
-      }
-    }
-  }
-}
 """
+
+UNIFIED_USER_QUERY = f"""
+query($login: String!, $cursor: String) {{
+  user(login: $login) {{
+    followers {{ totalCount }}
+    publicRepos: repositories(ownerAffiliations: OWNER, privacy: PUBLIC) {{
+      totalCount
+    }}
+    ownedRepos: repositories(
+      first: 100
+      after: $cursor
+      ownerAffiliations: OWNER
+      isFork: false
+      orderBy: {{ field: UPDATED_AT, direction: DESC }}
+    ) {{
+      pageInfo {{ hasNextPage endCursor }}
+      nodes {{
+{REPO_NODES_FRAGMENT}
+      }}
+    }}
+  }}
+}}
+"""
+
+UNIFIED_ORG_QUERY = f"""
+query($login: String!, $cursor: String) {{
+  organization(login: $login) {{
+    publicRepos: repositories(privacy: PUBLIC) {{
+      totalCount
+    }}
+    ownedRepos: repositories(
+      first: 100
+      after: $cursor
+      privacy: PUBLIC
+      isFork: false
+      orderBy: {{ field: UPDATED_AT, direction: DESC }}
+    ) {{
+      pageInfo {{ hasNextPage endCursor }}
+      nodes {{
+{REPO_NODES_FRAGMENT}
+      }}
+    }}
+  }}
+}}
+"""
+
+REST_USER_URL = "https://api.github.com/users/{login}"
 
 
 def repo_root() -> Path:
@@ -121,6 +152,25 @@ def row_needs_update(row: dict) -> bool:
 
 def row_is_filled(row: dict) -> bool:
     return not row_needs_update(row)
+
+
+def checkpoint_done(entry: dict) -> bool:
+    """True if this login should not be fetched again."""
+    if entry.get(CHECKPOINT_MISSING_KEY):
+        return True
+    return row_is_filled(entry)
+
+
+def not_found_bundle() -> dict:
+    return {
+        "Public_Repositories": 0,
+        "Lifetime_Commits": 0,
+        "Followers": 0,
+        "Total_Stars": 0,
+        "Repo_Names": "",
+        "Repo_Metadata": "[]",
+        CHECKPOINT_MISSING_KEY: True,
+    }
 
 
 def load_checkpoint(path: Path) -> dict:
@@ -180,6 +230,23 @@ def gql_node_to_metadata(node: dict) -> dict:
 class GitHubClient:
     def __init__(self, token: str):
         self._token = token
+        self._rate_limit_until = 0.0
+        self._rate_limit_lock = asyncio.Lock()
+
+    async def _wait_global_rate_limit(self) -> None:
+        while True:
+            async with self._rate_limit_lock:
+                wait = self._rate_limit_until - time.time()
+            if wait <= 0:
+                return
+            print(f"Rate limited — pausing all workers for {wait:.0f}s...")
+            await asyncio.sleep(min(wait, 30))
+
+    async def _extend_global_rate_limit(self, seconds: float) -> None:
+        async with self._rate_limit_lock:
+            self._rate_limit_until = max(
+                self._rate_limit_until, time.time() + seconds
+            )
 
     async def graphql(
         self,
@@ -187,9 +254,13 @@ class GitHubClient:
         query: str,
         variables: dict,
         retry: int = 0,
-    ) -> dict | None:
-        if retry > 5:
-            return None
+        *,
+        quiet: bool = False,
+    ) -> tuple[dict | None, str | None]:
+        """Return (data, error_message). error_message is set only on failure."""
+        if retry > 8:
+            return None, "max retries exceeded"
+        await self._wait_global_rate_limit()
         headers = {
             "Authorization": f"bearer {self._token}",
             "Content-Type": "application/json",
@@ -202,34 +273,126 @@ class GitHubClient:
                 timeout=aiohttp.ClientTimeout(total=90),
             ) as resp:
                 if resp.status == 401:
-                    print("GraphQL 401 — check GITHUB_KEY in .env", file=sys.stderr)
-                    return None
+                    msg = "GraphQL 401 — check GITHUB_KEY in .env"
+                    if not quiet:
+                        print(msg, file=sys.stderr)
+                    return None, msg
                 if resp.status in (403, 429):
-                    print("Rate limited — waiting 10 minutes...")
-                    await asyncio.sleep(600)
-                    return await self.graphql(session, query, variables, retry + 1)
+                    retry_after = resp.headers.get("Retry-After")
+                    wait = (
+                        int(retry_after)
+                        if retry_after and str(retry_after).isdigit()
+                        else min(600, 45 * (2**retry))
+                    )
+                    await self._extend_global_rate_limit(wait)
+                    return await self.graphql(
+                        session, query, variables, retry + 1, quiet=quiet
+                    )
+                if resp.status in TRANSIENT_HTTP:
+                    wait = min(90, 4 * (2**retry))
+                    if not quiet and retry == 0:
+                        print(
+                            f"GraphQL HTTP {resp.status} — retrying in {wait}s...",
+                            file=sys.stderr,
+                        )
+                    await asyncio.sleep(wait)
+                    return await self.graphql(
+                        session, query, variables, retry + 1, quiet=quiet
+                    )
                 if resp.status != 200:
-                    print(f"GraphQL HTTP {resp.status}", file=sys.stderr)
-                    return None
+                    return None, f"GraphQL HTTP {resp.status}"
                 body = await resp.json()
                 if body.get("errors"):
                     msg = body["errors"][0].get("message", body["errors"])
                     low = str(msg).lower()
-                    if retry < 5 and ("rate limit" in low or "secondary" in low):
-                        print(f"GraphQL: {msg} — waiting 60s")
-                        await asyncio.sleep(60)
-                        return await self.graphql(session, query, variables, retry + 1)
-                    print(f"GraphQL error: {msg}", file=sys.stderr)
+                    if retry < 8 and ("rate limit" in low or "secondary" in low):
+                        wait = min(600, 45 * (2**retry))
+                        await self._extend_global_rate_limit(wait)
+                        return await self.graphql(
+                            session, query, variables, retry + 1, quiet=quiet
+                        )
+                    return None, str(msg)
+                return body.get("data"), None
+        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            if retry < 8:
+                wait = min(60, 3 * (2**retry))
+                await asyncio.sleep(wait)
+                return await self.graphql(
+                    session, query, variables, retry + 1, quiet=quiet
+                )
+            return None, f"GraphQL request failed: {exc}"
+
+    async def rest_account_meta(
+        self, session: aiohttp.ClientSession, login: str, retry: int = 0
+    ) -> dict | None:
+        if retry > 5:
+            return None
+        await self._wait_global_rate_limit()
+        headers = {
+            "Authorization": f"Bearer {self._token}",
+            "Accept": "application/vnd.github+json",
+        }
+        try:
+            async with session.get(
+                REST_USER_URL.format(login=login),
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status == 404:
                     return None
-                return body.get("data")
-        except Exception as exc:
-            print(f"GraphQL request failed: {exc}", file=sys.stderr)
+                if resp.status in (403, 429):
+                    retry_after = resp.headers.get("Retry-After")
+                    wait = (
+                        int(retry_after)
+                        if retry_after and str(retry_after).isdigit()
+                        else min(600, 30 * (2**retry))
+                    )
+                    await self._extend_global_rate_limit(wait)
+                    return await self.rest_account_meta(session, login, retry + 1)
+                if resp.status in TRANSIENT_HTTP:
+                    await asyncio.sleep(min(60, 4 * (2**retry)))
+                    return await self.rest_account_meta(session, login, retry + 1)
+                if resp.status != 200:
+                    return None
+                body = await resp.json()
+                return {
+                    "type": body.get("type", "User"),
+                    "followers": body.get("followers", 0),
+                    "public_repos": body.get("public_repos", 0),
+                }
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            if retry < 5:
+                await asyncio.sleep(min(30, 3 * (2**retry)))
+                return await self.rest_account_meta(session, login, retry + 1)
             return None
 
-    async def fetch_user_bundle(
-        self, session: aiohttp.ClientSession, username: str
-    ) -> dict | None:
-        login = username.strip()
+    @staticmethod
+    def _accumulate_repos(
+        account: dict,
+        *,
+        names: list[str],
+        meta_nodes: list[dict],
+        lifetime_commits: int,
+    ) -> int:
+        conn = account.get("ownedRepos") or {}
+        for node in conn.get("nodes") or []:
+            names.append(node.get("name") or "")
+            meta_nodes.append(node)
+            ref = node.get("defaultBranchRef")
+            if ref and ref.get("target"):
+                lifetime_commits += ref["target"]["history"]["totalCount"]
+        return lifetime_commits
+
+    async def _fetch_graphql_bundle(
+        self,
+        session: aiohttp.ClientSession,
+        login: str,
+        *,
+        kind: str,
+        rest_meta: dict | None = None,
+    ) -> tuple[dict | None, str | None]:
+        query = UNIFIED_USER_QUERY if kind == "user" else UNIFIED_ORG_QUERY
+        root_key = "user" if kind == "user" else "organization"
         cursor = None
         followers = public_repos = None
         lifetime_commits = 0
@@ -238,33 +401,37 @@ class GitHubClient:
         meta_nodes: list[dict] = []
 
         while True:
-            data = await self.graphql(
+            data, err = await self.graphql(
                 session,
-                UNIFIED_USER_QUERY,
+                query,
                 {"login": login, "cursor": cursor},
+                quiet=True,
             )
-            user = (data or {}).get("user")
-            if not user:
-                return None
+            account = (data or {}).get(root_key)
+            if not account:
+                return None, err
 
             if followers is None:
-                followers = (user.get("followers") or {}).get("totalCount", 0)
-                public_repos = (user.get("publicRepos") or {}).get("totalCount", 0)
+                if kind == "user":
+                    followers = (account.get("followers") or {}).get("totalCount", 0)
+                public_repos = (account.get("publicRepos") or {}).get("totalCount", 0)
 
-            conn = user.get("ownedRepos") or {}
-            for node in conn.get("nodes") or []:
-                names.append(node.get("name") or "")
-                total_stars += int(node.get("stargazerCount") or 0)
-                meta_nodes.append(node)
-                ref = node.get("defaultBranchRef")
-                if ref and ref.get("target"):
-                    lifetime_commits += ref["target"]["history"]["totalCount"]
+            lifetime_commits = self._accumulate_repos(
+                account,
+                names=names,
+                meta_nodes=meta_nodes,
+                lifetime_commits=lifetime_commits,
+            )
+            total_stars = sum(int(n.get("stargazerCount") or 0) for n in meta_nodes)
 
-            page = conn.get("pageInfo") or {}
+            page = (account.get("ownedRepos") or {}).get("pageInfo") or {}
             if page.get("hasNextPage"):
                 cursor = page.get("endCursor")
             else:
                 break
+
+        if kind == "organization":
+            followers = (rest_meta or {}).get("followers", 0)
 
         names = [n for n in names if n]
         metadata = [gql_node_to_metadata(n) for n in meta_nodes[:MAX_REPOS_METADATA]]
@@ -272,11 +439,38 @@ class GitHubClient:
         return {
             "Public_Repositories": public_repos,
             "Lifetime_Commits": lifetime_commits,
-            "Followers": followers,
+            "Followers": followers if followers is not None else 0,
             "Total_Stars": total_stars,
             "Repo_Names": "|".join(names),
             "Repo_Metadata": json.dumps(metadata, ensure_ascii=False),
-        }
+        }, None
+
+    async def fetch_account_bundle(
+        self, session: aiohttp.ClientSession, username: str
+    ) -> dict | None:
+        login = username.strip()
+        meta = await self.rest_account_meta(session, login)
+        if meta is None:
+            print(f"  skip {login}: account not found (checkpointed)", file=sys.stderr)
+            return not_found_bundle()
+
+        kind = "organization" if meta.get("type") == "Organization" else "user"
+        bundle, err = await self._fetch_graphql_bundle(
+            session, login, kind=kind, rest_meta=meta
+        )
+        if bundle is not None:
+            return bundle
+
+        if kind == "user" and err and "could not resolve to a user" in err.lower():
+            bundle, err = await self._fetch_graphql_bundle(
+                session, login, kind="organization", rest_meta=meta
+            )
+            if bundle is not None:
+                return bundle
+
+        if err and "max retries" not in err.lower():
+            print(f"GraphQL error ({login}): {err}", file=sys.stderr)
+        return None
 
 
 async def run(
@@ -286,6 +480,7 @@ async def run(
     dry_run: bool = False,
     only_line: int | None = None,
     only_username: str | None = None,
+    concurrency: int = MAX_CONCURRENT,
 ) -> int:
     token = load_github_key()
     if not token and not dry_run:
@@ -305,9 +500,11 @@ async def run(
             continue
         if only_username is not None and username.lower() != only_username.lower():
             continue
-        if username in checkpoint and row_is_filled(checkpoint[username]):
-            for col in API_COLUMNS:
-                row[col] = checkpoint[username][col]
+        if username in checkpoint and checkpoint_done(checkpoint[username]):
+            cp = checkpoint[username]
+            if not cp.get(CHECKPOINT_MISSING_KEY):
+                for col in API_COLUMNS:
+                    row[col] = cp[col]
             already_ok += 1
         elif row_is_filled(row):
             already_ok += 1
@@ -353,40 +550,71 @@ async def run(
 
     client = GitHubClient(token)
     cp_lock = asyncio.Lock()
-    sem = asyncio.Semaphore(MAX_CONCURRENT)
     start = time.time()
     done = 0
     failed = 0
+    processed = 0
+    not_found = 0
 
-    async def process_one(session: aiohttp.ClientSession, row: dict) -> None:
-        nonlocal done, failed
-        username = row["Username"].strip()
-        async with sem:
-            bundle = await client.fetch_user_bundle(session, username)
-            if bundle is None:
-                failed += 1
-                return
+    async def apply_bundle(username: str, row: dict, bundle: dict) -> None:
+        nonlocal done, not_found
+        is_missing = bool(bundle.get(CHECKPOINT_MISSING_KEY))
+        cp_entry = dict(bundle)
+        if not is_missing:
             for col in API_COLUMNS:
                 row[col] = bundle[col]
-            async with cp_lock:
-                checkpoint[username] = {col: row[col] for col in API_COLUMNS}
+        async with cp_lock:
+            checkpoint[username] = cp_entry
+        if is_missing:
+            not_found += 1
+        else:
             done += 1
-            if done % CHECKPOINT_EVERY == 0:
+
+    async def process_one(session: aiohttp.ClientSession, row: dict) -> None:
+        nonlocal failed, processed
+        username = row["Username"].strip()
+        await asyncio.sleep(REQUEST_DELAY_SEC)
+        bundle = await client.fetch_account_bundle(session, username)
+        processed += 1
+        if bundle is None:
+            failed += 1
+            return
+        await apply_bundle(username, row, bundle)
+        if processed % CHECKPOINT_EVERY == 0:
+            async with cp_lock:
                 save_checkpoint(checkpoint_path, checkpoint)
                 write_csv(csv_path, rows, fields)
-                rate = done / max(time.time() - start, 0.001)
-                eta = (len(pending) - done) / rate / 60 if rate else 0
-                print(
-                    f"  [{done:,}/{len(pending):,}] {rate:.1f}/s | "
-                    f"ETA {eta:.1f} min | saved"
-                )
+            rate = processed / max(time.time() - start, 0.001)
+            remaining = len(pending) - processed
+            eta = remaining / rate / 60 if rate else 0
+            print(
+                f"  [{processed:,}/{len(pending):,}] ok={done:,} "
+                f"404={not_found:,} fail={failed:,} | "
+                f"{rate:.2f}/s | ETA {eta:.0f} min | saved"
+            )
 
     async with aiohttp.ClientSession(
-        connector=aiohttp.TCPConnector(limit=200)
+        connector=aiohttp.TCPConnector(limit=max(10, concurrency * 4))
     ) as session:
-        await asyncio.gather(
-            *[asyncio.create_task(process_one(session, r)) for r in pending]
-        )
+        queue: asyncio.Queue[dict | None] = asyncio.Queue()
+        for row in pending:
+            queue.put_nowait(row)
+
+        async def worker() -> None:
+            while True:
+                row = await queue.get()
+                try:
+                    if row is None:
+                        return
+                    await process_one(session, row)
+                finally:
+                    queue.task_done()
+
+        workers = [asyncio.create_task(worker()) for _ in range(concurrency)]
+        for _ in workers:
+            queue.put_nowait(None)
+        await queue.join()
+        await asyncio.gather(*workers, return_exceptions=True)
 
     save_checkpoint(checkpoint_path, checkpoint)
     write_csv(csv_path, rows, fields)
@@ -399,10 +627,12 @@ async def run(
         print(f"Done — all rows filled in {csv_path}")
     else:
         print(
-            f"Finished — updated {done:,}, failed {failed:,}, "
-            f"still missing {still_missing:,}."
+            f"Finished — updated {done:,}, not found {not_found:,}, "
+            f"failed {failed:,}, still missing {still_missing:,}."
         )
-        print(f"Re-run to continue. Checkpoint: {checkpoint_path}")
+        if failed:
+            print("Transient failures (502/rate limit) — re-run to retry failed rows.")
+        print(f"Checkpoint: {checkpoint_path}")
     return 0 if still_missing == 0 else 2
 
 
@@ -436,6 +666,12 @@ def main() -> None:
         default=None,
         help="Process a single GitHub username only",
     )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=MAX_CONCURRENT,
+        help=f"Parallel workers (default: {MAX_CONCURRENT})",
+    )
     args = parser.parse_args()
 
     csv_path = Path(args.csv)
@@ -453,6 +689,10 @@ def main() -> None:
         print("ERROR: Use only one of --line or --username", file=sys.stderr)
         sys.exit(1)
 
+    if args.concurrency < 1:
+        print("ERROR: --concurrency must be >= 1", file=sys.stderr)
+        sys.exit(1)
+
     code = asyncio.run(
         run(
             csv_path,
@@ -460,6 +700,7 @@ def main() -> None:
             dry_run=args.dry_run,
             only_line=args.line,
             only_username=args.username,
+            concurrency=args.concurrency,
         )
     )
     sys.exit(code)
