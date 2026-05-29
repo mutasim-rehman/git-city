@@ -33,7 +33,10 @@ GRAPHQL_URL = "https://api.github.com/graphql"
 MAX_CONCURRENT = 3
 CHECKPOINT_EVERY = 50
 MAX_REPOS_METADATA = 30
+MAX_OWNED_REPO_PAGES = 50
+MAX_COMMIT_SAMPLE_REPOS = 30
 REQUEST_DELAY_SEC = 0.4
+PROGRESS_EVERY = 1
 TRANSIENT_HTTP = frozenset({502, 503, 504})
 CHECKPOINT_MISSING_KEY = "_account_missing"
 
@@ -46,7 +49,7 @@ API_COLUMNS = [
     "Repo_Metadata",
 ]
 
-REPO_NODES_FRAGMENT = """
+REPO_NODES_LIGHT_FRAGMENT = """
         name
         description
         stargazerCount
@@ -59,6 +62,9 @@ REPO_NODES_FRAGMENT = """
         licenseInfo { spdxId }
         isArchived
         isFork
+"""
+
+REPO_COMMIT_HISTORY_FRAGMENT = """
         defaultBranchRef {
           target {
             ... on Commit {
@@ -66,6 +72,40 @@ REPO_NODES_FRAGMENT = """
             }
           }
         }
+"""
+
+COMMITS_USER_QUERY = f"""
+query($login: String!) {{
+  user(login: $login) {{
+    ownedRepos: repositories(
+      first: {MAX_COMMIT_SAMPLE_REPOS}
+      ownerAffiliations: OWNER
+      isFork: false
+      orderBy: {{ field: UPDATED_AT, direction: DESC }}
+    ) {{
+      nodes {{
+{REPO_COMMIT_HISTORY_FRAGMENT}
+      }}
+    }}
+  }}
+}}
+"""
+
+COMMITS_ORG_QUERY = f"""
+query($login: String!) {{
+  organization(login: $login) {{
+    ownedRepos: repositories(
+      first: {MAX_COMMIT_SAMPLE_REPOS}
+      privacy: PUBLIC
+      isFork: false
+      orderBy: {{ field: UPDATED_AT, direction: DESC }}
+    ) {{
+      nodes {{
+{REPO_COMMIT_HISTORY_FRAGMENT}
+      }}
+    }}
+  }}
+}}
 """
 
 UNIFIED_USER_QUERY = f"""
@@ -84,7 +124,7 @@ query($login: String!, $cursor: String) {{
     ) {{
       pageInfo {{ hasNextPage endCursor }}
       nodes {{
-{REPO_NODES_FRAGMENT}
+{REPO_NODES_LIGHT_FRAGMENT}
       }}
     }}
   }}
@@ -106,7 +146,7 @@ query($login: String!, $cursor: String) {{
     ) {{
       pageInfo {{ hasNextPage endCursor }}
       nodes {{
-{REPO_NODES_FRAGMENT}
+{REPO_NODES_LIGHT_FRAGMENT}
       }}
     }}
   }}
@@ -118,6 +158,10 @@ REST_USER_URL = "https://api.github.com/users/{login}"
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parent
+
+
+def log(msg: str) -> None:
+    print(msg, flush=True)
 
 
 def load_github_key() -> str | None:
@@ -239,7 +283,7 @@ class GitHubClient:
                 wait = self._rate_limit_until - time.time()
             if wait <= 0:
                 return
-            print(f"Rate limited — pausing all workers for {wait:.0f}s...")
+            print(f"Rate limited - pausing all workers for {wait:.0f}s...", flush=True)
             await asyncio.sleep(min(wait, 30))
 
     async def _extend_global_rate_limit(self, seconds: float) -> None:
@@ -372,16 +416,40 @@ class GitHubClient:
         *,
         names: list[str],
         meta_nodes: list[dict],
-        lifetime_commits: int,
-    ) -> int:
+    ) -> None:
         conn = account.get("ownedRepos") or {}
         for node in conn.get("nodes") or []:
             names.append(node.get("name") or "")
             meta_nodes.append(node)
+
+    @staticmethod
+    def _sum_commit_history(nodes: list[dict]) -> int:
+        total = 0
+        for node in nodes:
             ref = node.get("defaultBranchRef")
             if ref and ref.get("target"):
-                lifetime_commits += ref["target"]["history"]["totalCount"]
-        return lifetime_commits
+                total += ref["target"]["history"]["totalCount"]
+        return total
+
+    async def _fetch_lifetime_commits(
+        self,
+        session: aiohttp.ClientSession,
+        login: str,
+        *,
+        kind: str,
+    ) -> int:
+        query = COMMITS_USER_QUERY if kind == "user" else COMMITS_ORG_QUERY
+        root_key = "user" if kind == "user" else "organization"
+        data, err = await self.graphql(
+            session, query, {"login": login}, quiet=True
+        )
+        if not data:
+            if err:
+                log(f"    {login}: commit sample skipped ({err})")
+            return 0
+        account = data.get(root_key) or {}
+        nodes = (account.get("ownedRepos") or {}).get("nodes") or []
+        return self._sum_commit_history(nodes)
 
     async def _fetch_graphql_bundle(
         self,
@@ -395,12 +463,15 @@ class GitHubClient:
         root_key = "user" if kind == "user" else "organization"
         cursor = None
         followers = public_repos = None
-        lifetime_commits = 0
         total_stars = 0
         names: list[str] = []
         meta_nodes: list[dict] = []
+        page_num = 0
 
         while True:
+            page_num += 1
+            if page_num > 1:
+                log(f"    {login}: loading repo page {page_num}...")
             data, err = await self.graphql(
                 session,
                 query,
@@ -416,22 +487,26 @@ class GitHubClient:
                     followers = (account.get("followers") or {}).get("totalCount", 0)
                 public_repos = (account.get("publicRepos") or {}).get("totalCount", 0)
 
-            lifetime_commits = self._accumulate_repos(
-                account,
-                names=names,
-                meta_nodes=meta_nodes,
-                lifetime_commits=lifetime_commits,
-            )
+            self._accumulate_repos(account, names=names, meta_nodes=meta_nodes)
             total_stars = sum(int(n.get("stargazerCount") or 0) for n in meta_nodes)
 
             page = (account.get("ownedRepos") or {}).get("pageInfo") or {}
-            if page.get("hasNextPage"):
+            if page.get("hasNextPage") and page_num < MAX_OWNED_REPO_PAGES:
                 cursor = page.get("endCursor")
             else:
                 break
 
+        if rest_meta:
+            if rest_meta.get("public_repos") is not None:
+                public_repos = rest_meta["public_repos"]
+            if kind == "user" and rest_meta.get("followers") is not None:
+                followers = rest_meta["followers"]
         if kind == "organization":
             followers = (rest_meta or {}).get("followers", 0)
+
+        lifetime_commits = await self._fetch_lifetime_commits(
+            session, login, kind=kind
+        )
 
         names = [n for n in names if n]
         metadata = [gql_node_to_metadata(n) for n in meta_nodes[:MAX_REPOS_METADATA]]
@@ -449,9 +524,10 @@ class GitHubClient:
         self, session: aiohttp.ClientSession, username: str
     ) -> dict | None:
         login = username.strip()
+        log(f"  -> {login}")
         meta = await self.rest_account_meta(session, login)
         if meta is None:
-            print(f"  skip {login}: account not found (checkpointed)", file=sys.stderr)
+            log(f"  skip {login}: account not found (checkpointed)")
             return not_found_bundle()
 
         kind = "organization" if meta.get("type") == "Organization" else "user"
@@ -537,7 +613,7 @@ async def run(
     print(f"To update: {len(pending):,} (missing/empty/N/A in file: {missing_total:,})")
 
     if dry_run:
-        print("\nDry run — no API calls or CSV writes.")
+        print("\nDry run - no API calls or CSV writes.")
         if pending[:5]:
             print("First users to update:")
             for r in pending[:5]:
@@ -547,6 +623,11 @@ async def run(
     if not pending:
         print("Nothing to do.")
         return 0
+
+    log(
+        f"\nFetching {len(pending):,} users "
+        f"({concurrency} workers, progress every {PROGRESS_EVERY})..."
+    )
 
     client = GitHubClient(token)
     cp_lock = asyncio.Lock()
@@ -574,12 +655,24 @@ async def run(
         nonlocal failed, processed
         username = row["Username"].strip()
         await asyncio.sleep(REQUEST_DELAY_SEC)
+        t0 = time.time()
         bundle = await client.fetch_account_bundle(session, username)
         processed += 1
+        elapsed = time.time() - t0
         if bundle is None:
             failed += 1
+            if processed % PROGRESS_EVERY == 0 or processed <= 3:
+                log(
+                    f"  [{processed:,}/{len(pending):,}] {username} FAILED "
+                    f"({elapsed:.1f}s) | fail={failed:,}"
+                )
             return
         await apply_bundle(username, row, bundle)
+        if processed % PROGRESS_EVERY == 0 or processed <= 3:
+            log(
+                f"  [{processed:,}/{len(pending):,}] {username} ok "
+                f"({elapsed:.1f}s) | updated={done:,} fail={failed:,}"
+            )
         if processed % CHECKPOINT_EVERY == 0:
             async with cp_lock:
                 save_checkpoint(checkpoint_path, checkpoint)
@@ -587,34 +680,22 @@ async def run(
             rate = processed / max(time.time() - start, 0.001)
             remaining = len(pending) - processed
             eta = remaining / rate / 60 if rate else 0
-            print(
-                f"  [{processed:,}/{len(pending):,}] ok={done:,} "
-                f"404={not_found:,} fail={failed:,} | "
-                f"{rate:.2f}/s | ETA {eta:.0f} min | saved"
+            log(
+                f"  --- checkpoint [{processed:,}/{len(pending):,}] "
+                f"ok={done:,} 404={not_found:,} fail={failed:,} | "
+                f"{rate:.2f}/s | ETA {eta:.0f} min | saved ---"
             )
+
+    sem = asyncio.Semaphore(concurrency)
+
+    async def process_row(row: dict) -> None:
+        async with sem:
+            await process_one(session, row)
 
     async with aiohttp.ClientSession(
         connector=aiohttp.TCPConnector(limit=max(10, concurrency * 4))
     ) as session:
-        queue: asyncio.Queue[dict | None] = asyncio.Queue()
-        for row in pending:
-            queue.put_nowait(row)
-
-        async def worker() -> None:
-            while True:
-                row = await queue.get()
-                try:
-                    if row is None:
-                        return
-                    await process_one(session, row)
-                finally:
-                    queue.task_done()
-
-        workers = [asyncio.create_task(worker()) for _ in range(concurrency)]
-        for _ in workers:
-            queue.put_nowait(None)
-        await queue.join()
-        await asyncio.gather(*workers, return_exceptions=True)
+        await asyncio.gather(*(process_row(row) for row in pending))
 
     save_checkpoint(checkpoint_path, checkpoint)
     write_csv(csv_path, rows, fields)
@@ -624,14 +705,14 @@ async def run(
     if still_missing == 0:
         if checkpoint_path.exists():
             checkpoint_path.unlink()
-        print(f"Done — all rows filled in {csv_path}")
+        print(f"Done - all rows filled in {csv_path}")
     else:
         print(
-            f"Finished — updated {done:,}, not found {not_found:,}, "
+            f"Finished - updated {done:,}, not found {not_found:,}, "
             f"failed {failed:,}, still missing {still_missing:,}."
         )
         if failed:
-            print("Transient failures (502/rate limit) — re-run to retry failed rows.")
+            print("Transient failures (502/rate limit) - re-run to retry failed rows.")
         print(f"Checkpoint: {checkpoint_path}")
     return 0 if still_missing == 0 else 2
 
