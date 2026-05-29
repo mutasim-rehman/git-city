@@ -220,7 +220,8 @@ function placeSectorBuildings(
     });
   }
 
-  if (template === "diagonal" && cols > 1 && rows > 1) {
+  // Decorative diagonal accent only (single segment, cheap to render & route).
+  if (template === "diagonal" && cols > 3 && rows > 3) {
     localRoads.push({
       id: `s${sectorId}-diag`,
       kind: "local",
@@ -230,45 +231,6 @@ function placeSectorBuildings(
       z2: originZ + gridD,
       width: LOCAL_ROAD_WIDTH * 0.65,
     });
-  }
-
-  if (template === "radial") {
-    const cx = originX + gridW / 2;
-    const cz = originZ + gridD / 2;
-    const spokes = 4;
-    for (let i = 0; i < spokes; i++) {
-      const a = (i / spokes) * Math.PI * 2;
-      const len = Math.max(gridW, gridD) * 0.48;
-      localRoads.push({
-        id: `s${sectorId}-spoke-${i}`,
-        kind: "local",
-        x1: cx,
-        z1: cz,
-        x2: cx + Math.cos(a) * len,
-        z2: cz + Math.sin(a) * len,
-        width: LOCAL_ROAD_WIDTH * 0.7,
-      });
-    }
-  }
-
-  if (template === "concentric" && Math.min(cols, rows) >= 3) {
-    const cx = originX + gridW / 2;
-    const cz = originZ + gridD / 2;
-    const r = Math.min(gridW, gridD) * 0.22;
-    const segments = 24;
-    for (let i = 0; i < segments; i++) {
-      const a0 = (i / segments) * Math.PI * 2;
-      const a1 = ((i + 1) / segments) * Math.PI * 2;
-      localRoads.push({
-        id: `s${sectorId}-ring-${i}`,
-        kind: "local",
-        x1: cx + Math.cos(a0) * r,
-        z1: cz + Math.sin(a0) * r,
-        x2: cx + Math.cos(a1) * r,
-        z2: cz + Math.sin(a1) * r,
-        width: LOCAL_ROAD_WIDTH * 0.55,
-      });
-    }
   }
 
   for (let i = 0; i < n; i++) {

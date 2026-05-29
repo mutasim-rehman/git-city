@@ -55,7 +55,8 @@ function sampleSegment(
   return pts;
 }
 
-const WAYPOINT_SPACING = 45;
+const WAYPOINT_SPACING = 55;
+const CELL_SIZE = 10;
 
 /**
  * Navigation graph from V2 rectangular sector roads (arterial + local).
@@ -63,58 +64,42 @@ const WAYPOINT_SPACING = 45;
 export function createGridRoadGraph(layout: CityLayoutResult): RoadGraph {
   const nodes = new Map<RoadNodeId, RoadNode>();
   const edges = new Map<RoadNodeId, RoadEdge[]>();
+  const cellToNode = new Map<string, RoadNodeId>();
   let nodeCounter = 0;
 
+  const cellKey = (x: number, z: number) =>
+    `${Math.round(x / CELL_SIZE)}_${Math.round(z / CELL_SIZE)}`;
+
   const ensureNode = (x: number, z: number): RoadNodeId => {
-    const key = `n${nodeCounter++}`;
-    const id = `${key}_${x.toFixed(0)}_${z.toFixed(0)}`;
+    const key = cellKey(x, z);
+    const existing = cellToNode.get(key);
+    if (existing) return existing;
+
+    const id = `n${nodeCounter++}`;
     nodes.set(id, { id, x, z });
     edges.set(id, []);
+    cellToNode.set(key, id);
     return id;
   };
 
-  const mergeThreshold = 8;
-  const findNearby = (x: number, z: number): RoadNodeId | null => {
-    for (const [id, n] of nodes) {
-      if (dist2D(n.x, n.z, x, z) < mergeThreshold) return id;
-    }
-    return null;
-  };
-
-  const getOrCreate = (x: number, z: number): RoadNodeId => {
-    const existing = findNearby(x, z);
-    if (existing) return existing;
-    return ensureNode(x, z);
-  };
-
   for (const seg of layout.roads) {
-    const pts = sampleSegment(seg, WAYPOINT_SPACING);
+    const step =
+      seg.kind === "arterial" ? WAYPOINT_SPACING : WAYPOINT_SPACING * 1.4;
+    const pts = sampleSegment(seg, step);
     let prevId: RoadNodeId | null = null;
     for (const p of pts) {
-      const id = getOrCreate(p.x, p.z);
+      const id = ensureNode(p.x, p.z);
       if (prevId && prevId !== id) {
         const prev = nodes.get(prevId)!;
         const cur = nodes.get(id)!;
-        addUndirectedEdge(edges, prevId, id, dist2D(prev.x, prev.z, cur.x, cur.z));
+        addUndirectedEdge(
+          edges,
+          prevId,
+          id,
+          dist2D(prev.x, prev.z, cur.x, cur.z),
+        );
       }
       prevId = id;
-    }
-  }
-
-  // Connect arterial intersections (nodes near segment crossings)
-  const nodeList = Array.from(nodes.values());
-  for (let i = 0; i < nodeList.length; i++) {
-    for (let j = i + 1; j < nodeList.length; j++) {
-      const a = nodeList[i]!;
-      const b = nodeList[j]!;
-      const d = dist2D(a.x, a.z, b.x, b.z);
-      if (d > 1 && d < WAYPOINT_SPACING * 1.2) {
-        const ax = Math.abs(a.x - b.x);
-        const az = Math.abs(a.z - b.z);
-        if (ax < 6 || az < 6) {
-          addUndirectedEdge(edges, a.id, b.id, d);
-        }
-      }
     }
   }
 

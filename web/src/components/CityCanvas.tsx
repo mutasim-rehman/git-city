@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
@@ -13,14 +13,7 @@ import type { CityLayoutResult, LayoutRect } from "@/lib/city/layout";
 import { Game } from "@/game/Game";
 import { createGridRoadGraph, nearestRoadNode } from "@/game/world/RoadGraph";
 import type { RoadGraph } from "@/game/world/RoadGraph";
-import { EMERALD_THEME } from "@/components/city/theme/defaultTheme";
-import { CityAtmosphere } from "@/components/city/sky/CityAtmosphere";
-import { Clouds } from "@/components/city/sky/Clouds";
-import { GroundPlane } from "@/components/city/terrain/GroundPlane";
-import { SectorCityTerrain } from "@/components/city/terrain/SectorCityTerrain";
-import { cityExtentFromBounds } from "@/components/city/terrain/cityExtent";
-import { Mountains } from "@/components/city/mountains/Mountains";
-import { Monument } from "@/components/city/monument/Monument";
+import { SectorCityTerrain, cityExtentFromBounds } from "@/components/SectorCityTerrain";
 import type { RoadNodeId } from "@/game/world/RoadGraph";
 import { aStar } from "@/game/routing/aStar";
 import { Minimap } from "@/game/ui/Minimap";
@@ -31,6 +24,13 @@ function lerpAngle(a: number, b: number, t: number): number {
   const twoPi = Math.PI * 2;
   const diff = ((b - a + Math.PI) % twoPi) - Math.PI;
   return a + diff * t;
+}
+
+function normalizeAngle(a: number) {
+  const twoPi = Math.PI * 2;
+  let x = a % twoPi;
+  if (x < 0) x += twoPi;
+  return x;
 }
 
 function sameRoute(a: RoadNodeId[], b: RoadNodeId[]) {
@@ -89,6 +89,285 @@ function createBuildingSignTexture(username: string) {
   tex.anisotropy = 4;
   tex.needsUpdate = true;
   return tex;
+}
+
+const EMERALD_THEME: CityTheme = {
+  // Sunset / dusk palette (still keeping your neon/pink vibe)
+  sky: [
+    [0, "#05010f"],
+    [0.12, "#120523"],
+    [0.28, "#2a0a3d"],
+    [0.45, "#5b146a"],
+    [0.62, "#a21caf"],
+    [0.78, "#ff7a18"],
+    [0.9, "#fbbf24"],
+    [1, "#ffe4b5"],
+  ],
+  fogColor: "#2a0f3a",
+  fogNear: 520,
+  fogFar: 4200,
+  ambientColor: "#ffb4c8",
+  ambientIntensity: 0.5,
+  sunColor: "#ffd08a",
+  sunIntensity: 1.45,
+  sunPos: [1200, 1600, -900],
+  fillColor: "#7dd3fc",
+  fillIntensity: 0.28,
+  fillPos: [-300, 120, 280],
+  hemiSky: "#ff77b7",
+  hemiGround: "#2a0f2f",
+  hemiIntensity: 0.6,
+  groundColor: "#0b1b2a",
+  grid1: "#120c1a",
+  grid2: "#facc15",
+  roadMarkingColor: "#e5e7eb",
+  sidewalkColor: "#6b6f7a",
+  building: {
+    windowLit: ["#ff7a18", "#ec4899", "#a855f7", "#7dd3fc", "#ffe4b5"],
+    windowOff: "#111827",
+    face: "#4b5563",
+    roof: "#374151",
+    accent: "#ec4899",
+  },
+};
+
+// ─── Sky Dome ─────────────────────────────────────────────────────────────────
+
+function SkyDome({ stops }: { stops: [number, string][] }) {
+  const material = useMemo(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 4;
+    canvas.height = 1024;
+    const ctx = canvas.getContext("2d")!;
+    const gradient = ctx.createLinearGradient(0, 0, 0, 1024);
+    for (const [stop, color] of stops) gradient.addColorStop(stop, color);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 4, 1024);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return new THREE.MeshBasicMaterial({
+      map: tex,
+      side: THREE.BackSide,
+      fog: false,
+      depthWrite: false,
+    });
+  }, [stops]);
+
+  return (
+    <mesh material={material} renderOrder={-1}>
+      <sphereGeometry args={[3800, 32, 48]} />
+    </mesh>
+  );
+}
+
+// ─── Stars ────────────────────────────────────────────────────────────────────
+
+function Stars() {
+  const points = useMemo(() => {
+    const count = 1400;
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const theta = seededRng(i * 991) * Math.PI * 2;
+      const phi = Math.acos(seededRng(i * 577) * 0.62 + 0.38);
+      const r = 3600 + seededRng(i * 313) * 200;
+      positions[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = r * Math.cos(phi);
+      positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+    }
+    return positions;
+  }, []);
+
+  const geo = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(points, 3));
+    return g;
+  }, [points]);
+
+  return (
+    <points geometry={geo}>
+      <pointsMaterial color="#cce8ff" size={3.5} sizeAttenuation fog={false} transparent opacity={0.7} />
+    </points>
+  );
+}
+
+// ─── Ground base plane ────────────────────────────────────────────────────────
+
+function GroundPlane({ color }: { color: string }) {
+  return (
+    <mesh rotation-x={-Math.PI / 2} position={[0, -1, 0]} receiveShadow>
+      <planeGeometry args={[20000, 20000]} />
+      <meshStandardMaterial
+        color={color}
+        emissive={color}
+        emissiveIntensity={0.08}
+        roughness={0.96}
+      />
+    </mesh>
+  );
+}
+
+// ─── Monument (central park) ──────────────────────────────────────────────────
+
+const MONUMENT_CONFIG = {
+  height: 0,
+  offsetX: -10,
+  offsetZ: 10,
+  yaw: -90,
+  pitch: 90,
+  roll: 0,
+  scale: 0.05,
+  brightness: 1.0,
+  emissiveColor: "#88ffcc",
+  lightColor: "#88ffcc",
+  lightIntensity: 2.0,
+  lightDistance: 300,
+};
+
+function Monument({ position }: { position: [number, number, number] }) {
+  const gltf = useGLTF("/models/v-cruiser.glb");
+  const cfg = MONUMENT_CONFIG;
+  const scene = useMemo(() => gltf.scene.clone(true), [gltf.scene]);
+
+  useMemo(() => {
+    scene.traverse((obj) => {
+      if (!(obj as THREE.Mesh).isMesh) return;
+      const mesh = obj as THREE.Mesh;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      mats.forEach((mat) => {
+        const m = mat as THREE.MeshStandardMaterial;
+        if (!m.isMeshStandardMaterial) return;
+        m.emissive = new THREE.Color(cfg.emissiveColor);
+        m.emissiveIntensity = Math.max(0, cfg.brightness - 1);
+        m.needsUpdate = true;
+      });
+    });
+  }, [scene, cfg.brightness, cfg.emissiveColor]);
+
+  const groundOffset = useMemo(() => {
+    const box = new THREE.Box3().setFromObject(scene);
+    return -box.min.y * cfg.scale;
+  }, [scene, cfg.scale]);
+
+  const D = Math.PI / 180;
+
+  return (
+    <group position={[position[0] + cfg.offsetX, groundOffset + cfg.height, position[2] + cfg.offsetZ]}>
+      {cfg.lightIntensity > 0 && (
+        <pointLight
+          color={cfg.lightColor}
+          intensity={cfg.lightIntensity}
+          distance={cfg.lightDistance}
+        />
+      )}
+      <primitive
+        object={scene}
+        scale={cfg.scale}
+        rotation={[cfg.pitch * D, cfg.yaw * D, cfg.roll * D]}
+      />
+    </group>
+  );
+}
+
+const MOON_LIGHT_LAYER = 10;
+const MOON_ROTATION_DEG: [number, number, number] = [180, -40, 180];
+
+function EnableMoonLayerOnCamera({ layer }: { layer: number }) {
+  const { camera } = useThree();
+  useLayoutEffect(() => {
+    camera.layers.enable(layer);
+  }, [camera, layer]);
+  return null;
+}
+
+function MoonOnlyAmbient({
+  layer,
+  intensity,
+  color,
+}: {
+  layer: number;
+  intensity: number;
+  color: string;
+}) {
+  const ref = useRef<THREE.AmbientLight>(null);
+  useLayoutEffect(() => {
+    if (ref.current) ref.current.layers.set(layer);
+  }, [layer]);
+  return <ambientLight ref={ref} intensity={intensity} color={color} />;
+}
+
+function MoonBeamFromCity({
+  moonPosition,
+  layer,
+}: {
+  moonPosition: [number, number, number];
+  layer: number;
+}) {
+  const ref = useRef<THREE.DirectionalLight>(null);
+  const { scene } = useThree();
+  useLayoutEffect(() => {
+    const light = ref.current;
+    if (!light) return;
+    light.layers.set(layer);
+    light.target.position.set(moonPosition[0], moonPosition[1], moonPosition[2]);
+    scene.add(light.target);
+    return () => {
+      scene.remove(light.target);
+    };
+  }, [scene, moonPosition, layer]);
+
+  return (
+    <directionalLight
+      ref={ref}
+      position={[0, 260, 0]}
+      intensity={5.2}
+      color="#fff4e6"
+      castShadow={false}
+    />
+  );
+}
+
+function Moon({ position }: { position: [number, number, number] }) {
+  const gltf = useGLTF("/models/moon_nasa.glb");
+  const scene = useMemo(() => gltf.scene.clone(true), [gltf.scene]);
+
+  const moonRotRad = useMemo(() => {
+    const D = Math.PI / 180;
+    return [
+      MOON_ROTATION_DEG[0] * D,
+      MOON_ROTATION_DEG[1] * D,
+      MOON_ROTATION_DEG[2] * D,
+    ] as [number, number, number];
+  }, []);
+
+  useMemo(() => {
+    const pink = new THREE.Color("#ec4899");
+    scene.traverse((obj) => {
+      const o = obj as THREE.Object3D;
+      o.layers.set(MOON_LIGHT_LAYER);
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mat of mats) {
+        if (!mat) continue;
+        const mAny = mat as THREE.Material & { fog?: boolean };
+        mAny.fog = false;
+        if ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
+          const m = mat as THREE.MeshStandardMaterial;
+          m.metalness = 0;
+          m.roughness = 0.92;
+          m.emissive = new THREE.Color(0xf0e8ff).lerp(pink, 0.12);
+          m.emissiveIntensity = 0.05;
+          m.needsUpdate = true;
+        }
+      }
+    });
+  }, [scene]);
+
+  return (
+    <primitive object={scene} position={position} rotation={moonRotRad} scale={500.0} />
+  );
 }
 
 function BuildingSignBoards({
@@ -228,6 +507,507 @@ function PulseTargetBuilding({ building }: { building: PositionedBuilding | null
   );
 }
 
+// ─── Mountains ────────────────────────────────────────────────────────────────
+
+/// ─── Mountains ────────────────────────────────────────────────────────────────
+
+function seededRng(seed: number): number {
+  return Math.abs((Math.sin(seed * 127.1 + 311.7) * 43758.5453) % 1);
+}
+
+function fbm(x: number, z: number, octaves: number, seed: number): number {
+  let val = 0, amp = 1, freq = 1, total = 0;
+  for (let o = 0; o < octaves; o++) {
+    val   += Math.sin(x * freq + seed * 1.3 + o * 2.7) * Math.cos(z * freq - seed * 0.9 + o * 1.8) * amp;
+    val   += Math.sin((x + z) * freq * 0.7 + seed * 2.1 + o) * amp * 0.5;
+    total += amp; amp *= 0.52; freq *= 2.17;
+  }
+  return val / total;
+}
+
+/** Ridged noise — inverted absolute-value gives sharp mountain ridgelines */
+function ridgedFbm(x: number, z: number, octaves: number, seed: number): number {
+  let val = 0, amp = 1, freq = 1, total = 0;
+  for (let o = 0; o < octaves; o++) {
+    const n = 1 - Math.abs(Math.sin(x * freq + seed * 1.7 + o * 3.1) * Math.cos(z * freq - seed * 1.1 + o * 2.3));
+    val += n * amp; total += amp; amp *= 0.5; freq *= 2.1;
+  }
+  return val / total;
+}
+
+function lerpColor(a: number[], b: number[], t: number): number[] {
+  const tc = Math.max(0, Math.min(1, t));
+  return [a[0] + (b[0] - a[0]) * tc, a[1] + (b[1] - a[1]) * tc, a[2] + (b[2] - a[2]) * tc];
+}
+
+interface MountainGeoResult {
+  mainGeo: THREE.BufferGeometry;
+  snowGeo: THREE.BufferGeometry;
+  screeGeo: THREE.BufferGeometry;
+}
+
+function buildRealisticMountain(
+  baseRadius: number, height: number, profile: number, seed: number,
+  snowFrac: number, treeFrac: number,
+): MountainGeoResult {
+  const RADIAL = 72; const HEIGHT = 52; const halfH = height / 2;
+
+  // Per-mountain personality
+  const mainRidgeCount  = 2 + Math.floor(seededRng(seed + 90) * 3);
+  const mainRidgeAmp    = 0.18 + seededRng(seed + 91) * 0.22;
+  const secondaryRidges = 5 + Math.floor(seededRng(seed + 95) * 6);
+  const secondaryAmp    = 0.07 + seededRng(seed + 96) * 0.10;
+  const tiltAngle       = seededRng(seed + 92) * Math.PI * 2;
+  const tiltAmt         = seededRng(seed + 93) * 0.10;
+  const cliffSide       = seededRng(seed + 94) * Math.PI * 2;
+  const cliffSharpness  = 0.18 + seededRng(seed + 97) * 0.38;
+  const snowVariance    = 0.06 + seededRng(seed + 98) * 0.09;
+  const windDir         = seededRng(seed + 100) * Math.PI * 2;
+  const mineralTint     = seededRng(seed + 101);
+  const wetSide         = seededRng(seed + 102) * Math.PI * 2;
+  const strataFreq      = 4 + Math.floor(seededRng(seed + 103) * 5);
+  const strataAmp       = 0.013 + seededRng(seed + 104) * 0.022;
+  // FIX 3: Big spur ridges radiating from base
+  const spurCount       = 3 + Math.floor(seededRng(seed + 110) * 4);
+  const spurPhase       = seededRng(seed + 111) * Math.PI * 2;
+  const spurStrength    = 0.28 + seededRng(seed + 112) * 0.38;
+  // Per-mountain footprint lobe shape (glacial carving)
+  const lobeCount       = 2 + Math.floor(seededRng(seed + 113) * 3);
+  const lobePhase       = seededRng(seed + 114) * Math.PI * 2;
+  const lobeStrength    = 0.22 + seededRng(seed + 115) * 0.30;
+
+  const C = {
+    bedrock:    [0.13, 0.11, 0.10],
+    darkRock:   [0.18, 0.16, 0.14],
+    wetRock:    [0.14, 0.13, 0.12],
+    rock:       [0.36, 0.32, 0.27],
+    lightRock:  [0.52, 0.47, 0.40],
+    ironRock:   [0.45, 0.29, 0.18],
+    scree:      [0.40, 0.36, 0.31],
+    screeLight: [0.54, 0.49, 0.42],
+    alpine:     [0.26, 0.33, 0.19],
+    alpineWet:  [0.17, 0.27, 0.14],
+    treeLine:   [0.10, 0.23, 0.10],
+    lichen:     [0.46, 0.49, 0.30],
+    snow:       [0.91, 0.93, 0.97],
+    snowShadow: [0.76, 0.82, 0.91],
+    corniceSnow:[0.94, 0.96, 0.99],
+    iceShadow:  [0.66, 0.74, 0.88],
+  };
+
+  const positions: number[] = []; const colors: number[] = []; const indices: number[] = [];
+
+  for (let hRing = 0; hRing <= HEIGHT; hRing++) {
+    const t = hRing / HEIGHT;
+    const vy = -halfH + t * height;
+    const profileT = Math.pow(t, profile);
+    const ringRadius = baseRadius * (1 - profileT);
+
+    for (let a = 0; a <= RADIAL; a++) {
+      const angle = (a / RADIAL) * Math.PI * 2;
+      const ca = Math.cos(angle); const sa = Math.sin(angle);
+
+      // ── FIX 2 & 3: Base irregularity ─────────────────────────────────────
+      // Spur ridges: sharp lobes radiating outward from the base, fading with height
+      // Use power curve so effect is strong at base and gone by ~half-height
+      const baseWeight = Math.pow(Math.max(0, 1 - t * 1.8), 2.2);
+
+      // Glacial cirque lobes (large, sweeping concavities/convexities at the foot)
+      const lobeFactor = Math.cos(angle * lobeCount + lobePhase) * lobeStrength * baseWeight;
+
+      // Spur ridges (narrower, sharper features like buttresses)
+      const spurFactor = Math.max(0, Math.sin(angle * spurCount + spurPhase)) * spurStrength * baseWeight;
+
+      // Large-amplitude base footprint noise (was ~17%, now up to 55% at base)
+      const footprintNoise = fbm(ca * 1.6, sa * 1.6, 6, seed * 0.16 + 4) * 0.55 * baseWeight;
+
+      // Mid-slope erosion noise (unchanged from before)
+      const macroNoise  = fbm(ca * 2.1, sa * 2.1, 5, seed * 0.17) * 0.15 * (1 - t * 0.30);
+      const midNoise    = fbm(ca * 5.0 + t * 2, sa * 5.0 + t * 2, 4, seed * 0.29 + 3) * 0.06 * (1 - t * 0.20);
+      const microNoise  = fbm(ca * 12.0 + t * 5, sa * 12.0 + t * 5, 3, seed * 0.41 + 7) * 0.020;
+      const sharpRidge  = ridgedFbm(ca * 4.5 + t, sa * 4.5 + t, 3, seed * 0.55 + 11) * 0.045 * t;
+
+      // Ridge system
+      const ridgeFactor = 1
+        + Math.sin(angle * mainRidgeCount + seed * 1.9) * mainRidgeAmp * (1 - t * 0.50)
+        + Math.sin(angle * secondaryRidges + seed * 3.7) * secondaryAmp * (1 - t * 0.35)
+        + Math.sin(angle * secondaryRidges * 2.3 + seed * 5.9) * secondaryAmp * 0.35 * (1 - t * 0.20);
+
+      // Cliff face
+      const cliffDiff = Math.cos(angle - cliffSide);
+      const cliffPull = cliffDiff > 0 ? -cliffDiff * cliffSharpness * t * (1 - t) * 4.2 : 0;
+
+      // Combine: footprint dominates at base, ridges + macro dominate above
+      const r = ringRadius
+        * ridgeFactor
+        * (1 + macroNoise + midNoise + microNoise + sharpRidge + footprintNoise + lobeFactor)
+        + spurFactor * ringRadius
+        + cliffPull * ringRadius;
+
+      // Strata / terrace
+      const terraceFreq = 3 + Math.floor(seededRng(seed + 99) * 3);
+      const terrace     = Math.sin(t * Math.PI * terraceFreq + angle * 0.8 + seed) * height * 0.016 * (1 - t);
+      const strata      = Math.sin(t * Math.PI * strataFreq + seed * 0.7) * height * strataAmp * (1 - t * 0.5);
+      const midYNoise   = fbm(ca * 3, sa * 3, 4, seed * 0.23 + 2) * height * 0.030 * t;
+
+      // FIX 2: Y irregularity at the base — gullies and talus fans push base down
+      const baseGully   = fbm(ca * 4.5, sa * 4.5, 4, seed * 0.37 + 9) * height * 0.10 * baseWeight;
+      const yNoise      = midYNoise + terrace + strata - baseGully;
+
+      const tiltOffset = t * height * tiltAmt;
+      positions.push(
+        ca * r + Math.cos(tiltAngle) * tiltOffset,
+        vy + yNoise,
+        sa * r + Math.sin(tiltAngle) * tiltOffset,
+      );
+
+      // ── Vertex coloring ───────────────────────────────────────────────────
+      const cliffFace  = Math.max(0, cliffDiff) * (1 - t);
+      const wetFactor  = Math.max(0, Math.cos(angle - wetSide)) * 0.65;
+      const lichenVal  = Math.max(0, fbm(ca * 6.5, sa * 6.5, 3, seed * 0.5 + 2) * 0.5 + 0.25);
+      const mineralVal = Math.max(0, fbm(ca * 3.5, sa * 3.5, 2, seed * 0.4 + 13) * 0.5 + 0.1) * mineralTint;
+      const strataLine = Math.abs(Math.sin(t * Math.PI * strataFreq + seed * 0.7)) * 0.5;
+
+      const snowLineLocal = snowFrac
+        + Math.sin(angle * 5.3 + seed * 2.1) * snowVariance
+        + Math.cos(angle * 3.7 + seed * 1.4) * snowVariance * 0.5
+        + Math.cos(angle - windDir) * snowVariance * 0.28;
+
+      let color: number[];
+
+      if (t > snowLineLocal + 0.05) {
+        const windShadow = Math.max(0, Math.cos(angle - windDir + Math.PI)) * 0.30;
+        color = lerpColor(C.corniceSnow, C.iceShadow, cliffFace * 0.50 + windShadow);
+        if (cliffFace > 0.25) color = lerpColor(color, C.snowShadow, (cliffFace - 0.25) * 1.6);
+      } else if (t > snowLineLocal - 0.045) {
+        const blend      = Math.max(0, Math.min(1, (t - (snowLineLocal - 0.045)) / 0.095));
+        const patchNoise = fbm(ca * 9, sa * 9, 3, seed * 0.8 + 15) * 0.35 + 0.5;
+        const patchBlend = Math.max(0, Math.min(1, blend * patchNoise * 1.6));
+        const rockBase   = lerpColor(C.rock, C.lightRock, strataLine * 0.6);
+        color = lerpColor(rockBase, C.snow, patchBlend);
+        if (patchBlend < 0.45) color = lerpColor(color, C.ironRock, mineralVal * (1 - patchBlend) * 0.45);
+      } else if (t > treeFrac + 0.15) {
+        const rockBase   = lerpColor(C.rock, C.lightRock, strataLine * 0.65);
+        const stained    = lerpColor(rockBase, C.ironRock, mineralVal * 0.55);
+        const withLichen = lerpColor(stained, C.lichen, lichenVal * (1 - cliffFace) * 0.42 * (1 - t * 0.8));
+        color = withLichen;
+        if (wetFactor > 0.2)  color = lerpColor(color, C.wetRock, (wetFactor - 0.2) * 0.85);
+        if (cliffFace > 0.15) color = lerpColor(color, C.darkRock, Math.min(1, (cliffFace - 0.15) * 2.2));
+      } else if (t > treeFrac + 0.04) {
+        const blend = Math.max(0, Math.min(1, (t - (treeFrac + 0.04)) / 0.11));
+        color = lerpColor(C.alpine, lerpColor(C.rock, C.lightRock, strataLine * 0.4), blend);
+        if (wetFactor > 0.30) color = lerpColor(color, C.alpineWet, wetFactor * 0.55);
+      } else if (t > treeFrac - 0.04) {
+        const blend = Math.max(0, Math.min(1, (t - (treeFrac - 0.04)) / 0.08));
+        color = lerpColor(C.treeLine, C.alpine, blend);
+      } else if (t > 0.06) {
+        const forestNoise = fbm(ca * 4.5, sa * 4.5, 2, seed * 0.6 + 8) * 0.28;
+        color = lerpColor(C.treeLine, C.scree, Math.min(1, t / treeFrac * 0.55 + forestNoise * 0.2));
+      } else {
+        // Base / talus: warmer color variation from mineral deposits & exposed bedrock
+        color = lerpColor(C.scree, C.bedrock, 1 - t / 0.06);
+        color = lerpColor(color, C.darkRock, strataLine * 0.30);
+        color = lerpColor(color, C.ironRock, spurFactor * 0.35); // spur ridges = iron-stained
+      }
+
+      if (cliffFace > 0.2 && t < snowLineLocal) {
+        color = lerpColor(color, C.darkRock, Math.min(1, (cliffFace - 0.2) * 2.4));
+      }
+      const sideLight = Math.cos(angle + seed) * 0.04;
+      colors.push(
+        Math.max(0, Math.min(1, color[0] + sideLight)),
+        Math.max(0, Math.min(1, color[1] + sideLight)),
+        Math.max(0, Math.min(1, color[2] + sideLight)),
+      );
+    }
+  }
+
+  // FIX 1: Apex must include the tilt offset (same as the top ring vertices)
+  const apexTiltX = Math.cos(tiltAngle) * height * tiltAmt;
+  const apexTiltZ = Math.sin(tiltAngle) * height * tiltAmt;
+  const apexIdx = (HEIGHT + 1) * (RADIAL + 1);
+  positions.push(apexTiltX, halfH, apexTiltZ);
+  colors.push(...C.corniceSnow);
+
+  const bottomCenterIdx = apexIdx + 1;
+  // Bottom center is also irregular: pulled to the weighted centroid of base noise
+  // (keeping it simple: just use 0,0 but push it down a touch for better base silhouette)
+  positions.push(0, -halfH - height * 0.012, 0);
+  colors.push(...C.scree);
+
+  for (let hRing = 0; hRing < HEIGHT; hRing++) {
+    for (let a = 0; a < RADIAL; a++) {
+      const row = hRing * (RADIAL + 1); const nextRow = (hRing + 1) * (RADIAL + 1);
+      indices.push(row + a, nextRow + a, nextRow + a + 1, row + a, nextRow + a + 1, row + a + 1);
+    }
+  }
+  const topRow = HEIGHT * (RADIAL + 1);
+  for (let a = 0; a < RADIAL; a++) indices.push(topRow + a, apexIdx, topRow + a + 1);
+  for (let a = 0; a < RADIAL; a++) indices.push(a, a + 1, bottomCenterIdx);
+
+  const mainGeo = new THREE.BufferGeometry();
+  mainGeo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  mainGeo.setAttribute("color",    new THREE.Float32BufferAttribute(colors, 3));
+  mainGeo.setIndex(indices);
+  mainGeo.computeVertexNormals();
+
+  // ── Snow Cap ─────────────────────────────────────────────────────────────────
+  const SNOW_RADIAL = 52; const SNOW_HEIGHT_RINGS = 20;
+  const snowStartT = snowFrac - 0.025;
+  const snowBaseY  = -halfH + snowStartT * height;
+  const snowCapH   = halfH - snowBaseY;
+  const snowPos: number[] = []; const snowColors: number[] = []; const snowIdx: number[] = [];
+
+  for (let sh = 0; sh <= SNOW_HEIGHT_RINGS; sh++) {
+    const st = sh / SNOW_HEIGHT_RINGS;
+    const sy = snowBaseY + st * snowCapH;
+    const globalT = snowStartT + st * (1 - snowStartT);
+    const sr = baseRadius * (1 - Math.pow(globalT, profile)) * 1.10;
+
+    for (let a = 0; a <= SNOW_RADIAL; a++) {
+      const angle = (a / SNOW_RADIAL) * Math.PI * 2;
+      const ca = Math.cos(angle); const sa2 = Math.sin(angle);
+      const edgeScale = sh === 0 ? 0.58 : 0.08 * (1 - st * 0.65);
+      const edgeJag   = fbm(ca * 5.5, sa2 * 5.5, 4, seed * 0.6 + 5 + sh * 0.5) * sr * edgeScale;
+      const leeward   = Math.max(0, Math.cos(angle - windDir + Math.PI)) * sr
+                        * (sh === 0 ? 0.20 : 0.055 * (1 - st));
+      const dune      = Math.sin(angle * 3.1 + seed * 2) * sr * 0.05 * (1 - st);
+      const snowR     = Math.max(0, sr * (1 - st * 0.28) + edgeJag + dune + leeward);
+      const tiltOff   = st * snowCapH * tiltAmt;
+      snowPos.push(
+        ca * snowR + Math.cos(tiltAngle) * tiltOff,
+        sy,
+        sa2 * snowR + Math.sin(tiltAngle) * tiltOff,
+      );
+      const shadowAmount = Math.max(0, Math.cos(angle - windDir + Math.PI)) * 0.28 + st * 0.08;
+      snowColors.push(...lerpColor(C.corniceSnow, C.snowShadow, shadowAmount));
+    }
+  }
+
+  // FIX 1 (snow cap apex): match tilt of top snow ring
+  const snowApex = (SNOW_HEIGHT_RINGS + 1) * (SNOW_RADIAL + 1);
+  snowPos.push(apexTiltX, halfH + height * 0.018, apexTiltZ); // <-- fixed
+  snowColors.push(...C.corniceSnow);
+
+  for (let sh = 0; sh < SNOW_HEIGHT_RINGS; sh++) {
+    for (let a = 0; a < SNOW_RADIAL; a++) {
+      const row = sh * (SNOW_RADIAL + 1); const nr = (sh + 1) * (SNOW_RADIAL + 1);
+      snowIdx.push(row + a, nr + a, nr + a + 1, row + a, nr + a + 1, row + a + 1);
+    }
+  }
+  const sTopRow = SNOW_HEIGHT_RINGS * (SNOW_RADIAL + 1);
+  for (let a = 0; a < SNOW_RADIAL; a++) snowIdx.push(sTopRow + a, snowApex, sTopRow + a + 1);
+
+  const snowGeo = new THREE.BufferGeometry();
+  snowGeo.setAttribute("position", new THREE.Float32BufferAttribute(snowPos, 3));
+  snowGeo.setAttribute("color",    new THREE.Float32BufferAttribute(snowColors, 3));
+  snowGeo.setIndex(snowIdx);
+  snowGeo.computeVertexNormals();
+
+  // ── Scree Apron ───────────────────────────────────────────────────────────────
+  // FIX 2: Much more irregular Y and radial shape — no more flat concentric rings
+  const SCREE_RADIAL = 48;
+  const screePos: number[] = []; const screeColors: number[] = []; const screeIdx: number[] = [];
+  const screeInner = baseRadius * 0.62; const screeOuter = baseRadius * 1.48;
+
+  for (let ring = 0; ring <= 5; ring++) {
+    const rt  = ring / 5;
+    const rad = screeInner + rt * (screeOuter - screeInner);
+    for (let a = 0; a <= SCREE_RADIAL; a++) {
+      const angle = (a / SCREE_RADIAL) * Math.PI * 2;
+      const ca = Math.cos(angle); const sa2 = Math.sin(angle);
+
+      // Large irregular radial variation (fan-shaped talus cones)
+      const jag       = fbm(ca * 5, sa2 * 5, 5, seed * 0.3 + ring * 3.1) * rad * 0.28;
+      const microJag  = fbm(ca * 14, sa2 * 14, 2, seed * 0.6 + ring * 1.8 + 50) * rad * 0.06;
+      // Align scree fans with spur ridges (rock falls along spurs)
+      const spurAlign = Math.max(0, Math.sin(angle * spurCount + spurPhase)) * rad * 0.35 * (1 - rt * 0.5);
+
+      // FIX 2: Highly varied Y — talus fans slope unevenly, gullies cut between
+      const talFan    = fbm(ca * 3, sa2 * 3, 4, seed * 0.22 + ring * 2.4 + 8) * height * 0.09 * rt;
+      const gully     = Math.max(0, -fbm(ca * 6, sa2 * 6, 3, seed * 0.48 + ring + 15)) * height * 0.07 * rt;
+
+      screePos.push(
+        ca * (rad + jag + microJag + spurAlign),
+        -halfH - rt * height * 0.048 - talFan - gully - 1,
+        sa2 * (rad + jag + microJag + spurAlign),
+      );
+
+      const n      = fbm(ca * 5, sa2 * 5, 2, seed * 0.4 + ring * 2 + 20) * 0.5 + 0.5;
+      const sColor = lerpColor(
+        lerpColor(C.scree, C.screeLight, n * 0.55),
+        C.darkRock, rt * 0.18 + (1 - n) * 0.18,
+      );
+      screeColors.push(...sColor);
+    }
+  }
+
+  for (let ring = 0; ring < 5; ring++) {
+    for (let a = 0; a < SCREE_RADIAL; a++) {
+      const row = ring * (SCREE_RADIAL + 1); const nr = (ring + 1) * (SCREE_RADIAL + 1);
+      screeIdx.push(row + a, nr + a, nr + a + 1, row + a, nr + a + 1, row + a + 1);
+    }
+  }
+
+  const screeGeo = new THREE.BufferGeometry();
+  screeGeo.setAttribute("position", new THREE.Float32BufferAttribute(screePos, 3));
+  screeGeo.setAttribute("color",    new THREE.Float32BufferAttribute(screeColors, 3));
+  screeGeo.setIndex(screeIdx);
+  screeGeo.computeVertexNormals();
+
+  return { mainGeo, snowGeo, screeGeo };
+}
+
+// ─── Mountain peaks + bands — unchanged ──────────────────────────────────────
+interface MountainPeak {
+  x: number; z: number; height: number; baseRadius: number;
+  snowFrac: number; treeFrac: number; profile: number;
+  mainGeo: THREE.BufferGeometry;
+  snowGeo: THREE.BufferGeometry;
+  screeGeo: THREE.BufferGeometry;
+}
+
+function Mountains({
+  buildings,
+  cityBounds,
+}: {
+  buildings: PositionedBuilding[];
+  cityBounds: LayoutRect;
+}) {
+  const peaks = useMemo<MountainPeak[]>(() => {
+    const halfW = (cityBounds.maxX - cityBounds.minX) / 2;
+    const halfD = (cityBounds.maxZ - cityBounds.minZ) / 2;
+    let cityEdge = Math.max(halfW, halfD) + 80;
+    for (const b of buildings) {
+      const centerDist = Math.sqrt(b.x * b.x + b.z * b.z);
+      const footprintRadius = Math.hypot(b.width, b.depth) * 0.75;
+      cityEdge = Math.max(cityEdge, centerDist + footprintRadius);
+    }
+
+    cityEdge += 520;
+
+    const result: MountainPeak[] = [];
+    let seed = 1;
+    const bands = [
+      { rMin: cityEdge,        rMax: cityEdge + 540,  rangeCount: 5, spread: 0.22, minPeaks: 1, maxPeaks: 2, hMin: 110, hMax: 240, wMin: 260, wMax: 420, profileMin: 0.58, profileMax: 0.88, snowMin: 0.94, snowMax: 0.99, treeMin: 0.18, treeMax: 0.30, vistaPad: 0.08 },
+      { rMin: cityEdge + 260,  rMax: cityEdge + 1100, rangeCount: 5, spread: 0.24, minPeaks: 1, maxPeaks: 2, hMin: 240, hMax: 420, wMin: 320, wMax: 500, profileMin: 0.82, profileMax: 1.18, snowMin: 0.68, snowMax: 0.82, treeMin: 0.24, treeMax: 0.38, vistaPad: 0.10 },
+      { rMin: cityEdge + 900,  rMax: cityEdge + 2100, rangeCount: 6, spread: 0.28, minPeaks: 1, maxPeaks: 2, hMin: 420, hMax: 700, wMin: 380, wMax: 620, profileMin: 0.95, profileMax: 1.48, snowMin: 0.56, snowMax: 0.72, treeMin: 0.18, treeMax: 0.31, vistaPad: 0.12 },
+      { rMin: cityEdge + 1800, rMax: cityEdge + 3600, rangeCount: 4, spread: 0.32, minPeaks: 1, maxPeaks: 2, hMin: 700, hMax: 1060, wMin: 520, wMax: 760, profileMin: 1.08, profileMax: 1.62, snowMin: 0.46, snowMax: 0.62, treeMin: 0.14, treeMax: 0.24, vistaPad: 0.16 },
+    ];
+
+    for (const band of bands) {
+      for (let rangeIdx = 0; rangeIdx < band.rangeCount; rangeIdx++) {
+        seed++;
+        const baseAngle = (rangeIdx / band.rangeCount) * Math.PI * 2;
+        const angleJitter = (seededRng(seed + 11) - 0.5) * ((Math.PI * 2) / band.rangeCount) * 0.65;
+        const anchorAngle = normalizeAngle(baseAngle + angleJitter + rangeIdx * 0.07);
+        const anchorRadius = band.rMin + seededRng(seed + 22) * (band.rMax - band.rMin);
+        const peakCount = band.minPeaks + Math.floor(seededRng(seed + 33) * (band.maxPeaks - band.minPeaks + 1));
+
+        for (let peakIdx = 0; peakIdx < peakCount; peakIdx++) {
+          const primary = peakIdx === 0;
+          const shoulderScale = primary ? 1 : 0.52 + seededRng(seed + 44 + peakIdx) * 0.28;
+          const angleOffset = primary ? 0 : (seededRng(seed + 55 + peakIdx) - 0.5) * band.spread;
+          const radialOffset = primary ? 0 : (seededRng(seed + 66 + peakIdx) - 0.35) * (band.rMax - band.rMin) * 0.14;
+          const angle = normalizeAngle(anchorAngle + angleOffset);
+          const r = THREE.MathUtils.clamp(anchorRadius + radialOffset, band.rMin, band.rMax);
+          const height = (band.hMin + seededRng(seed + 77 + peakIdx) * (band.hMax - band.hMin)) * shoulderScale;
+          const baseRadius = (band.wMin + seededRng(seed + 88 + peakIdx) * (band.wMax - band.wMin)) * (primary ? 1 : 0.82 + seededRng(seed + 99 + peakIdx) * 0.16);
+          const profile = band.profileMin + seededRng(seed + 111 + peakIdx) * (band.profileMax - band.profileMin);
+          const snowFrac = band.snowMin + seededRng(seed + 122 + peakIdx) * (band.snowMax - band.snowMin);
+          const treeFrac = band.treeMin + seededRng(seed + 133 + peakIdx) * (band.treeMax - band.treeMin);
+          const peakSeed = seed * 0.07 + peakIdx * 1.13 + 1.3;
+          const { mainGeo, snowGeo, screeGeo } = buildRealisticMountain(baseRadius, height, profile, peakSeed, snowFrac, treeFrac);
+          result.push({ x: Math.cos(angle) * r, z: Math.sin(angle) * r, height, baseRadius, snowFrac, treeFrac, profile, mainGeo, snowGeo, screeGeo });
+        }
+      }
+    }
+    return result;
+  }, [buildings, cityBounds]);
+
+  if (!peaks.length) return null;
+
+  return (
+    <group>
+      {peaks.map((p, i) => {
+        const worldY    = p.height / 2 - 12;
+
+        return (
+          <group key={i} position={[p.x, worldY, p.z]}>
+
+            <mesh geometry={p.screeGeo} receiveShadow>
+              <meshLambertMaterial vertexColors />
+            </mesh>
+
+            <mesh geometry={p.mainGeo} receiveShadow>
+              <meshLambertMaterial vertexColors />
+            </mesh>
+
+            <mesh geometry={p.snowGeo} receiveShadow>
+              <meshLambertMaterial vertexColors />
+            </mesh>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+// ─── Clouds ───────────────────────────────────────────────────────────────────
+
+interface CloudGroupData {
+  id: number; x: number; y: number; z: number;
+  scale: number; speed: number;
+  blobs: { ox: number; oy: number; oz: number; r: number }[];
+}
+
+function buildCloudBlobs(seed: number) {
+  const count = 6 + Math.floor(seededRng(seed) * 6);
+  const blobs = [{ ox: 0, oy: 0, oz: 0, r: 55 + seededRng(seed + 10) * 30 }];
+  for (let i = 1; i < count; i++) {
+    const angle = seededRng(seed + i * 17) * Math.PI * 2;
+    const dist  = 30 + seededRng(seed + i * 31) * 70;
+    blobs.push({ ox: Math.cos(angle) * dist, oy: (seededRng(seed + i * 7) - 0.4) * 20, oz: Math.sin(angle) * dist * 0.5, r: 28 + seededRng(seed + i * 43) * 38 });
+  }
+  return blobs;
+}
+
+function Cloud({ data }: { data: CloudGroupData }) {
+  const groupRef = useRef<THREE.Group>(null);
+  useFrame((_, delta) => {
+    if (groupRef.current) {
+      groupRef.current.position.x += data.speed * delta;
+      if (groupRef.current.position.x > 3500) groupRef.current.position.x = -3500;
+    }
+  });
+  return (
+    <group ref={groupRef} position={[data.x, data.y, data.z]} scale={[data.scale, data.scale * 0.55, data.scale]}>
+      {data.blobs.map((blob, i) => (
+        <mesh key={i} position={[blob.ox, blob.oy, blob.oz]}>
+          <sphereGeometry args={[blob.r, 10, 8]} />
+          <meshStandardMaterial color="#dff0fa" roughness={1} metalness={0} emissive="#c8e8f5" emissiveIntensity={0.14} transparent opacity={0.82} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function Clouds({ extent }: { extent: number }) {
+  const cloudData = useMemo<CloudGroupData[]>(() => {
+    const clouds: CloudGroupData[] = [];
+    const baseR = extent + 400;
+    for (let i = 0; i < 40; i++) {
+      const angle  = seededRng(i * 3) * Math.PI * 2;
+      const radius = baseR + seededRng(i * 7) * 2200;
+      const isHigh = seededRng(i * 11) > 0.6;
+      const y      = isHigh ? 900 + seededRng(i * 13) * 320 : 580 + seededRng(i * 17) * 200;
+      const scale  = (isHigh ? 0.7 : 1.0) + seededRng(i * 19) * 0.8;
+      clouds.push({ id: i, x: Math.cos(angle) * radius, y, z: Math.sin(angle) * radius, scale, speed: (seededRng(i * 23) * 6 + 3) * (seededRng(i * 29) > 0.5 ? 1 : -1), blobs: buildCloudBlobs(i * 37) });
+    }
+    return clouds;
+  }, [extent]);
+  return <group>{cloudData.map(d => <Cloud key={d.id} data={d} />)}</group>;
+}
 
 // ─── Camera Focus ─────────────────────────────────────────────────────────────
 
@@ -949,7 +1729,7 @@ export function CityCanvas({
   const arrivalLatchRef = useRef<string | null>(null);
 
   type QualityLevel = "low" | "medium" | "high";
-  const [quality, setQuality] = useState<QualityLevel>("high");
+  const [quality, setQuality] = useState<QualityLevel>("medium");
 
   const qualityConfig = useMemo(() => {
     switch (quality) {
@@ -970,9 +1750,9 @@ export function CityCanvas({
       case "high":
       default:
         return {
-          npcMaxCars: 16,
-          npcViewRadius: 1200,
-          shadowMapSize: 2048,
+          npcMaxCars: 8,
+          npcViewRadius: 1000,
+          shadowMapSize: 1024,
           cameraFar: 8000,
         };
     }
@@ -1242,8 +2022,26 @@ export function CityCanvas({
         <directionalLight position={theme.fillPos} intensity={theme.fillIntensity * 1.8} color={theme.fillColor} />
         <hemisphereLight args={[theme.hemiSky, theme.hemiGround, theme.hemiIntensity * 2.8]} />
 
-        {/* Sky & atmosphere — edit in city/sky/ */}
-        <CityAtmosphere theme={theme} moonPosition={moonPosition} />
+        {/* Sky & atmosphere */}
+        <SkyDome stops={theme.sky} />
+        <Stars />
+
+        {/* Moon-only lighting: camera must see MOON_LIGHT_LAYER; beam runs from city center toward moon */}
+        <EnableMoonLayerOnCamera layer={MOON_LIGHT_LAYER} />
+        <MoonOnlyAmbient layer={MOON_LIGHT_LAYER} intensity={0.42} color="#dcd6ff" />
+        <MoonBeamFromCity moonPosition={moonPosition} layer={MOON_LIGHT_LAYER} />
+
+        <Moon position={moonPosition} />
+
+        {/* Sun disc */}
+        <mesh position={theme.sunPos as [number, number, number]}>
+          <sphereGeometry args={[65, 24, 24]} />
+          <meshBasicMaterial color="#ffe5b0" fog={false} />
+        </mesh>
+        <mesh position={theme.sunPos as [number, number, number]}>
+          <sphereGeometry args={[120, 18, 18]} />
+          <meshBasicMaterial color="#ffad42" transparent opacity={0.18} fog={false} depthWrite={false} blending={THREE.AdditiveBlending} />
+        </mesh>
 
         {/* Ground */}
         <GroundPlane color={theme.groundColor} />
