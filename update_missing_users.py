@@ -11,6 +11,9 @@ Usage:
   py update_missing_users.py --dry-run          # count only, no API/CSV writes
   py update_missing_users.py --line 15610       # only that CSV line (incl. header)
   py update_missing_users.py --username mutasim-rehman
+
+Multi-token (.env): GITHUB_KEY_ACCOUNT_1, GITHUB_KEY_ACCOUNT_2, ... (or GITHUB_KEY).
+Default concurrency = 3 workers per token when multiple keys are loaded.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ DEFAULT_CSV = "docs/github_users_islamabad_full.csv"
 CHECKPOINT_FILE = "checkpoint_unified.json"
 GRAPHQL_URL = "https://api.github.com/graphql"
 MAX_CONCURRENT = 3
+WORKERS_PER_TOKEN = 3
 CHECKPOINT_EVERY = 50
 MAX_REPOS_METADATA = 30
 MAX_OWNED_REPO_PAGES = 50
@@ -164,22 +168,45 @@ def log(msg: str) -> None:
     print(msg, flush=True)
 
 
-def load_github_key() -> str | None:
-    key = os.environ.get("GITHUB_KEY", "").strip()
-    if key:
-        return key
+def _is_github_key_env(name: str) -> bool:
+    return name == "GITHUB_KEY" or name.startswith("GITHUB_KEY_")
+
+
+def _normalize_token(raw: str | None) -> str:
+    return (raw or "").strip().strip('"').strip("'")
+
+
+def load_github_keys() -> list[str]:
+    """Load unique tokens from .env (file order) then environment."""
+    keys: list[str] = []
+    seen: set[str] = set()
+
+    def add(raw: str | None) -> None:
+        token = _normalize_token(raw)
+        if token and token not in seen:
+            seen.add(token)
+            keys.append(token)
+
     env_path = repo_root() / ".env"
-    if not env_path.exists():
-        return None
-    for line in env_path.read_text(encoding="utf-8-sig").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        name, _, value = line.partition("=")
-        if name.strip() == "GITHUB_KEY":
-            value = value.strip().strip('"').strip("'")
-            return value or None
-    return None
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8-sig").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            name, _, value = line.partition("=")
+            if _is_github_key_env(name.strip()):
+                add(value)
+
+    for name, value in sorted(os.environ.items()):
+        if _is_github_key_env(name):
+            add(value)
+
+    return keys
+
+
+def load_github_key() -> str | None:
+    keys = load_github_keys()
+    return keys[0] if keys else None
 
 
 def is_missing_value(value: str | None) -> bool:
@@ -271,9 +298,31 @@ def gql_node_to_metadata(node: dict) -> dict:
     }
 
 
+class GitHubClientPool:
+    """Round-robin pool; each token has its own rate-limit clock."""
+
+    def __init__(self, tokens: list[str]):
+        self._clients = [
+            GitHubClient(token, label=f"key-{i + 1}")
+            for i, token in enumerate(tokens)
+        ]
+        self._next = 0
+        self._lock = asyncio.Lock()
+
+    def __len__(self) -> int:
+        return len(self._clients)
+
+    async def acquire(self) -> GitHubClient:
+        async with self._lock:
+            client = self._clients[self._next % len(self._clients)]
+            self._next += 1
+        return client
+
+
 class GitHubClient:
-    def __init__(self, token: str):
+    def __init__(self, token: str, *, label: str = "key"):
         self._token = token
+        self._label = label
         self._rate_limit_until = 0.0
         self._rate_limit_lock = asyncio.Lock()
 
@@ -283,7 +332,10 @@ class GitHubClient:
                 wait = self._rate_limit_until - time.time()
             if wait <= 0:
                 return
-            print(f"Rate limited - pausing all workers for {wait:.0f}s...", flush=True)
+            print(
+                f"Rate limited ({self._label}) - pausing for {wait:.0f}s...",
+                flush=True,
+            )
             await asyncio.sleep(min(wait, 30))
 
     async def _extend_global_rate_limit(self, seconds: float) -> None:
@@ -317,7 +369,7 @@ class GitHubClient:
                 timeout=aiohttp.ClientTimeout(total=90),
             ) as resp:
                 if resp.status == 401:
-                    msg = "GraphQL 401 — check GITHUB_KEY in .env"
+                    msg = f"GraphQL 401 ({self._label}) - check token in .env"
                     if not quiet:
                         print(msg, file=sys.stderr)
                     return None, msg
@@ -336,7 +388,7 @@ class GitHubClient:
                     wait = min(90, 4 * (2**retry))
                     if not quiet and retry == 0:
                         print(
-                            f"GraphQL HTTP {resp.status} — retrying in {wait}s...",
+                            f"GraphQL HTTP {resp.status} ({self._label}) - retry in {wait}s...",
                             file=sys.stderr,
                         )
                     await asyncio.sleep(wait)
@@ -549,6 +601,12 @@ class GitHubClient:
         return None
 
 
+def default_concurrency(num_tokens: int) -> int:
+    if num_tokens <= 1:
+        return MAX_CONCURRENT
+    return num_tokens * WORKERS_PER_TOKEN
+
+
 async def run(
     csv_path: Path,
     checkpoint_path: Path,
@@ -556,12 +614,18 @@ async def run(
     dry_run: bool = False,
     only_line: int | None = None,
     only_username: str | None = None,
-    concurrency: int = MAX_CONCURRENT,
+    concurrency: int | None = None,
 ) -> int:
-    token = load_github_key()
-    if not token and not dry_run:
-        print("ERROR: Set GITHUB_KEY in .env or environment.", file=sys.stderr)
+    tokens = load_github_keys()
+    if not tokens and not dry_run:
+        print(
+            "ERROR: Set GITHUB_KEY or GITHUB_KEY_ACCOUNT_* in .env or environment.",
+            file=sys.stderr,
+        )
         return 1
+    if concurrency is None:
+        concurrency = default_concurrency(len(tokens))
+    request_delay = REQUEST_DELAY_SEC / max(len(tokens), 1)
 
     rows, fields = load_csv(csv_path)
     checkpoint = load_checkpoint(checkpoint_path)
@@ -625,11 +689,12 @@ async def run(
         return 0
 
     log(
-        f"\nFetching {len(pending):,} users "
-        f"({concurrency} workers, progress every {PROGRESS_EVERY})..."
+        f"\nFetching {len(pending):,} users | "
+        f"{len(tokens)} API key(s) | {concurrency} workers | "
+        f"delay {request_delay:.2f}s | progress every {PROGRESS_EVERY}"
     )
 
-    client = GitHubClient(token)
+    pool = GitHubClientPool(tokens)
     cp_lock = asyncio.Lock()
     start = time.time()
     done = 0
@@ -654,7 +719,8 @@ async def run(
     async def process_one(session: aiohttp.ClientSession, row: dict) -> None:
         nonlocal failed, processed
         username = row["Username"].strip()
-        await asyncio.sleep(REQUEST_DELAY_SEC)
+        await asyncio.sleep(request_delay)
+        client = await pool.acquire()
         t0 = time.time()
         bundle = await client.fetch_account_bundle(session, username)
         processed += 1
@@ -750,8 +816,11 @@ def main() -> None:
     parser.add_argument(
         "--concurrency",
         type=int,
-        default=MAX_CONCURRENT,
-        help=f"Parallel workers (default: {MAX_CONCURRENT})",
+        default=None,
+        help=(
+            f"Parallel workers (default: {MAX_CONCURRENT} for one key, "
+            f"else {WORKERS_PER_TOKEN} per key)"
+        ),
     )
     args = parser.parse_args()
 
@@ -770,7 +839,7 @@ def main() -> None:
         print("ERROR: Use only one of --line or --username", file=sys.stderr)
         sys.exit(1)
 
-    if args.concurrency < 1:
+    if args.concurrency is not None and args.concurrency < 1:
         print("ERROR: --concurrency must be >= 1", file=sys.stderr)
         sys.exit(1)
 
