@@ -5,16 +5,11 @@ import type { CityId, CsvUser, Building } from "../types";
 const FLOOR_HEIGHT = 4;
 const MIN_FLOORS   = 3;
 const MAX_FLOORS   = 40;
+const MAX_USERS_PER_CITY = 10_000;
 
-// Base footprint — uniform across all buildings so the city grid stays clean
-// and height alone communicates commit activity (the core visual metaphor).
-const BASE_SIZE     = 28;   // standard width & depth for every building (world units)
-
-// Subtle footprint bonus for the most prolific contributors.
-// Top-tier committers earn up to +10 units on each side — a ~35% wider tower
-// that feels more "imposing" without breaking the layout algorithm's geometry.
-const BASE_SIZE_MIN = 24;   // quietest contributors (below median)
-const BASE_SIZE_MAX = 34;   // top-percentile contributors
+const BASE_SIZE     = 28;
+const BASE_SIZE_MIN = 24;
+const BASE_SIZE_MAX = 34;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -22,8 +17,6 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-// Logarithmic scale — compresses outliers so a single 100k-commit user
-// doesn't dominate the entire height range.
 function scaleLog(
   value:  number,
   minSrc: number,
@@ -39,81 +32,81 @@ function scaleLog(
   return minDst + t * (maxDst - minDst);
 }
 
+function parseSectorId(row: CsvUser): number {
+  const raw = row.sector_id;
+  if (raw === undefined || raw === "") return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) ? clamp(Math.round(n), 0, 10) : 0;
+}
+
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export function mapCsvToBuildings(city: CityId, rows: CsvUser[]): Building[] {
   if (rows.length === 0) return [];
 
-  // ── Parse & filter ──────────────────────────────────────────────────────────
   const parsed = rows
     .map((row) => {
       const rawRepos   = Number(row.Public_Repositories ?? "0");
-      const rawCommits = Number(row.Lifetime_Commits     ?? "0");
-      const repos      = Number.isFinite(rawRepos)   && rawRepos   > 0 ? rawRepos   : 0;
-      const commits    = Number.isFinite(rawCommits)  && rawCommits > 0 ? rawCommits : 0;
-      return { row, repos, commits };
+      const rawCommits = Number(row.Lifetime_Commits ?? "0");
+      const repos      = Number.isFinite(rawRepos) ? rawRepos : 0;
+      const commits    = Number.isFinite(rawCommits) ? rawCommits : 0;
+      const sectorId   = parseSectorId(row);
+      const sectorLabel = row.sector_label?.trim() || `Sector ${sectorId}`;
+      return { row, repos, commits, sectorId, sectorLabel };
     })
-    // Require meaningful activity: at least some repos, non-negative commits,
-    // and commits ≥ repos (filters obvious bots / mirror-only accounts).
-    .filter((e) => e.repos > 0 && e.commits >= 0 && e.commits >= e.repos);
+    .filter((e) => e.repos > 5 && e.commits > 10);
 
   if (parsed.length === 0) return [];
 
-  // ── Data ranges (for height + lit-percentage scaling) ──────────────────────
-  const commitsValues = parsed.map((p) => p.commits);
+  parsed.sort(
+    (a, b) =>
+      b.commits - a.commits ||
+      b.repos - a.repos ||
+      a.sectorId - b.sectorId,
+  );
+
+  const capped = parsed.slice(0, MAX_USERS_PER_CITY);
+
+  const commitsValues = capped.map((p) => p.commits);
   const minCommits    = Math.min(...commitsValues, 0);
   const maxCommits    = Math.max(...commitsValues, 1);
 
-  // ── Per-building mapping ────────────────────────────────────────────────────
-  return parsed.map((entry, index) => {
-    const { row, repos, commits } = entry;
-    const zeroActivity = repos === 0 && commits === 0;
+  return capped.map((entry, index) => {
+    const { row, repos, commits, sectorId, sectorLabel } = entry;
 
-    // ── Height — primary data encoding (commits → floors) ────────────────────
-    let floors = zeroActivity
-      ? MIN_FLOORS
-      : Math.round(scaleLog(commits, minCommits, maxCommits, MIN_FLOORS, MAX_FLOORS));
+    let floors = Math.round(
+      scaleLog(commits, minCommits, maxCommits, MIN_FLOORS, MAX_FLOORS),
+    );
     floors = clamp(floors, MIN_FLOORS, MAX_FLOORS);
     const height = floors * FLOOR_HEIGHT;
 
-    // ── Footprint — uniform base with a small commit-tier bonus ──────────────
-    // commitNorm: 0 = lowest commit count, 1 = highest
     const commitNorm = maxCommits > 0
       ? clamp(Math.log10(commits + 1) / Math.log10(maxCommits + 1), 0, 1)
       : 0;
 
-    // Subtle non-linear tier:
-    //   bottom 50% → BASE_SIZE_MIN … BASE_SIZE (stays at or below standard)
-    //   top    50% → BASE_SIZE … BASE_SIZE_MAX  (grows modestly)
-    // Using smoothstep so there's no hard jump at the median.
-    const smoothNorm  = commitNorm * commitNorm * (3 - 2 * commitNorm);   // smoothstep
-    const base        = zeroActivity
-      ? BASE_SIZE_MIN
-      : Math.round(BASE_SIZE_MIN + smoothNorm * (BASE_SIZE_MAX - BASE_SIZE_MIN));
+    const smoothNorm = commitNorm * commitNorm * (3 - 2 * commitNorm);
+    const base = Math.round(
+      BASE_SIZE_MIN + smoothNorm * (BASE_SIZE_MAX - BASE_SIZE_MIN),
+    );
 
     const width = base;
-    const depth = base;   // keep footprint square — layout packing works best with squares
+    const depth = base;
 
-    // ── Window grid ──────────────────────────────────────────────────────────
-    // Derived from footprint size so windows scale naturally with the tower.
     const windowsPerFloor     = clamp(Math.round(width / 6), 3, 14);
     const sideWindowsPerFloor = clamp(Math.round(depth / 6), 2, 10);
-
-    // ── Lit percentage — commit activity → facade glow ────────────────────────
-    // High-commit towers blaze with lit windows; low-commit towers are mostly dark.
-    const litPercentage = zeroActivity
-      ? 0.15
-      : 0.20 + commitNorm * 0.65;   // 0.20 … 0.85
+    const litPercentage       = 0.20 + commitNorm * 0.65;
 
     return {
-      id:         `${city}-${index}-${row.Username}`,
+      id: `${city}-${index}-${row.Username}`,
       city,
-      username:   row.Username,
+      username: row.Username,
       profileUrl: row["Profile URL"],
-      githubId:   Number(row["GitHub ID"] || 0),
-      yearGroup:  row.Year_Group,
-      publicRepos:      repos,
-      lifetimeCommits:  commits,
+      githubId: Number(row["GitHub ID"] || 0),
+      yearGroup: row.Year_Group,
+      sectorId,
+      sectorLabel,
+      publicRepos: repos,
+      lifetimeCommits: commits,
       width,
       depth,
       height,

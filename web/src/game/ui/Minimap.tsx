@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import type { RoadGraph, RoadNodeId } from "../world/RoadGraph";
+import type { LayoutRect } from "@/lib/city/layout";
 
 type Props = {
   graph: RoadGraph;
@@ -11,13 +12,43 @@ type Props = {
   otherPlayers?: Array<{ id: string; x: number; z: number; color: string; name: string }>;
   destinationXZ: { x: number; z: number } | null;
   route: RoadNodeId[];
+  sectors?: Array<{ id: number; rect: LayoutRect }>;
+  park?: LayoutRect | null;
+  lake?: LayoutRect | null;
   size?: number;
 };
 
-function project(graph: RoadGraph, x: number, z: number, size: number) {
-  const r = graph.maxRadius || 1;
-  const s = (size / 2 - 10) / r;
-  return { x: size / 2 + x * s, y: size / 2 + z * s };
+function project(
+  bounds: LayoutRect,
+  x: number,
+  z: number,
+  size: number,
+): { x: number; y: number } {
+  const pad = 12;
+  const w = bounds.maxX - bounds.minX || 1;
+  const d = bounds.maxZ - bounds.minZ || 1;
+  const s = Math.min((size - pad * 2) / w, (size - pad * 2) / d);
+  const cx = (bounds.minX + bounds.maxX) / 2;
+  const cz = (bounds.minZ + bounds.maxZ) / 2;
+  return {
+    x: size / 2 + (x - cx) * s,
+    y: size / 2 + (z - cz) * s,
+  };
+}
+
+function rectToSvg(
+  bounds: LayoutRect,
+  rect: LayoutRect,
+  size: number,
+): { x: number; y: number; w: number; h: number } {
+  const tl = project(bounds, rect.minX, rect.minZ, size);
+  const br = project(bounds, rect.maxX, rect.maxZ, size);
+  return {
+    x: Math.min(tl.x, br.x),
+    y: Math.min(tl.y, br.y),
+    w: Math.abs(br.x - tl.x),
+    h: Math.abs(br.y - tl.y),
+  };
 }
 
 export function Minimap({
@@ -28,31 +59,34 @@ export function Minimap({
   otherPlayers = [],
   destinationXZ,
   route,
+  sectors = [],
+  park = null,
+  lake = null,
   size = 180,
 }: Props) {
-  const ringPaths = React.useMemo(() => {
-    const paths: Array<{ r: number; key: string }> = [];
-    for (let i = 0; i < graph.radii.length; i++) {
-      paths.push({ r: graph.radii[i], key: `ring-${i}` });
-    }
-    return paths;
-  }, [graph]);
+  const bounds = graph.bounds;
 
   const routePoints = React.useMemo(() => {
     if (!route.length) return "";
     const pts = route
       .map((id) => graph.nodes.get(id))
       .filter(Boolean)
-      .map((n) => project(graph, n!.x, n!.z, size))
+      .map((n) => project(bounds, n!.x, n!.z, size))
       .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`);
     return pts.join(" ");
-  }, [route, graph, size]);
+  }, [route, graph, size, bounds]);
 
-  const playerP = playerXZ ? project(graph, playerXZ.x, playerXZ.z, size) : null;
-  const destP = destinationXZ ? project(graph, destinationXZ.x, destinationXZ.z, size) : null;
+  const playerP = playerXZ ? project(bounds, playerXZ.x, playerXZ.z, size) : null;
+  const destP = destinationXZ
+    ? project(bounds, destinationXZ.x, destinationXZ.z, size)
+    : null;
   const remotePoints = React.useMemo(() => {
-    return otherPlayers.map((p) => ({ ...p, pt: project(graph, p.x, p.z, size) }));
-  }, [graph, otherPlayers, size]);
+    return otherPlayers.map((p) => ({
+      ...p,
+      pt: project(bounds, p.x, p.z, size),
+    }));
+  }, [bounds, otherPlayers, size]);
+
   const playerArrow = React.useMemo(() => {
     if (!playerP || playerYaw == null) return "";
     const heading = playerYaw - Math.PI;
@@ -77,43 +111,73 @@ export function Minimap({
         viewBox={`0 0 ${size} ${size}`}
         className="overflow-visible"
       >
-        <defs>
-          <radialGradient id="mmGlow" cx="50%" cy="50%" r="60%">
-            <stop offset="0%" stopColor="rgba(236,72,153,0.35)" />
-            <stop offset="100%" stopColor="rgba(2,6,23,0)" />
-          </radialGradient>
-        </defs>
+        <rect
+          x={2}
+          y={2}
+          width={size - 4}
+          height={size - 4}
+          rx={8}
+          fill="rgba(0,0,0,0.55)"
+          stroke="rgba(168,85,247,0.4)"
+          strokeWidth={2}
+        />
 
-        {/* Base */}
-        <circle cx={size / 2} cy={size / 2} r={size / 2} fill="rgba(0,0,0,0.55)" stroke="rgba(168,85,247,0.4)" strokeWidth="2" />
-        <circle cx={size / 2} cy={size / 2} r={size / 2 - 6} fill="url(#mmGlow)" />
+        {lake && (
+          <rect
+            {...rectToSvg(bounds, lake, size)}
+            fill="rgba(56,189,248,0.35)"
+            stroke="rgba(14,165,233,0.5)"
+            strokeWidth={1}
+          />
+        )}
 
-        {/* Rings */}
-        {ringPaths.map(({ r, key }, idx) => {
-          const rr = ((size / 2 - 10) * r) / (graph.maxRadius || 1);
-          const stroke = idx === 0 ? "rgba(251,191,36,0.35)" : "rgba(168,85,247,0.25)";
-          return <circle key={key} cx={size / 2} cy={size / 2} r={rr} fill="none" stroke={stroke} strokeWidth={1} />;
-        })}
+        {park && (
+          <rect
+            {...rectToSvg(bounds, park, size)}
+            fill="rgba(34,197,94,0.35)"
+            stroke="rgba(22,163,74,0.6)"
+            strokeWidth={1.5}
+          />
+        )}
 
-        {/* Spokes */}
-        {graph.spokeAngles.map((a, i) => {
-          const x = Math.cos(a) * graph.maxRadius;
-          const z = Math.sin(a) * graph.maxRadius;
-          const p = project(graph, x, z, size);
+        {sectors.map((s) => {
+          const r = rectToSvg(bounds, s.rect, size);
           return (
-            <line
-              key={`spoke-${i}`}
-              x1={size / 2}
-              y1={size / 2}
-              x2={p.x}
-              y2={p.y}
-              stroke="rgba(148,163,184,0.12)"
-              strokeWidth={1}
+            <rect
+              key={`sector-${s.id}`}
+              x={r.x}
+              y={r.y}
+              width={r.w}
+              height={r.h}
+              fill="none"
+              stroke="rgba(148,163,184,0.2)"
+              strokeWidth={0.8}
             />
           );
         })}
 
-        {/* Route */}
+        {graph.segments.map((seg) => {
+          const p1 = project(bounds, seg.x1, seg.z1, size);
+          const p2 = project(bounds, seg.x2, seg.z2, size);
+          const stroke =
+            seg.kind === "arterial"
+              ? "rgba(251,191,36,0.45)"
+              : "rgba(148,163,184,0.22)";
+          const sw = seg.kind === "arterial" ? 2.5 : 1;
+          return (
+            <line
+              key={seg.id}
+              x1={p1.x}
+              y1={p1.y}
+              x2={p2.x}
+              y2={p2.y}
+              stroke={stroke}
+              strokeWidth={sw}
+              strokeLinecap="round"
+            />
+          );
+        })}
+
         {routePoints && (
           <polyline
             points={routePoints}
@@ -125,16 +189,13 @@ export function Minimap({
           />
         )}
 
-        {/* Destination */}
         {destP && (
           <>
             <circle cx={destP.x} cy={destP.y} r={18} fill="rgba(125,211,252,0.08)" />
             <circle cx={destP.x} cy={destP.y} r={6} fill="rgba(125,211,252,0.95)" />
-            <circle cx={destP.x} cy={destP.y} r={12} fill="rgba(125,211,252,0.15)" />
           </>
         )}
 
-        {/* Player */}
         {playerP && (
           <>
             {playerArrow && (
@@ -151,15 +212,12 @@ export function Minimap({
           </>
         )}
 
-        {/* Other players (including NPC) */}
         {remotePoints.map((p) => (
           <g key={`other-${p.id}`}>
             <circle cx={p.pt.x} cy={p.pt.y} r={4.5} fill={p.color} />
-            <circle cx={p.pt.x} cy={p.pt.y} r={8.5} fill="rgba(2,6,23,0.25)" />
           </g>
         ))}
       </svg>
     </div>
   );
 }
-

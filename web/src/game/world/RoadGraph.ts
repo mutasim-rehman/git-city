@@ -1,6 +1,5 @@
 import * as THREE from "three";
-import type { CityLayoutResult } from "@/lib/city/layout";
-import { PLAZA_RADIUS, RIVER_CENTER, RIVER_SKIP } from "@/lib/city/layout";
+import type { CityLayoutResult, LayoutRect, RoadSegment } from "@/lib/city/layout";
 
 export type RoadNodeId = string;
 
@@ -8,11 +7,6 @@ export type RoadNode = {
   id: RoadNodeId;
   x: number;
   z: number;
-  kind: "ring" | "spoke";
-  ringIndex: number; // 0..N for ring radii levels (including outer edge)
-  spokeIndex: number; // 0..S-1
-  angle: number; // radians
-  radius: number; // world units
 };
 
 export type RoadEdge = {
@@ -23,25 +17,9 @@ export type RoadEdge = {
 export type RoadGraph = {
   nodes: Map<RoadNodeId, RoadNode>;
   edges: Map<RoadNodeId, RoadEdge[]>;
-  spokeAngles: number[];
-  radii: number[];
-  maxRadius: number;
+  bounds: LayoutRect;
+  segments: RoadSegment[];
 };
-
-function normalizeAngle(a: number) {
-  const twoPi = Math.PI * 2;
-  let x = a % twoPi;
-  if (x < 0) x += twoPi;
-  return x;
-}
-
-function angleDelta(a: number, b: number) {
-  const twoPi = Math.PI * 2;
-  let d = normalizeAngle(a) - normalizeAngle(b);
-  if (d > Math.PI) d -= twoPi;
-  if (d < -Math.PI) d += twoPi;
-  return d;
-}
 
 function dist2D(ax: number, az: number, bx: number, bz: number) {
   const dx = ax - bx;
@@ -49,135 +27,120 @@ function dist2D(ax: number, az: number, bx: number, bz: number) {
   return Math.sqrt(dx * dx + dz * dz);
 }
 
-function computeSpokeAngles(spokeCount: number) {
-  const angles: number[] = [];
-  for (let i = 0; i < spokeCount; i++) {
-    const a = (i / spokeCount) * Math.PI * 2;
+function addUndirectedEdge(
+  edges: Map<RoadNodeId, RoadEdge[]>,
+  a: RoadNodeId,
+  b: RoadNodeId,
+  cost: number,
+) {
+  edges.get(a)!.push({ to: b, cost });
+  edges.get(b)!.push({ to: a, cost });
+}
 
-    // Keep consistent with visuals: skip river sector
-    const norm = normalizeAngle(a);
-    const riverNorm = normalizeAngle(RIVER_CENTER);
-    const diff = Math.abs(norm - riverNorm);
-    const angDiff = diff > Math.PI ? Math.PI * 2 - diff : diff;
-    if (angDiff > RIVER_SKIP * 0.7) angles.push(a);
+function sampleSegment(
+  seg: RoadSegment,
+  step: number,
+): { x: number; z: number }[] {
+  const len = dist2D(seg.x1, seg.z1, seg.x2, seg.z2);
+  if (len < 1) return [{ x: seg.x1, z: seg.z1 }];
+  const n = Math.max(2, Math.ceil(len / step) + 1);
+  const pts: { x: number; z: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    pts.push({
+      x: seg.x1 + (seg.x2 - seg.x1) * t,
+      z: seg.z1 + (seg.z2 - seg.z1) * t,
+    });
   }
-  return angles;
+  return pts;
 }
 
-function nodeId(ri: number, si: number) {
-  return `r${ri}_s${si}`;
-}
+const WAYPOINT_SPACING = 45;
 
 /**
- * Generates a lightweight navigation graph that matches the current polar city road style:
- * - ring roads (district boulevards only)
- * - radial spokes
- *
- * This intentionally ignores local sub-rings for now to keep routing fast and robust.
+ * Navigation graph from V2 rectangular sector roads (arterial + local).
  */
-export function createPolarRoadGraph(layout: CityLayoutResult): RoadGraph {
-  const ringRadii = layout.ringRadii;
-
-  // Must match CityCanvas road rendering constants for district boulevards.
-  const DISTRICT_ROAD_W = 32;
-
-  const radii = [
-    PLAZA_RADIUS + 10,
-    ringRadii.ring1Inner - DISTRICT_ROAD_W / 2,
-    ringRadii.ring2Inner - DISTRICT_ROAD_W / 2,
-    ringRadii.ring3Inner - DISTRICT_ROAD_W / 2,
-    Math.max(ringRadii.ring3Outer, ringRadii.ring1Outer) + 80,
-  ].filter((r, idx, arr) => r > 0 && arr.indexOf(r) === idx);
-
-  const spokeAngles = computeSpokeAngles(12);
-
+export function createGridRoadGraph(layout: CityLayoutResult): RoadGraph {
   const nodes = new Map<RoadNodeId, RoadNode>();
   const edges = new Map<RoadNodeId, RoadEdge[]>();
+  let nodeCounter = 0;
 
-  for (let ri = 0; ri < radii.length; ri++) {
-    const R = radii[ri];
-    for (let si = 0; si < spokeAngles.length; si++) {
-      const a = spokeAngles[si];
-      const x = Math.cos(a) * R;
-      const z = Math.sin(a) * R;
-      const id = nodeId(ri, si);
-      nodes.set(id, {
-        id,
-        x,
-        z,
-        kind: "ring",
-        ringIndex: ri,
-        spokeIndex: si,
-        angle: a,
-        radius: R,
-      });
-      edges.set(id, []);
+  const ensureNode = (x: number, z: number): RoadNodeId => {
+    const key = `n${nodeCounter++}`;
+    const id = `${key}_${x.toFixed(0)}_${z.toFixed(0)}`;
+    nodes.set(id, { id, x, z });
+    edges.set(id, []);
+    return id;
+  };
+
+  const mergeThreshold = 8;
+  const findNearby = (x: number, z: number): RoadNodeId | null => {
+    for (const [id, n] of nodes) {
+      if (dist2D(n.x, n.z, x, z) < mergeThreshold) return id;
+    }
+    return null;
+  };
+
+  const getOrCreate = (x: number, z: number): RoadNodeId => {
+    const existing = findNearby(x, z);
+    if (existing) return existing;
+    return ensureNode(x, z);
+  };
+
+  for (const seg of layout.roads) {
+    const pts = sampleSegment(seg, WAYPOINT_SPACING);
+    let prevId: RoadNodeId | null = null;
+    for (const p of pts) {
+      const id = getOrCreate(p.x, p.z);
+      if (prevId && prevId !== id) {
+        const prev = nodes.get(prevId)!;
+        const cur = nodes.get(id)!;
+        addUndirectedEdge(edges, prevId, id, dist2D(prev.x, prev.z, cur.x, cur.z));
+      }
+      prevId = id;
     }
   }
 
-  // Spoke connections (radial)
-  for (let si = 0; si < spokeAngles.length; si++) {
-    for (let ri = 0; ri < radii.length - 1; ri++) {
-      const aId = nodeId(ri, si);
-      const bId = nodeId(ri + 1, si);
-      const a = nodes.get(aId)!;
-      const b = nodes.get(bId)!;
-      const cost = dist2D(a.x, a.z, b.x, b.z);
-      edges.get(aId)!.push({ to: bId, cost });
-      edges.get(bId)!.push({ to: aId, cost });
+  // Connect arterial intersections (nodes near segment crossings)
+  const nodeList = Array.from(nodes.values());
+  for (let i = 0; i < nodeList.length; i++) {
+    for (let j = i + 1; j < nodeList.length; j++) {
+      const a = nodeList[i]!;
+      const b = nodeList[j]!;
+      const d = dist2D(a.x, a.z, b.x, b.z);
+      if (d > 1 && d < WAYPOINT_SPACING * 1.2) {
+        const ax = Math.abs(a.x - b.x);
+        const az = Math.abs(a.z - b.z);
+        if (ax < 6 || az < 6) {
+          addUndirectedEdge(edges, a.id, b.id, d);
+        }
+      }
     }
   }
 
-  // Ring connections (arc between adjacent spokes at same radius)
-  for (let ri = 0; ri < radii.length; ri++) {
-    const R = radii[ri];
-    for (let si = 0; si < spokeAngles.length; si++) {
-      const next = (si + 1) % spokeAngles.length;
-      const aId = nodeId(ri, si);
-      const bId = nodeId(ri, next);
-      const a = nodes.get(aId)!;
-      const b = nodes.get(bId)!;
-      const dAng = Math.abs(angleDelta(a.angle, b.angle));
-      const cost = Math.max(1, R * dAng);
-      edges.get(aId)!.push({ to: bId, cost });
-      edges.get(bId)!.push({ to: aId, cost });
-    }
-  }
-
-  const maxRadius = Math.max(...radii);
-  return { nodes, edges, spokeAngles, radii, maxRadius };
+  return {
+    nodes,
+    edges,
+    bounds: layout.bounds,
+    segments: layout.roads,
+  };
 }
 
 export function nearestRoadNode(graph: RoadGraph, x: number, z: number): RoadNodeId {
-  const r = Math.sqrt(x * x + z * z);
-  const a = Math.atan2(z, x);
-
-  let bestSi = 0;
-  let bestAng = Infinity;
-  for (let i = 0; i < graph.spokeAngles.length; i++) {
-    const d = Math.abs(angleDelta(a, graph.spokeAngles[i]));
-    if (d < bestAng) {
-      bestAng = d;
-      bestSi = i;
+  let best: RoadNodeId = graph.nodes.keys().next().value ?? "n0";
+  let bestD = Infinity;
+  for (const [id, n] of graph.nodes) {
+    const d = dist2D(n.x, n.z, x, z);
+    if (d < bestD) {
+      bestD = d;
+      best = id;
     }
   }
-
-  let bestRi = 0;
-  let bestR = Infinity;
-  for (let i = 0; i < graph.radii.length; i++) {
-    const d = Math.abs(r - graph.radii[i]);
-    if (d < bestR) {
-      bestR = d;
-      bestRi = i;
-    }
-  }
-
-  return nodeId(bestRi, bestSi);
+  return best;
 }
 
 export function nodeWorldPosition(graph: RoadGraph, id: RoadNodeId): THREE.Vector3 {
   const n = graph.nodes.get(id);
-  if (!n) return new THREE.Vector3(0, 0, 0);
+  if (!n) return new THREE.Vector3(0, 1.5, 0);
   return new THREE.Vector3(n.x, 1.5, n.z);
 }
-

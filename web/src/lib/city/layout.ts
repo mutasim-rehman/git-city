@@ -1,365 +1,514 @@
 import type { Building, PositionedBuilding } from "../types";
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Road hierarchy (widest → narrowest):
-//    RING_ROAD      – three major circular boulevards between ring bands
-//    RADIAL_STREET  – spoke streets between adjacent blocks in a sub-ring
-//    SUB_RING_GAP   – lane between concentric rows inside one ring band
-//    BLOCK_ALLEY_H  – internal horizontal alley between the two block columns
-//    BLOCK_ALLEY_V  – internal vertical alley between the two block rows
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Road / biome dimensions (shared with CityCanvas + RoadGraph) ─────────────
 
-export const PLAZA_RADIUS  = 90;   // exported so CityCanvas can use it
-export const RING_ROAD     = 32;   // main circular boulevard width
-const RADIAL_STREET        = 22;   // spoke streets between blocks
-const SUB_RING_GAP         = 16;   // lane between sub-ring rows
-const BLOCK_ALLEY_H        = 8;    // alley between left/right columns inside block
-const BLOCK_ALLEY_V        = 8;    // alley between top/bottom rows inside block
+export const LANE_WIDTH = 14;
+export const MEDIAN_WIDTH = 12;
+export const ARTERIAL_ROAD_WIDTH = LANE_WIDTH * 2 + MEDIAN_WIDTH;
+export const LOCAL_ROAD_WIDTH = 10;
+export const BUILDING_GAP = 6;
+export const BUILDING_FOOTPRINT_SCALE = 0.5;
 
-// Green space planning:
-// - After every N sub-rings of buildings inside a band, insert a wider "park ring".
-// - After each district boulevard (between bands), insert a thicker green belt.
-const GREEN_AFTER_SUB_RINGS = 3;
-const PARK_RING_EXTRA_GAP   = 56;  // added on top of SUB_RING_GAP
-const DISTRICT_GREEN_BELT_W = 80;  // thick belt after district road (tall trees)
+export const FOREST_BUFFER = 120;
+export const MOUNTAIN_BUFFER = 280;
+export const LAKE_DEPTH = 200;
+export const PARK_ID = -1;
 
-const BUILDING_FOOTPRINT_SCALE = 0.5;
+const GRID_ROWS = 3;
+const GRID_COLS = 4;
+const PARK_GRID_ROW = 1;
+const PARK_GRID_COL = 1;
 
-// Ring radii — exported so CityCanvas can draw matching road geometry
-export const RING_1_INNER = PLAZA_RADIUS + RING_ROAD;          // ~122
-export const RING_2_INNER_BASE = 188;  // approximate; actual depends on core depth
-export const RING_3_INNER_BASE = 272;  // approximate; actual depends on mid depth
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-export const RIVER_CENTER     = -Math.PI / 4;
-export const RIVER_HALF_WIDTH = Math.PI / 18;
-export const RIVER_SKIP       = RIVER_HALF_WIDTH * 2.6;
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-function normalizeAngle(a: number): number {
-  while (a <= -Math.PI) a += Math.PI * 2;
-  while (a > Math.PI)   a -= Math.PI * 2;
-  return a;
+export interface LayoutRect {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
 }
 
-function skipOverRiver(angle: number, blockArc: number): number {
-  const mid  = normalizeAngle(angle + blockArc / 2);
-  const diff = normalizeAngle(mid - RIVER_CENTER);
-  if (Math.abs(diff) < RIVER_SKIP / 2)
-    return normalizeAngle(RIVER_CENTER + RIVER_SKIP / 2 + 0.02);
-  return angle;
+export interface SectorRect {
+  id: number;
+  label: string;
+  rect: LayoutRect;
+  centerX: number;
+  centerZ: number;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Block packing — 2×2 with internal alleys
-// ─────────────────────────────────────────────────────────────────────────────
+export type RoadKind = "arterial" | "local";
 
-interface Block {
-  buildings: Building[];
-  scaledBuildings: Building[];
-  offsets: { x: number; z: number }[];
+export interface RoadSegment {
+  id: string;
+  kind: RoadKind;
+  /** Axis-aligned segment from (x1,z1) to (x2,z2) along centerline */
+  x1: number;
+  z1: number;
+  x2: number;
+  z2: number;
   width: number;
-  depth: number;
 }
-
-export interface GreenRing {
-  innerR: number;          // inner radius of green band
-  outerR: number;          // outer radius of green band
-  kind: "park" | "district"; // park = intra-band, district = thick belt after district road
-  treeStyle: "normal" | "tall";
-}
-
-function packBlock(bs: Building[]): Block {
-  if (!bs.length) return { buildings: [], scaledBuildings: [], offsets: [], width: 0, depth: 0 };
-
-  const scaled = bs.map(b => ({
-    ...b,
-    width: b.width * BUILDING_FOOTPRINT_SCALE,
-    depth: b.depth * BUILDING_FOOTPRINT_SCALE,
-  }));
-
-  const row0 = scaled.slice(0, 2);
-  const row1 = scaled.slice(2, 4);
-
-  const col0W = Math.max(...[row0[0], row1[0]].filter(Boolean).map(b => b.width));
-  const col1W = row0[1] || row1[1]
-    ? Math.max(...[row0[1], row1[1]].filter(Boolean).map(b => b.width))
-    : 0;
-
-  const row0D = Math.max(...row0.map(b => b.depth));
-  const row1D = row1.length ? Math.max(...row1.map(b => b.depth)) : 0;
-
-  const hasCol1 = col1W > 0;
-  const hasRow1 = row1D > 0;
-  const W = col0W + (hasCol1 ? BLOCK_ALLEY_H + col1W : 0);
-  const D = row0D + (hasRow1 ? BLOCK_ALLEY_V + row1D : 0);
-
-  const offsets: { x: number; z: number }[] = [];
-  offsets.push({ x: -W / 2 + col0W / 2, z: -D / 2 + row0D / 2 });
-  if (scaled[1])
-    offsets.push({ x: -W / 2 + col0W + BLOCK_ALLEY_H + col1W / 2, z: -D / 2 + row0D / 2 });
-  if (scaled[2])
-    offsets.push({ x: -W / 2 + col0W / 2, z: -D / 2 + row0D + BLOCK_ALLEY_V + row1D / 2 });
-  if (scaled[3])
-    offsets.push({ x: -W / 2 + col0W + BLOCK_ALLEY_H + col1W / 2, z: -D / 2 + row0D + BLOCK_ALLEY_V + row1D / 2 });
-
-  return { buildings: bs, scaledBuildings: scaled, offsets, width: W, depth: D };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Estimate radial depth needed to fit all blocks starting at innerRadius
-// ─────────────────────────────────────────────────────────────────────────────
-
-function estimateRadialDepth(blocks: Block[], innerRadius: number): number {
-  const angularBudget = Math.PI * 2 - RIVER_SKIP;
-  let cursor     = 0;
-  let innerEdge  = innerRadius;
-  let totalDepth = 0;
-  let subRingN   = 0;
-
-  while (cursor < blocks.length) {
-    const maxDepth = Math.max(...blocks.slice(cursor).map(b => b.depth));
-    const R        = innerEdge + maxDepth / 2;
-
-    let usedAngle = 0;
-    let rowCount  = 0;
-    for (let i = cursor; i < blocks.length; i++) {
-      const blockAngle  = blocks[i].width / R;
-      const neededAngle = blockAngle + RADIAL_STREET / R;
-      if (rowCount > 0 && usedAngle + neededAngle > angularBudget) break;
-      usedAngle += neededAngle;
-      rowCount++;
-    }
-    if (rowCount === 0) rowCount = 1;
-
-    cursor     += rowCount;
-    const isParkGap = (subRingN + 1) % GREEN_AFTER_SUB_RINGS === 0;
-    const gap = SUB_RING_GAP + (isParkGap ? PARK_RING_EXTRA_GAP : 0);
-    innerEdge  += maxDepth + gap;
-    totalDepth += maxDepth + gap;
-    subRingN++;
-  }
-
-  return totalDepth;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Place one ring band — buildings are rotated to face the ring tangent
-// ─────────────────────────────────────────────────────────────────────────────
-
-function placeRing(
-  blocks: Block[],
-  innerRadius: number,
-  ringIndex: number,
-  result: PositionedBuilding[],
-  greenRings: GreenRing[],
-): void {
-  if (!blocks.length) return;
-
-  const angularBudget = Math.PI * 2 - RIVER_SKIP;
-  let cursor       = 0;
-  let subRingInner = innerRadius;
-  let subRingN     = 0;
-
-  while (cursor < blocks.length) {
-    const maxDepth = Math.max(...blocks.slice(cursor).map(b => b.depth));
-    const R        = subRingInner + maxDepth / 2;
-
-    const batch: Block[] = [];
-    let usedAngle = 0;
-    for (let i = cursor; i < blocks.length; i++) {
-      const blockAngle  = blocks[i].width / R;
-      const neededAngle = blockAngle + RADIAL_STREET / R;
-      if (batch.length > 0 && usedAngle + neededAngle > angularBudget) break;
-      batch.push(blocks[i]);
-      usedAngle += neededAngle;
-    }
-    if (batch.length === 0) batch.push(blocks[cursor]);
-    cursor += batch.length;
-
-    const totalBlockAngle = batch.reduce((s, b) => s + b.width / R, 0);
-    const totalGapAngle   = angularBudget - totalBlockAngle;
-    const gapAngle = Math.max(RADIAL_STREET / R, totalGapAngle / batch.length);
-
-    const stagger = ringIndex * (Math.PI / 7) + subRingN * (Math.PI / 13);
-    let angle = normalizeAngle(RIVER_CENTER + RIVER_SKIP / 2 + 0.05 + stagger);
-
-    for (const block of batch) {
-      const blockArc = block.width / R;
-      angle = skipOverRiver(angle, blockArc);
-
-      const mid = normalizeAngle(angle + blockArc / 2);
-
-      // Each building is placed on the circular road using polar coords: x = r*cos(θ), z = r*sin(θ)
-      // block.offsets: .x = tangential (along ring), .z = radial (in/out from center)
-      for (let k = 0; k < block.buildings.length; k++) {
-        const localX = block.offsets[k].x;
-        const localZ = block.offsets[k].z;
-        // r = ring radius + radial offset (positive = outward)
-        const r_k = R + localZ;
-        // θ = block center angle + angular offset (arc length localX at radius r_k)
-        const theta_k = mid + localX / Math.max(r_k, 1);
-
-        const placed: PositionedBuilding = {
-          ...block.buildings[k],
-          width: block.scaledBuildings[k].width,
-          depth: block.scaledBuildings[k].depth,
-          x: r_k * Math.cos(theta_k),
-          z: r_k * Math.sin(theta_k),
-        };
-        // Building faces outward: +Z (front) aligns with radial direction (cos θ, sin θ)
-        placed.rotationY = Math.PI / 2 - theta_k;
-
-        result.push(placed);
-      }
-
-      angle = normalizeAngle(angle + blockArc + gapAngle);
-    }
-
-    const isParkGap = (subRingN + 1) % GREEN_AFTER_SUB_RINGS === 0;
-    const gap = SUB_RING_GAP + (isParkGap ? PARK_RING_EXTRA_GAP : 0);
-    if (isParkGap) {
-      const parkInner = subRingInner + maxDepth;
-      const parkOuter = parkInner + gap;
-      greenRings.push({
-        innerR: parkInner,
-        outerR: parkOuter,
-        kind: "park",
-        treeStyle: "normal",
-      });
-    }
-
-    subRingInner += maxDepth + gap;
-    subRingN++;
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Main export — also returns ring radii for road rendering
-// ─────────────────────────────────────────────────────────────────────────────
 
 export interface CityLayoutResult {
   buildings: PositionedBuilding[];
-  ringRadii: {
-    plaza: number;
-    ring1Inner: number;
-    ring1Outer: number;
-    ring2Inner: number;
-    ring2Outer: number;
-    ring3Inner: number;
-    ring3Outer: number;
-  };
-  greenRings: GreenRing[];
+  bounds: LayoutRect;
+  cityBounds: LayoutRect;
+  sectors: SectorRect[];
+  park: LayoutRect;
+  lake: LayoutRect;
+  forest: LayoutRect;
+  mountainRing: { inner: LayoutRect; outer: LayoutRect };
+  roads: RoadSegment[];
+  greenBelts: LayoutRect[];
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function clamp(v: number, lo: number, hi: number) {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+function rectFromCenter(cx: number, cz: number, w: number, d: number): LayoutRect {
+  return {
+    minX: cx - w / 2,
+    maxX: cx + w / 2,
+    minZ: cz - d / 2,
+    maxZ: cz + d / 2,
+  };
+}
+
+function mergeBounds(a: LayoutRect, b: LayoutRect): LayoutRect {
+  return {
+    minX: Math.min(a.minX, b.minX),
+    maxX: Math.max(a.maxX, b.maxX),
+    minZ: Math.min(a.minZ, b.minZ),
+    maxZ: Math.max(a.maxZ, b.maxZ),
+  };
+}
+
+/** Map sector_id 0–10 to 4×3 grid cell (park occupies 1,1). */
+function sectorGridCell(sectorId: number): { row: number; col: number } {
+  if (sectorId < 4) return { row: 0, col: sectorId };
+  if (sectorId === 4) return { row: 1, col: 0 };
+  if (sectorId <= 6) return { row: 1, col: sectorId - 3 };
+  return { row: 2, col: sectorId - 7 };
+}
+
+function isParkCell(row: number, col: number) {
+  return row === PARK_GRID_ROW && col === PARK_GRID_COL;
+}
+
+type InternalTemplate = "grid" | "concentric" | "radial" | "diagonal";
+
+function templateForSector(sectorId: number): InternalTemplate {
+  const templates: InternalTemplate[] = ["grid", "concentric", "radial", "diagonal"];
+  return templates[sectorId % 4]!;
+}
+
+/** Order grid indices from center outward (elite first). */
+function centerOutOrder(cols: number, rows: number): { col: number; row: number }[] {
+  const cx = (cols - 1) / 2;
+  const cz = (rows - 1) / 2;
+  const cells: { col: number; row: number; d: number }[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      cells.push({ col: c, row: r, d: (c - cx) ** 2 + (r - cz) ** 2 });
+    }
+  }
+  cells.sort((a, b) => a.d - b.d || a.row - b.row || a.col - b.col);
+  return cells.map(({ col, row }) => ({ col, row }));
+}
+
+function estimateSectorSize(count: number, avgFootprint: number): { w: number; d: number } {
+  if (count <= 0) return { w: 200, d: 200 };
+  const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+  const rows = Math.max(1, Math.ceil(count / cols));
+  const cell = avgFootprint + BUILDING_GAP;
+  const innerRoads =
+    (cols > 1 ? (cols - 1) * LOCAL_ROAD_WIDTH : 0) +
+    (rows > 1 ? (rows - 1) * LOCAL_ROAD_WIDTH : 0);
+  const margin = 40;
+  return {
+    w: cols * cell + innerRoads + margin * 2,
+    d: rows * cell + innerRoads + margin * 2,
+  };
+}
+
+interface PlacedBlock {
+  building: Building;
+  localX: number;
+  localZ: number;
+  w: number;
+  d: number;
+}
+
+function placeSectorBuildings(
+  buildings: Building[],
+  sectorId: number,
+  rect: LayoutRect,
+): { placed: PositionedBuilding[]; localRoads: RoadSegment[] } {
+  const sorted = [...buildings].sort(
+    (a, b) =>
+      b.lifetimeCommits - a.lifetimeCommits ||
+      b.publicRepos - a.publicRepos,
+  );
+  const n = sorted.length;
+  const placed: PositionedBuilding[] = [];
+  const localRoads: RoadSegment[] = [];
+
+  if (n === 0) return { placed, localRoads };
+
+  const cols = Math.max(1, Math.ceil(Math.sqrt(n)));
+  const rows = Math.max(1, Math.ceil(n / cols));
+  const order = centerOutOrder(cols, rows);
+  const template = templateForSector(sectorId);
+
+  const footprints = sorted.map((b) => ({
+    w: b.width * BUILDING_FOOTPRINT_SCALE,
+    d: b.depth * BUILDING_FOOTPRINT_SCALE,
+  }));
+  const maxW = Math.max(...footprints.map((f) => f.w), 20);
+  const maxD = Math.max(...footprints.map((f) => f.d), 20);
+  const cellW = maxW + BUILDING_GAP;
+  const cellD = maxD + BUILDING_GAP;
+
+  const gridW =
+    cols * cellW + Math.max(0, cols - 1) * LOCAL_ROAD_WIDTH;
+  const gridD =
+    rows * cellD + Math.max(0, rows - 1) * LOCAL_ROAD_WIDTH;
+
+  const originX = (rect.minX + rect.maxX - gridW) / 2;
+  const originZ = (rect.minZ + rect.maxZ - gridD) / 2;
+
+  const cellCenter = (col: number, row: number) => {
+    const x =
+      originX +
+      col * (cellW + LOCAL_ROAD_WIDTH) +
+      cellW / 2;
+    const z =
+      originZ +
+      row * (cellD + LOCAL_ROAD_WIDTH) +
+      cellD / 2;
+    return { x, z };
+  };
+
+  // Internal local roads (grid template baseline; others add accent lines)
+  for (let c = 0; c < cols - 1; c++) {
+    const x =
+      originX + (c + 1) * cellW + c * LOCAL_ROAD_WIDTH + LOCAL_ROAD_WIDTH / 2;
+    localRoads.push({
+      id: `s${sectorId}-vx-${c}`,
+      kind: "local",
+      x1: x,
+      z1: originZ,
+      x2: x,
+      z2: originZ + gridD,
+      width: LOCAL_ROAD_WIDTH,
+    });
+  }
+  for (let r = 0; r < rows - 1; r++) {
+    const z =
+      originZ + (r + 1) * cellD + r * LOCAL_ROAD_WIDTH + LOCAL_ROAD_WIDTH / 2;
+    localRoads.push({
+      id: `s${sectorId}-hz-${r}`,
+      kind: "local",
+      x1: originX,
+      z1: z,
+      x2: originX + gridW,
+      z2: z,
+      width: LOCAL_ROAD_WIDTH,
+    });
+  }
+
+  if (template === "diagonal" && cols > 1 && rows > 1) {
+    localRoads.push({
+      id: `s${sectorId}-diag`,
+      kind: "local",
+      x1: originX,
+      z1: originZ,
+      x2: originX + gridW,
+      z2: originZ + gridD,
+      width: LOCAL_ROAD_WIDTH * 0.65,
+    });
+  }
+
+  if (template === "radial") {
+    const cx = originX + gridW / 2;
+    const cz = originZ + gridD / 2;
+    const spokes = 4;
+    for (let i = 0; i < spokes; i++) {
+      const a = (i / spokes) * Math.PI * 2;
+      const len = Math.max(gridW, gridD) * 0.48;
+      localRoads.push({
+        id: `s${sectorId}-spoke-${i}`,
+        kind: "local",
+        x1: cx,
+        z1: cz,
+        x2: cx + Math.cos(a) * len,
+        z2: cz + Math.sin(a) * len,
+        width: LOCAL_ROAD_WIDTH * 0.7,
+      });
+    }
+  }
+
+  if (template === "concentric" && Math.min(cols, rows) >= 3) {
+    const cx = originX + gridW / 2;
+    const cz = originZ + gridD / 2;
+    const r = Math.min(gridW, gridD) * 0.22;
+    const segments = 24;
+    for (let i = 0; i < segments; i++) {
+      const a0 = (i / segments) * Math.PI * 2;
+      const a1 = ((i + 1) / segments) * Math.PI * 2;
+      localRoads.push({
+        id: `s${sectorId}-ring-${i}`,
+        kind: "local",
+        x1: cx + Math.cos(a0) * r,
+        z1: cz + Math.sin(a0) * r,
+        x2: cx + Math.cos(a1) * r,
+        z2: cz + Math.sin(a1) * r,
+        width: LOCAL_ROAD_WIDTH * 0.55,
+      });
+    }
+  }
+
+  for (let i = 0; i < n; i++) {
+    const b = sorted[i]!;
+    const fp = footprints[i]!;
+    const { col, row } = order[i]!;
+    const { x, z } = cellCenter(col, row);
+
+    placed.push({
+      ...b,
+      width: fp.w,
+      depth: fp.d,
+      x,
+      z,
+      rotationY: 0,
+    });
+  }
+
+  return { placed, localRoads };
+}
+
+function addArterialRoads(
+  roads: RoadSegment[],
+  greenBelts: LayoutRect[],
+  colOffsets: number[],
+  rowOffsets: number[],
+  colWidths: number[],
+  rowHeights: number[],
+) {
+  const totalW =
+    colWidths.reduce((s, w) => s + w, 0) +
+    (GRID_COLS - 1) * ARTERIAL_ROAD_WIDTH;
+  const totalD =
+    rowHeights.reduce((s, h) => s + h, 0) +
+    (GRID_ROWS - 1) * ARTERIAL_ROAD_WIDTH;
+  const startX = -totalW / 2;
+  const startZ = -totalD / 2;
+
+  // Vertical arterials between columns
+  for (let c = 0; c < GRID_COLS - 1; c++) {
+    const x =
+      startX +
+      colOffsets[c]! +
+      colWidths[c]! +
+      ARTERIAL_ROAD_WIDTH / 2;
+    roads.push({
+      id: `art-v-${c}`,
+      kind: "arterial",
+      x1: x,
+      z1: startZ,
+      x2: x,
+      z2: startZ + totalD,
+      width: ARTERIAL_ROAD_WIDTH,
+    });
+    greenBelts.push(
+      rectFromCenter(x, 0, MEDIAN_WIDTH, totalD),
+    );
+  }
+
+  // Horizontal arterials between rows
+  for (let r = 0; r < GRID_ROWS - 1; r++) {
+    const z =
+      startZ +
+      rowOffsets[r]! +
+      rowHeights[r]! +
+      ARTERIAL_ROAD_WIDTH / 2;
+    roads.push({
+      id: `art-h-${r}`,
+      kind: "arterial",
+      x1: startX,
+      z1: z,
+      x2: startX + totalW,
+      z2: z,
+      width: ARTERIAL_ROAD_WIDTH,
+    });
+    greenBelts.push(
+      rectFromCenter(0, z, totalW, MEDIAN_WIDTH),
+    );
+  }
+}
+
+// ─── Main export ──────────────────────────────────────────────────────────────
+
 export function computeCityLayout(buildings: Building[]): CityLayoutResult {
+  const emptyBounds: LayoutRect = { minX: -100, maxX: 100, minZ: -100, maxZ: 100 };
   const empty: CityLayoutResult = {
     buildings: [],
-    ringRadii: {
-      plaza: PLAZA_RADIUS,
-      ring1Inner: RING_1_INNER,
-      ring1Outer: RING_1_INNER,
-      ring2Inner: RING_1_INNER + RING_ROAD,
-      ring2Outer: RING_1_INNER + RING_ROAD,
-      ring3Inner: RING_1_INNER + RING_ROAD * 2,
-      ring3Outer: RING_1_INNER + RING_ROAD * 2,
-    },
-    greenRings: [],
+    bounds: emptyBounds,
+    cityBounds: emptyBounds,
+    sectors: [],
+    park: emptyBounds,
+    lake: emptyBounds,
+    forest: emptyBounds,
+    mountainRing: { inner: emptyBounds, outer: emptyBounds },
+    roads: [],
+    greenBelts: [],
   };
 
   if (!buildings.length) return empty;
-  const n = buildings.length;
 
-  if (n <= 8) {
-    const step = (Math.PI * 2) / n;
-    const r = PLAZA_RADIUS + RING_ROAD + 60;
-    const placed = [...buildings]
-      .sort((a, b) => b.lifetimeCommits - a.lifetimeCommits)
-      .map((b, i) => {
-        const theta = step * i;
-        return {
-          ...b,
-          width: b.width * BUILDING_FOOTPRINT_SCALE,
-          depth: b.depth * BUILDING_FOOTPRINT_SCALE,
-          x: r * Math.cos(theta),
-          z: r * Math.sin(theta),
-          rotationY: Math.PI / 2 - theta,
-        };
-      });
-    return {
-      buildings: placed,
-      ringRadii: {
-        plaza: PLAZA_RADIUS,
-        ring1Inner: PLAZA_RADIUS + RING_ROAD,
-        ring1Outer: PLAZA_RADIUS + RING_ROAD + 80,
-        ring2Inner: PLAZA_RADIUS + RING_ROAD + 80 + RING_ROAD,
-        ring2Outer: PLAZA_RADIUS + RING_ROAD + 80 + RING_ROAD,
-        ring3Inner: PLAZA_RADIUS + RING_ROAD + 80 + RING_ROAD * 2,
-        ring3Outer: PLAZA_RADIUS + RING_ROAD + 80 + RING_ROAD * 2,
-      },
-      greenRings: [],
-    };
+  const bySector = new Map<number, Building[]>();
+  for (const b of buildings) {
+    const sid = clamp(b.sectorId, 0, 10);
+    const list = bySector.get(sid) ?? [];
+    list.push(b);
+    bySector.set(sid, list);
   }
 
-  const sorted = [...buildings].sort(
-    (a, b) => b.lifetimeCommits - a.lifetimeCommits || b.publicRepos - a.publicRepos,
+  const sectorSizes: { w: number; d: number }[][] = Array.from(
+    { length: GRID_ROWS },
+    () => Array.from({ length: GRID_COLS }, () => ({ w: 200, d: 200 })),
   );
 
-  const coreCount  = Math.max(4, Math.round(n * 0.14));
-  const midCount   = Math.min(Math.round(n * 0.36), n - coreCount);
-  const outerCount = Math.max(0, n - coreCount - midCount);
+  for (let sid = 0; sid <= 10; sid++) {
+    const list = bySector.get(sid) ?? [];
+    const avgFp =
+      list.length > 0
+        ? list.reduce((s, b) => s + b.width, 0) / list.length
+        : 28;
+    const size = estimateSectorSize(list.length, avgFp * BUILDING_FOOTPRINT_SCALE);
+    const { row, col } = sectorGridCell(sid);
+    sectorSizes[row]![col] = size;
+  }
 
-  const makeBlocks = (start: number, count: number): Block[] => {
-    const blocks: Block[] = [];
-    for (let i = 0; i < count; i += 4)
-      blocks.push(packBlock(sorted.slice(start + i, start + i + 4)));
-    return blocks;
+  // Park cell size
+  sectorSizes[PARK_GRID_ROW]![PARK_GRID_COL] = { w: 320, d: 280 };
+
+  const colWidths = Array.from({ length: GRID_COLS }, (_, c) =>
+    Math.max(...sectorSizes.map((row) => row[c]!.w)),
+  );
+  const rowHeights = Array.from({ length: GRID_ROWS }, (_, r) =>
+    Math.max(...sectorSizes[r]!.map((cell) => cell.d)),
+  );
+
+  const colOffsets: number[] = [];
+  const rowOffsets: number[] = [];
+  let cx = 0;
+  for (let c = 0; c < GRID_COLS; c++) {
+    colOffsets.push(cx);
+    cx += colWidths[c]! + (c < GRID_COLS - 1 ? ARTERIAL_ROAD_WIDTH : 0);
+  }
+  let rz = 0;
+  for (let r = 0; r < GRID_ROWS; r++) {
+    rowOffsets.push(rz);
+    rz += rowHeights[r]! + (r < GRID_ROWS - 1 ? ARTERIAL_ROAD_WIDTH : 0);
+  }
+
+  const totalW =
+    colWidths.reduce((s, w) => s + w, 0) +
+    (GRID_COLS - 1) * ARTERIAL_ROAD_WIDTH;
+  const totalD =
+    rowHeights.reduce((s, h) => s + h, 0) +
+    (GRID_ROWS - 1) * ARTERIAL_ROAD_WIDTH;
+  const startX = -totalW / 2;
+  const startZ = -totalD / 2;
+
+  const cellRect = (row: number, col: number): LayoutRect => {
+    const x0 = startX + colOffsets[col]!;
+    const z0 = startZ + rowOffsets[row]!;
+    return {
+      minX: x0,
+      maxX: x0 + colWidths[col]!,
+      minZ: z0,
+      maxZ: z0 + rowHeights[row]!,
+    };
   };
 
-  const coreBlocks  = makeBlocks(0, coreCount);
-  const midBlocks   = makeBlocks(coreCount, midCount);
-  const outerBlocks = makeBlocks(coreCount + midCount, outerCount);
+  const roads: RoadSegment[] = [];
+  const greenBelts: LayoutRect[] = [];
+  addArterialRoads(roads, greenBelts, colOffsets, rowOffsets, colWidths, rowHeights);
 
-  const coreInner  = PLAZA_RADIUS + RING_ROAD;
-  const coreDepth  = estimateRadialDepth(coreBlocks, coreInner);
-  const coreOuter  = coreInner + coreDepth;
+  const sectors: SectorRect[] = [];
+  const allPlaced: PositionedBuilding[] = [];
 
-  // Thick green belt after the district boulevard (taller trees).
-  const midBeltInner = coreOuter + RING_ROAD;
-  const midBeltOuter = midBeltInner + DISTRICT_GREEN_BELT_W;
-  const midInner   = midBeltOuter;
-  const midDepth   = estimateRadialDepth(midBlocks, midInner);
-  const midOuter   = midInner + midDepth;
+  for (let sid = 0; sid <= 10; sid++) {
+    const { row, col } = sectorGridCell(sid);
+    const rect = cellRect(row, col);
+    const label =
+      bySector.get(sid)?.[0]?.sectorLabel ?? `Sector ${sid}`;
+    sectors.push({
+      id: sid,
+      label,
+      rect,
+      centerX: (rect.minX + rect.maxX) / 2,
+      centerZ: (rect.minZ + rect.maxZ) / 2,
+    });
+    const { placed, localRoads } = placeSectorBuildings(
+      bySector.get(sid) ?? [],
+      sid,
+      rect,
+    );
+    allPlaced.push(...placed);
+    roads.push(...localRoads);
+  }
 
-  const outerBeltInner = midOuter + RING_ROAD;
-  const outerBeltOuter = outerBeltInner + DISTRICT_GREEN_BELT_W;
-  const outerInner = outerBeltOuter;
-  const outerDepth = estimateRadialDepth(outerBlocks, outerInner);
-  const outerOuter = outerInner + outerDepth;
+  const park = cellRect(PARK_GRID_ROW, PARK_GRID_COL);
 
-  const result: PositionedBuilding[] = [];
-  const greenRings: GreenRing[] = [
-    { innerR: midBeltInner, outerR: midBeltOuter, kind: "district", treeStyle: "tall" },
-    { innerR: outerBeltInner, outerR: outerBeltOuter, kind: "district", treeStyle: "tall" },
-  ];
+  const cityBounds: LayoutRect = {
+    minX: startX,
+    maxX: startX + totalW,
+    minZ: startZ,
+    maxZ: startZ + totalD,
+  };
 
-  placeRing(coreBlocks,  coreInner,  0, result, greenRings);
-  placeRing(midBlocks,   midInner,   1, result, greenRings);
-  placeRing(outerBlocks, outerInner, 2, result, greenRings);
+  const lake: LayoutRect = {
+    minX: cityBounds.minX - 40,
+    maxX: cityBounds.maxX + 40,
+    minZ: cityBounds.maxZ,
+    maxZ: cityBounds.maxZ + LAKE_DEPTH,
+  };
+
+  const forest: LayoutRect = {
+    minX: cityBounds.minX - FOREST_BUFFER,
+    maxX: cityBounds.maxX + FOREST_BUFFER,
+    minZ: cityBounds.minZ - FOREST_BUFFER,
+    maxZ: lake.maxZ + FOREST_BUFFER * 0.5,
+  };
+
+  const mountainRing = {
+    inner: forest,
+    outer: {
+      minX: forest.minX - MOUNTAIN_BUFFER,
+      maxX: forest.maxX + MOUNTAIN_BUFFER,
+      minZ: forest.minZ - MOUNTAIN_BUFFER,
+      maxZ: forest.maxZ + MOUNTAIN_BUFFER,
+    },
+  };
+
+  const bounds = mergeBounds(cityBounds, lake);
 
   return {
-    buildings: result,
-    ringRadii: {
-      plaza:      PLAZA_RADIUS,
-      ring1Inner: coreInner,
-      ring1Outer: coreOuter,
-      ring2Inner: midInner,
-      ring2Outer: midOuter,
-      ring3Inner: outerInner,
-      ring3Outer: outerOuter,
-    },
-    greenRings,
+    buildings: allPlaced,
+    bounds,
+    cityBounds,
+    sectors,
+    park,
+    lake,
+    forest,
+    mountainRing,
+    roads,
+    greenBelts,
   };
 }

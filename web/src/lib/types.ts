@@ -7,6 +7,8 @@ export interface CsvUser {
   Year_Group: string;
   Public_Repositories: string;
   Lifetime_Commits: string;
+  sector_id?: string;
+  sector_label?: string;
 }
 
 export interface Building {
@@ -16,6 +18,8 @@ export interface Building {
   profileUrl: string;
   githubId: number;
   yearGroup: string;
+  sectorId: number;
+  sectorLabel: string;
   publicRepos: number;
   lifetimeCommits: number;
   width: number;

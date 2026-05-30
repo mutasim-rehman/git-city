@@ -95,7 +95,7 @@ export class NpcTraffic {
 
   private closestNodeId(x: number, z: number): RoadNodeId {
     // small graph → linear scan is fine
-    let best: RoadNodeId = Array.from(this.graph.nodes.keys())[0] ?? "r0_s0";
+    let best: RoadNodeId = Array.from(this.graph.nodes.keys())[0] ?? "n0";
     let bestD = Infinity;
     for (const [id, n] of this.graph.nodes) {
       const dx = n.x - x;
