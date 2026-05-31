@@ -10,3 +10,11 @@ gitcity/
 islamabad.csv
 karachi.csv
 lahore.csv
+
+checkpoint_unified.json
+eda_output/
+hs_err_pid*.log
+hs_err_pid2088.log
+
+.cursor
+__pycache__/

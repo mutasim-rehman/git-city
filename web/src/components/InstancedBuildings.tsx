@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { RefObject } from "react";
-import { useFrame, useThree } from "@react-three/fiber";
+import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { PositionedBuilding, BuildingColors } from "@/lib/types";
 import { WINDOW_ATLAS_CONSTANTS } from "@/lib/city/windowAtlas";
@@ -321,7 +321,7 @@ export const InstancedBuildings = memo(function InstancedBuildings({
     mesh.geometry.setAttribute("aPulseFlag", pulseAttr);
 
     mesh.count = count;
-  }, [buildings, count, uvFrontData, uvSideData, facadeData, pulseData]);
+  }, [buildings, count, meshRef, uvFrontData, uvSideData, facadeData, pulseData]);
 
   const lastFogNear = useRef(0);
   const lastFogFar = useRef(0);

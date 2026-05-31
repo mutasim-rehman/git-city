@@ -8,8 +8,6 @@ const MAX_FLOORS   = 40;
 
 // Base footprint — uniform across all buildings so the city grid stays clean
 // and height alone communicates commit activity (the core visual metaphor).
-const BASE_SIZE     = 28;   // standard width & depth for every building (world units)
-
 // Subtle footprint bonus for the most prolific contributors.
 // Top-tier committers earn up to +10 units on each side — a ~35% wider tower
 // that feels more "imposing" without breaking the layout algorithm's geometry.

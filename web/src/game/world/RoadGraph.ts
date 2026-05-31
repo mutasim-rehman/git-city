@@ -76,17 +76,39 @@ function nodeId(ri: number, si: number) {
  * This intentionally ignores local sub-rings for now to keep routing fast and robust.
  */
 export function createPolarRoadGraph(layout: CityLayoutResult): RoadGraph {
-  const ringRadii = layout.ringRadii;
+  const fallbackRing1Inner = PLAZA_RADIUS + 32;
+  const fallbackRing1Outer = fallbackRing1Inner + 80;
+  const fallbackRing2Inner = fallbackRing1Outer + 32;
+  const fallbackRing2Outer = fallbackRing2Inner + 120;
+  const fallbackRing3Inner = fallbackRing2Outer + 32;
+  const fallbackRing3Outer = fallbackRing3Inner + 160;
+  const ringRadii = layout?.ringRadii ?? {
+    plaza: PLAZA_RADIUS,
+    ring1Inner: fallbackRing1Inner,
+    ring1Outer: fallbackRing1Outer,
+    ring2Inner: fallbackRing2Inner,
+    ring2Outer: fallbackRing2Outer,
+    ring3Inner: fallbackRing3Inner,
+    ring3Outer: fallbackRing3Outer,
+  };
 
   // Must match CityCanvas road rendering constants for district boulevards.
   const DISTRICT_ROAD_W = 32;
 
+  const asFiniteRadius = (value: number, fallback: number) =>
+    Number.isFinite(value) && value > 0 ? value : fallback;
+  const ring1Inner = asFiniteRadius(ringRadii.ring1Inner, fallbackRing1Inner);
+  const ring2Inner = asFiniteRadius(ringRadii.ring2Inner, fallbackRing2Inner);
+  const ring3Inner = asFiniteRadius(ringRadii.ring3Inner, fallbackRing3Inner);
+  const ring1Outer = asFiniteRadius(ringRadii.ring1Outer, fallbackRing1Outer);
+  const ring3Outer = asFiniteRadius(ringRadii.ring3Outer, fallbackRing3Outer);
+
   const radii = [
     PLAZA_RADIUS + 10,
-    ringRadii.ring1Inner - DISTRICT_ROAD_W / 2,
-    ringRadii.ring2Inner - DISTRICT_ROAD_W / 2,
-    ringRadii.ring3Inner - DISTRICT_ROAD_W / 2,
-    Math.max(ringRadii.ring3Outer, ringRadii.ring1Outer) + 80,
+    ring1Inner - DISTRICT_ROAD_W / 2,
+    ring2Inner - DISTRICT_ROAD_W / 2,
+    ring3Inner - DISTRICT_ROAD_W / 2,
+    Math.max(ring3Outer, ring1Outer) + 80,
   ].filter((r, idx, arr) => r > 0 && arr.indexOf(r) === idx);
 
   const spokeAngles = computeSpokeAngles(12);
@@ -144,7 +166,7 @@ export function createPolarRoadGraph(layout: CityLayoutResult): RoadGraph {
     }
   }
 
-  const maxRadius = Math.max(...radii);
+  const maxRadius = radii.length ? Math.max(...radii) : PLAZA_RADIUS + 100;
   return { nodes, edges, spokeAngles, radii, maxRadius };
 }
 

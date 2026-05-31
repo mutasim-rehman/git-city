@@ -214,624 +214,190 @@ function GroundPlane({ color }: { color: string }) {
   );
 }
 
-// ─── Polar road network ───────────────────────────────────────────────────────
-//
-//  Renders the three ring boulevards, radial spoke roads, sub-ring lanes and
-//  sidewalks — all matching the polar layout from layout.ts.
-//  The empty plaza area is always kept clear (no roads inside PLAZA_RADIUS).
-//
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── City infrastructure primitives ───────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Road constants — must mirror layout.ts values exactly
-// ─────────────────────────────────────────────────────────────────────────────
-const SUB_RING_GAP   = 16;   // gap between sub-ring rows inside a district band
-const RADIAL_STREET  = 22;   // spoke streets between blocks (layout.ts value)
-const SPOKE_COUNT    = 12;   // connector roads intersecting the rings
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  RingRoad — renders a single circular road (either district or sub-ring)
-//  isDistrict = true  → wide teal-accented boulevard (district boundary)
-//  isDistrict = false → narrower warm-amber local ring road
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface RingRoadProps {
-  centerR:    number;          // radius of the road centre line
-  width:      number;          // full road width (carriageway only)
-  startAngle: number;
-  thetaLength: number;
-  isDistrict: boolean;
-  yBase?: number;              // base Y for this group (default 0)
+interface RiverProps {
+  outerRadius: number;
 }
 
-function RingRoad({ centerR, width, startAngle, thetaLength, isDistrict, yBase = 0 }: RingRoadProps) {
-  if (centerR <= 0 || width <= 0) return null;
+function River({ outerRadius }: RiverProps) {
+  const riverGeo = useMemo(() => {
+    const outerR = outerRadius + 220;
+    const segments = 48;
+    const riverStart = RIVER_CENTER - RIVER_HALF_WIDTH * 1.4;
+    const riverEnd = RIVER_CENTER + RIVER_HALF_WIDTH * 1.4;
+    const span = riverEnd - riverStart;
 
-  const half = width / 2;
-  const innerR  = centerR - half;
-  const outerR  = centerR + half;
+    const positions: number[] = [0, 0, 0];
+    const uvs: number[] = [0.5, 0.5];
+    const indices: number[] = [];
 
-  if (isDistrict) {
-    // ── District boundary boulevard ─────────────────────────────────────────
-    // Wide road · teal-lit centre median · double carriageways · wide sidewalks
-    // Palette: dark slate road, teal median glow, light stone curbs
-    const SW_GAP   = 3;
-    const SW_W     = 12;
-    const medIn    = centerR - 5;
-    const medOut   = centerR + 5;
-    const curb1In  = innerR  - SW_GAP - SW_W;
-    const curb2Out = outerR  + SW_GAP + SW_W;
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      const a = riverStart + span * t;
+      const x = Math.cos(a) * outerR;
+      const z = Math.sin(a) * outerR;
+      positions.push(x, 0, z);
+      uvs.push((x / outerR + 1) / 2, (z / outerR + 1) / 2);
+    }
 
-    return (
-      <group>
-        {/* Wide stone pavement — outer */}
-        <mesh rotation-x={-Math.PI / 2} position={[0, yBase - 0.35, 0]}>
-          <ringGeometry args={[outerR + SW_GAP, curb2Out, 128, 1, startAngle, thetaLength]} />
-          <meshStandardMaterial color="#1e3a2a" roughness={0.88} />
-        </mesh>
-        {/* Carriageway outer half */}
-        <mesh rotation-x={-Math.PI / 2} position={[0, yBase - 0.20, 0]}>
-          <ringGeometry args={[centerR, outerR, 128, 1, startAngle, thetaLength]} />
-          <meshStandardMaterial color="#0b1710" roughness={0.88} metalness={0.12} />
-        </mesh>
-        {/* Glowing teal median — the district signature */}
-        <mesh rotation-x={-Math.PI / 2} position={[0, yBase - 0.02, 0]}>
-          <ringGeometry args={[medIn, medOut, 128, 1, startAngle, thetaLength]} />
-          <meshStandardMaterial
-            color="#0d9488"
-            emissive="#0d9488"
-            emissiveIntensity={0.9}
-            roughness={0.4}
-            metalness={0.2}
-          />
-        </mesh>
-        {/* Carriageway inner half */}
-        <mesh rotation-x={-Math.PI / 2} position={[0, yBase - 0.20, 0]}>
-          <ringGeometry args={[innerR, centerR, 128, 1, startAngle, thetaLength]} />
-          <meshStandardMaterial color="#0b1710" roughness={0.88} metalness={0.12} />
-        </mesh>
-        {/* Wide stone pavement — inner */}
-        <mesh rotation-x={-Math.PI / 2} position={[0, yBase - 0.35, 0]}>
-          <ringGeometry args={[curb1In, innerR - SW_GAP, 128, 1, startAngle, thetaLength]} />
-          <meshStandardMaterial color="#1e3a2a" roughness={0.88} />
-        </mesh>
-        {/* Lane-edge markings — outer */}
-        <mesh rotation-x={-Math.PI / 2} position={[0, yBase - 0.08, 0]}>
-          <ringGeometry args={[outerR - 1, outerR, 128, 1, startAngle, thetaLength]} />
-          <meshStandardMaterial color="#2dd4bf" emissive="#2dd4bf" emissiveIntensity={0.4} roughness={0.5} />
-        </mesh>
-        {/* Lane-edge markings — inner */}
-        <mesh rotation-x={-Math.PI / 2} position={[0, yBase - 0.08, 0]}>
-          <ringGeometry args={[innerR, innerR + 1, 128, 1, startAngle, thetaLength]} />
-          <meshStandardMaterial color="#2dd4bf" emissive="#2dd4bf" emissiveIntensity={0.4} roughness={0.5} />
-        </mesh>
-      </group>
-    );
-  } else {
-    // ── Intra-district local ring road ──────────────────────────────────────
-    // Narrower · warm amber kerb markings · standard dark asphalt
-    const SW_GAP  = 2;
-    const SW_W    = 7;
-    const kerbIn  = innerR - SW_GAP - SW_W;
-    const kerbOut = outerR + SW_GAP + SW_W;
+    for (let i = 0; i < segments; i++) indices.push(0, i + 1, i + 2);
 
-    return (
-      <group>
-        {/* Narrow kerb pavement — outer */}
-        <mesh rotation-x={-Math.PI / 2} position={[0, yBase - 0.30, 0]}>
-          <ringGeometry args={[outerR + SW_GAP, kerbOut, 128, 1, startAngle, thetaLength]} />
-          <meshStandardMaterial color="#162b1c" roughness={0.92} />
-        </mesh>
-        {/* Road surface */}
-        <mesh rotation-x={-Math.PI / 2} position={[0, yBase - 0.18, 0]}>
-          <ringGeometry args={[innerR, outerR, 128, 1, startAngle, thetaLength]} />
-          <meshStandardMaterial color="#0f1e15" roughness={0.92} metalness={0.08} />
-        </mesh>
-        {/* Narrow kerb pavement — inner */}
-        <mesh rotation-x={-Math.PI / 2} position={[0, yBase - 0.30, 0]}>
-          <ringGeometry args={[kerbIn, innerR - SW_GAP, 128, 1, startAngle, thetaLength]} />
-          <meshStandardMaterial color="#162b1c" roughness={0.92} />
-        </mesh>
-        {/* Amber centre stripe — the local-road signature */}
-        <mesh rotation-x={-Math.PI / 2} position={[0, yBase - 0.05, 0]}>
-          <ringGeometry args={[centerR - 0.8, centerR + 0.8, 128, 1, startAngle, thetaLength]} />
-          <meshStandardMaterial
-            color="#d97706"
-            emissive="#d97706"
-            emissiveIntensity={0.55}
-            roughness={0.5}
-          />
-        </mesh>
-        {/* Outer kerb line */}
-        <mesh rotation-x={-Math.PI / 2} position={[0, yBase - 0.06, 0]}>
-          <ringGeometry args={[outerR - 0.6, outerR, 128, 1, startAngle, thetaLength]} />
-          <meshStandardMaterial color="#92400e" emissive="#92400e" emissiveIntensity={0.3} roughness={0.6} />
-        </mesh>
-        {/* Inner kerb line */}
-        <mesh rotation-x={-Math.PI / 2} position={[0, yBase - 0.06, 0]}>
-          <ringGeometry args={[innerR, innerR + 0.6, 128, 1, startAngle, thetaLength]} />
-          <meshStandardMaterial color="#92400e" emissive="#92400e" emissiveIntensity={0.3} roughness={0.6} />
-        </mesh>
-      </group>
-    );
-  }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    return geo;
+  }, [outerRadius]);
+
+  return (
+    <group>
+      <mesh geometry={riverGeo} rotation-x={-Math.PI / 2} position={[0, 0.05, 0]} receiveShadow>
+        <meshStandardMaterial
+          color="#0a2840"
+          emissive="#0d3352"
+          emissiveIntensity={0.22}
+          roughness={0.08}
+          metalness={0.9}
+          transparent
+          opacity={0.88}
+        />
+      </mesh>
+      <mesh geometry={riverGeo} rotation-x={-Math.PI / 2} position={[0, 0.18, 0]}>
+        <meshStandardMaterial
+          color="#1d6fa8"
+          emissive="#1d4ed8"
+          emissiveIntensity={0.1}
+          roughness={0.04}
+          metalness={0.95}
+          transparent
+          opacity={0.26}
+          depthWrite={false}
+        />
+      </mesh>
+    </group>
+  );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Estimate how many sub-ring rows a district band contains.
-//  Uses the same greedy algorithm as layout.ts → placeRing / estimateRadialDepth
-//  so the roads drawn here match where buildings were actually placed.
-// ─────────────────────────────────────────────────────────────────────────────
-function estimateSubRingBoundaries(
-  innerRadius: number,
-  outerRadius: number,
-  avgBlockDepth: number,  // typical block depth for this band
-): number[] {
-  // Walk from innerRadius outward in SUB_RING_GAP steps, collect centre-of-gap radii
-  const gaps: number[] = [];
-  let cursor = innerRadius;
-  while (cursor + avgBlockDepth + SUB_RING_GAP < outerRadius - avgBlockDepth / 2) {
-    cursor += avgBlockDepth + SUB_RING_GAP;
-    gaps.push(cursor - SUB_RING_GAP / 2);   // centre of the gap lane
-    cursor += 0;   // next iteration starts right at new sub-ring inner edge
-  }
-  return gaps;
+function Plaza() {
+  return (
+    <mesh rotation-x={-Math.PI / 2} position={[0, -0.12, 0]} receiveShadow>
+      <circleGeometry args={[PLAZA_RADIUS, 96]} />
+      <meshStandardMaterial color="#1a1f2f" roughness={0.86} metalness={0.12} />
+    </mesh>
+  );
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  PolarRoads — complete road network
-// ─────────────────────────────────────────────────────────────────────────────
 
 interface PolarRoadsProps {
   ringRadii: CityLayoutResult["ringRadii"];
 }
 
 function PolarRoads({ ringRadii }: PolarRoadsProps) {
-  // District boulevard constants
-  const DISTRICT_ROAD_W = 32;
-  // Local ring road constants
-  const LOCAL_ROAD_W    = 14;
-  // Spoke road constants
-  const SPOKE_W         = 18;
-  const SPOKE_HALF      = SPOKE_W / 2;
-  const SPOKE_SW_GAP    = 2;
-  const SPOKE_SW_W      = 8;
-  const ROAD_COLOR      = "#0f1e15";
-  const SIDEWALK_COLOR  = "#162b1c";
+  const districtRoadW = 32;
+  const spokeW = 18;
+  const roadMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: "#0f1e15", roughness: 0.9, metalness: 0.08 }),
+    [],
+  );
+  const sideMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: "#162b1c", roughness: 0.92 }),
+    [],
+  );
 
-  // River angular span
-  const riverStart  = RIVER_CENTER - RIVER_SKIP / 2;
-  const riverEnd    = RIVER_CENTER + RIVER_SKIP / 2;
-  const arcStart    = riverEnd + 0.01;
-  const arcLen      = (riverStart + Math.PI * 2 - 0.01) - arcStart;
+  const districtRings = useMemo(
+    () => [
+      ringRadii.ring1Inner - districtRoadW / 2,
+      ringRadii.ring2Inner - districtRoadW / 2,
+      ringRadii.ring3Inner - districtRoadW / 2,
+    ],
+    [ringRadii],
+  );
 
-  // ── District boundary radii (centre of each boulevard) ─────────────────────
-  const districtRings = useMemo(() => [
-    ringRadii.ring1Inner - DISTRICT_ROAD_W / 2,  // ring between plaza and core
-    ringRadii.ring2Inner - DISTRICT_ROAD_W / 2,  // ring between core and mid
-    ringRadii.ring3Inner - DISTRICT_ROAD_W / 2,  // ring between mid and outer
-  ], [ringRadii]);
+  const riverStart = RIVER_CENTER - RIVER_SKIP / 2;
+  const riverEnd = RIVER_CENTER + RIVER_SKIP / 2;
+  const arcStart = riverEnd + 0.01;
+  const arcLen = riverStart + Math.PI * 2 - 0.01 - arcStart;
+  const spokeMaxR = Math.max(ringRadii.ring3Outer, ringRadii.ring1Outer) + 80;
 
-  // ── Sub-ring radii inside each district band ────────────────────────────────
-  // We step through each band's depth in typical block-depth increments to
-  // reproduce where layout.ts would have placed sub-ring gaps.
-  const subRings = useMemo(() => {
-    const all: number[] = [];
-
-    // Average block depth per band (scaled down 0.5× as per BUILDING_FOOTPRINT_SCALE)
-    // Core band: buildings are tallest → larger footprints ~60 units avg depth
-    // Mid band:  medium → ~55
-    // Outer band: smaller → ~50
-    const bands = [
-      { inner: ringRadii.ring1Inner, outer: ringRadii.ring1Outer, avgDepth: 58 },
-      { inner: ringRadii.ring2Inner, outer: ringRadii.ring2Outer, avgDepth: 52 },
-      { inner: ringRadii.ring3Inner, outer: ringRadii.ring3Outer, avgDepth: 46 },
-    ];
-
-    for (const { inner, outer, avgDepth } of bands) {
-      if (outer - inner < avgDepth * 1.5) continue;   // band too thin for sub-rings
-      const gaps = estimateSubRingBoundaries(inner, outer, avgDepth);
-      all.push(...gaps);
-    }
-    return all.filter(r => r > PLAZA_RADIUS + 20);
-  }, [ringRadii]);
-
-  // ── Spoke angles — 8 spokes, skip river sector ─────────────────────────────
   const spokeAngles = useMemo(() => {
     const angles: number[] = [];
-    for (let i = 0; i < SPOKE_COUNT; i++) {
-      const a = (i / SPOKE_COUNT) * Math.PI * 2;
-      const norm      = (a + Math.PI * 2) % (Math.PI * 2);
-      const riverNorm = (RIVER_CENTER + Math.PI * 2) % (Math.PI * 2);
-      const diff      = Math.abs(norm - riverNorm);
-      const angDiff   = diff > Math.PI ? Math.PI * 2 - diff : diff;
-      if (angDiff > RIVER_SKIP * 0.7) angles.push(a);
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      if (!isAngleInRiverSector(a, 0.01)) angles.push(a);
     }
     return angles;
   }, []);
 
-  const outerEdge = Math.max(ringRadii.ring3Outer, ringRadii.ring1Outer) + 80;
-
   return (
     <group>
-
-      {/* ══ DISTRICT BOUNDARY BOULEVARDS ══════════════════════════════════════
-           Wide teal-median roads — visually dominant, separate the 3 districts */}
-      {districtRings.map((centerR, di) => (
-        <RingRoad
-          key={`district-${di}`}
-          centerR={centerR}
-          width={DISTRICT_ROAD_W}
-          startAngle={arcStart}
-          thetaLength={arcLen}
-          isDistrict={true}
-          yBase={0.05}
-        />
-      ))}
-
-      {/* ══ INTRA-DISTRICT LOCAL RING ROADS ═══════════════════════════════════
-           Narrower amber-stripe roads — one per sub-ring gap inside each band */}
-      {subRings.map((centerR, li) => (
-        <RingRoad
-          key={`local-${li}`}
-          centerR={centerR}
-          width={LOCAL_ROAD_W}
-          startAngle={arcStart}
-          thetaLength={arcLen}
-          isDistrict={false}
-          yBase={0.0}
-        />
-      ))}
-
-      {/* ══ RADIAL SPOKE ROADS ════════════════════════════════════════════════
-           8 spokes radiating from the plaza, spanning all three districts */}
-      {spokeAngles.map((angle, si) => {
-        const startR = PLAZA_RADIUS + 2;
-        const midLen = (outerEdge - startR) / 2;
-        const cx = Math.cos(angle) * (startR + midLen);
-        const cz = Math.sin(angle) * (startR + midLen);
-
+      {districtRings.map((centerR, i) => {
+        const innerR = centerR - districtRoadW / 2;
+        const outerR = centerR + districtRoadW / 2;
         return (
-          <group key={`spoke-${si}`} position={[cx, 0, cz]} rotation-y={-angle}>
-            {/* Kerb — left */}
-            <mesh rotation-x={-Math.PI / 2} position={[-(SPOKE_HALF + SPOKE_SW_GAP + SPOKE_SW_W / 2), -0.28, 0]}>
-              <planeGeometry args={[SPOKE_SW_W, midLen * 2]} />
-              <meshStandardMaterial color={SIDEWALK_COLOR} roughness={0.92} />
+          <group key={`ring-${i}`}>
+            <mesh rotation-x={-Math.PI / 2} position={[0, -0.2, 0]} receiveShadow material={roadMat}>
+              <ringGeometry args={[innerR, outerR, 160, 1, arcStart, arcLen]} />
             </mesh>
-            {/* Road left lane */}
-            <mesh rotation-x={-Math.PI / 2} position={[-(SPOKE_HALF / 2), -0.18, 0]}>
-              <planeGeometry args={[SPOKE_HALF, midLen * 2]} />
-              <meshStandardMaterial color={ROAD_COLOR} roughness={0.90} metalness={0.10} />
+            <mesh rotation-x={-Math.PI / 2} position={[0, -0.28, 0]} receiveShadow material={sideMat}>
+              <ringGeometry args={[outerR + 2, outerR + 10, 160, 1, arcStart, arcLen]} />
             </mesh>
-            {/* Road right lane */}
-            <mesh rotation-x={-Math.PI / 2} position={[(SPOKE_HALF / 2), -0.18, 0]}>
-              <planeGeometry args={[SPOKE_HALF, midLen * 2]} />
-              <meshStandardMaterial color={ROAD_COLOR} roughness={0.90} metalness={0.10} />
-            </mesh>
-            {/* Centre marking — amber consistent with local rings */}
-            <mesh rotation-x={-Math.PI / 2} position={[0, -0.04, 0]}>
-              <planeGeometry args={[1.0, midLen * 2]} />
-              <meshStandardMaterial color="#d97706" emissive="#d97706" emissiveIntensity={0.4} roughness={0.55} />
-            </mesh>
-            {/* Kerb — right */}
-            <mesh rotation-x={-Math.PI / 2} position={[(SPOKE_HALF + SPOKE_SW_GAP + SPOKE_SW_W / 2), -0.28, 0]}>
-              <planeGeometry args={[SPOKE_SW_W, midLen * 2]} />
-              <meshStandardMaterial color={SIDEWALK_COLOR} roughness={0.92} />
+            <mesh rotation-x={-Math.PI / 2} position={[0, -0.28, 0]} receiveShadow material={sideMat}>
+              <ringGeometry args={[Math.max(1, innerR - 10), Math.max(1, innerR - 2), 160, 1, arcStart, arcLen]} />
             </mesh>
           </group>
         );
       })}
 
-    </group>
-  );
-}
-
-// ─── Empty plaza (open circular area, no monument) ────────────────────────────
-
-function Plaza() {
-  const PLAZA_PAVING_COLOR  = "#0d2218";
-  const PLAZA_RING_COLOR    = "#132a1c";
-  const PLAZA_ACCENT_COLOR  = "#1a4028";
-  const GLOW_COLOR          = "#22c55e";
-
-  // Paving pattern: concentric stone rings
-  return (
-    <group>
-      {/* Outer plaza paving disc */}
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.1, 0]} receiveShadow>
-        <circleGeometry args={[PLAZA_RADIUS, 64]} />
-        <meshStandardMaterial
-          color={PLAZA_PAVING_COLOR}
-          roughness={0.75}
-          metalness={0.08}
-          emissive={PLAZA_PAVING_COLOR}
-          emissiveIntensity={0.05}
-        />
-      </mesh>
-
-      {/* Paving ring 1 — decorative inlay */}
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.2, 0]}>
-        <ringGeometry args={[PLAZA_RADIUS * 0.88, PLAZA_RADIUS * 0.92, 64]} />
-        <meshStandardMaterial color={PLAZA_RING_COLOR} roughness={0.7} metalness={0.12} />
-      </mesh>
-
-      {/* Paving ring 2 */}
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.2, 0]}>
-        <ringGeometry args={[PLAZA_RADIUS * 0.65, PLAZA_RADIUS * 0.68, 64]} />
-        <meshStandardMaterial color={PLAZA_RING_COLOR} roughness={0.7} metalness={0.12} />
-      </mesh>
-
-      {/* Paving ring 3 — inner accent */}
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.2, 0]}>
-        <ringGeometry args={[PLAZA_RADIUS * 0.35, PLAZA_RADIUS * 0.37, 64]} />
-        <meshStandardMaterial color={PLAZA_ACCENT_COLOR} roughness={0.65} metalness={0.15} />
-      </mesh>
-
-      {/* Centre disc — the monument placeholder, kept empty */}
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.3, 0]}>
-        <circleGeometry args={[PLAZA_RADIUS * 0.3, 64]} />
-        <meshStandardMaterial
-          color={PLAZA_ACCENT_COLOR}
-          roughness={0.6}
-          metalness={0.18}
-          emissive={GLOW_COLOR}
-          emissiveIntensity={0.04}
-        />
-      </mesh>
-
-      {/* Subtle emissive ring at plaza boundary — separates it from roads */}
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.35, 0]}>
-        <ringGeometry args={[PLAZA_RADIUS - 2, PLAZA_RADIUS + 1, 128]} />
-        <meshStandardMaterial
-          color={GLOW_COLOR}
-          emissive={GLOW_COLOR}
-          emissiveIntensity={0.55}
-          transparent
-          opacity={0.35}
-          roughness={0.5}
-        />
-      </mesh>
-
-      {/* Radial paving lines (connector spokes across the plaza) */}
-      {Array.from({ length: SPOKE_COUNT }).map((_, i) => {
-        const angle = (i / SPOKE_COUNT) * Math.PI * 2;
-        const len   = PLAZA_RADIUS * 0.85;
-        const cx    = Math.cos(angle) * len * 0.5;
-        const cz    = Math.sin(angle) * len * 0.5;
+      {spokeAngles.map((a, i) => {
+        const len = spokeMaxR - PLAZA_RADIUS;
+        const cx = Math.cos(a) * (PLAZA_RADIUS + len / 2);
+        const cz = Math.sin(a) * (PLAZA_RADIUS + len / 2);
         return (
-          <mesh
-            key={`plaza-spoke-${i}`}
-            rotation-x={-Math.PI / 2}
-            rotation-z={angle}
-            position={[cx, 0.25, cz]}
-          >
-            <planeGeometry args={[1.5, len]} />
-            <meshStandardMaterial color={PLAZA_RING_COLOR} roughness={0.7} />
-          </mesh>
+          <group key={`spoke-${i}`}>
+            <mesh
+              position={[cx, -0.2, cz]}
+              rotation-y={-a + Math.PI / 2}
+              rotation-x={-Math.PI / 2}
+              receiveShadow
+              material={roadMat}
+            >
+              <planeGeometry args={[spokeW, len]} />
+            </mesh>
+            <mesh
+              position={[cx, -0.28, cz]}
+              rotation-y={-a + Math.PI / 2}
+              rotation-x={-Math.PI / 2}
+              receiveShadow
+              material={sideMat}
+            >
+              <planeGeometry args={[spokeW + 16, len]} />
+            </mesh>
+          </group>
         );
       })}
     </group>
   );
 }
 
-// ─── Green spaces (park rings + district belts) ────────────────────────────────
-
-function mulberry32(seed: number) {
-  let t = seed >>> 0;
-  return () => {
-    t += 0x6d2b79f5;
-    let x = Math.imul(t ^ (t >>> 15), 1 | t);
-    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
-    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
-  };
+interface GreenSpacesProps {
+  rings: GreenRing[];
 }
 
-function computeSpokeAngles(): number[] {
-  const angles: number[] = [];
-  for (let i = 0; i < SPOKE_COUNT; i++) {
-    const a = (i / SPOKE_COUNT) * Math.PI * 2;
-    if (!isAngleInRiverSector(a, -RIVER_SKIP * 0.2)) angles.push(a);
-  }
-  return angles;
-}
-
-function GreenSpaces({ rings }: { rings: GreenRing[] }) {
-  const spokeAngles = useMemo(() => computeSpokeAngles(), []);
-
-  const grassMat = useMemo(() => new THREE.MeshStandardMaterial({
-    color: "#0b3a1f",
-    emissive: "#0b3a1f",
-    emissiveIntensity: 0.10,
-    roughness: 1.0,
-    metalness: 0.0,
-  }), []);
-
-  const treeTrunkMat = useMemo(() => new THREE.MeshStandardMaterial({
-    color: "#3a2413",
-    roughness: 0.95,
-    metalness: 0.0,
-  }), []);
-
-  const treeLeafMat = useMemo(() => new THREE.MeshStandardMaterial({
-    color: "#14532d",
-    emissive: "#0a2a16",
-    emissiveIntensity: 0.22,
-    roughness: 0.92,
-    metalness: 0.0,
-  }), []);
-
-  const trunkGeom = useMemo(() => new THREE.CylinderGeometry(1, 1, 1, 8), []);
-  const leafGeom  = useMemo(() => new THREE.ConeGeometry(1, 1, 10, 3), []);
-
-  const ringsData = useMemo(() => {
-    const data: Array<{
-      ring: GreenRing;
-      treeCount: number;
-      treeMatrices: THREE.Matrix4[];
-      leafMatrices: THREE.Matrix4[];
-    }> = [];
-
-    // Tree rows are planted as boulevard lines and soft park clusters instead of random scatter.
-    for (let ri = 0; ri < rings.length; ri++) {
-      const ring = rings[ri];
-      const inner = Math.max(0, ring.innerR);
-      const outer = Math.max(inner + 1, ring.outerR);
-      const width = outer - inner;
-      const midR = inner + width / 2;
-
-      const rand = mulberry32((ri + 1) * 991 + Math.floor(midR));
-
-      const treeMatrices: THREE.Matrix4[] = [];
-      const leafMatrices: THREE.Matrix4[] = [];
-
-      // Avoid planting right on the connector roads: carve angular corridors around spokes
-      const corridorWorld = ring.kind === "district" ? 34 : 26;
-      const rowCount = Math.max(1, Math.round(width / (ring.kind === "district" ? 18 : 15)));
-      const laneInset = ring.kind === "district" ? 9 : 7;
-      const usableInner = Math.min(outer - 2, inner + laneInset);
-      const usableOuter = Math.max(usableInner + 2, outer - laneInset);
-      const rowSpacing = rowCount === 1 ? 0 : (usableOuter - usableInner) / (rowCount - 1);
-
-      for (let row = 0; row < rowCount; row++) {
-        const rowRadius = THREE.MathUtils.clamp(
-          rowCount === 1 ? midR : usableInner + rowSpacing * row,
-          inner + 3,
-          outer - 3,
-        );
-        const spacing = ring.kind === "district" ? 18 : 14;
-        const angleStep = spacing / Math.max(60, rowRadius);
-        const phase = rand() * angleStep;
-        const clusterFreq = 2 + Math.floor(rand() * 3);
-        const clusterPhase = rand() * Math.PI * 2;
-
-        for (let angle = phase; angle < Math.PI * 2 + phase; angle += angleStep) {
-          const wrappedAngle = normalizeAngle(angle);
-          if (isAngleInRiverSector(wrappedAngle, 0.04)) continue;
-
-          const rForCorr = Math.max(80, rowRadius);
-          const corridorAng = corridorWorld / rForCorr;
-          let nearSpoke = false;
-          for (const s of spokeAngles) {
-            if (shortestAngleDiff(wrappedAngle, s) < corridorAng) {
-              nearSpoke = true;
-              break;
-            }
-          }
-          if (nearSpoke) continue;
-
-          if (ring.kind !== "district") {
-            const clusterSignal = Math.sin(wrappedAngle * clusterFreq + clusterPhase + row * 0.8);
-            if (clusterSignal < -0.15) continue;
-          }
-
-          const radialJitter = (rand() - 0.5) * Math.min(3.2, Math.max(1.2, rowSpacing * 0.18));
-          const angleJitter = (rand() - 0.5) * angleStep * 0.16;
-          const plantedR = THREE.MathUtils.clamp(rowRadius + radialJitter, inner + 2, outer - 2);
-          const plantedAngle = normalizeAngle(wrappedAngle + angleJitter);
-          const x = Math.cos(plantedAngle) * plantedR;
-          const z = Math.sin(plantedAngle) * plantedR;
-
-          const tall = ring.treeStyle === "tall";
-          const h = (tall ? 32 : 21) + rand() * (tall ? 18 : 12);
-          const trunkH = h * (0.34 + rand() * 0.05);
-          const trunkR = (tall ? 1.1 : 0.9) + rand() * 0.35;
-          const leafR  = (tall ? 7.2 : 5.6) + rand() * 2.4;
-          const leafH  = h * (0.7 + rand() * 0.05);
-          const rotY   = plantedAngle + (rand() - 0.5) * 0.35;
-
-          const trunkM = new THREE.Matrix4().compose(
-            new THREE.Vector3(x, trunkH / 2, z),
-            new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotY, 0)),
-            new THREE.Vector3(trunkR, trunkH, trunkR),
-          );
-          const leafM = new THREE.Matrix4().compose(
-            new THREE.Vector3(x, trunkH + leafH / 2 - 1.2, z),
-            new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotY, 0)),
-            new THREE.Vector3(leafR, leafH, leafR),
-          );
-
-          treeMatrices.push(trunkM);
-          leafMatrices.push(leafM);
-        }
-      }
-
-      data.push({ ring, treeCount: treeMatrices.length, treeMatrices, leafMatrices });
-    }
-
-    return data;
-  }, [rings, spokeAngles]);
-
-  function TreeInstances({
-    count,
-    trunkMatrices,
-    leafMatrices,
-  }: {
-    count: number;
-    trunkMatrices: THREE.Matrix4[];
-    leafMatrices: THREE.Matrix4[];
-  }) {
-    const trunkRef = useRef<THREE.InstancedMesh | null>(null);
-    const leafRef  = useRef<THREE.InstancedMesh | null>(null);
-
-    useEffect(() => {
-      if (!trunkRef.current || !leafRef.current) return;
-      for (let i = 0; i < count; i++) {
-        trunkRef.current.setMatrixAt(i, trunkMatrices[i]);
-        leafRef.current.setMatrixAt(i, leafMatrices[i]);
-      }
-      trunkRef.current.instanceMatrix.needsUpdate = true;
-      leafRef.current.instanceMatrix.needsUpdate = true;
-    }, [count, trunkMatrices, leafMatrices]);
-
-    return (
-      <group>
-        <instancedMesh
-          ref={trunkRef}
-          args={[trunkGeom, treeTrunkMat, count]}
-          castShadow
-          receiveShadow
-          frustumCulled={false}
-        />
-        <instancedMesh
-          ref={leafRef}
-          args={[leafGeom, treeLeafMat, count]}
-          castShadow
-          receiveShadow
-          frustumCulled={false}
-        />
-      </group>
-    );
-  }
+function GreenSpaces({ rings }: GreenSpacesProps) {
+  const riverStart = RIVER_CENTER - RIVER_SKIP / 2;
+  const riverEnd = RIVER_CENTER + RIVER_SKIP / 2;
+  const arcStart = riverEnd + 0.01;
+  const arcLen = riverStart + Math.PI * 2 - 0.01 - arcStart;
 
   return (
     <group>
-      {rings.map((ring, i) => {
-        // Render as an arc to leave a river gap, consistent with roads
-        const riverStart  = RIVER_CENTER - RIVER_SKIP / 2;
-        const riverEnd    = RIVER_CENTER + RIVER_SKIP / 2;
-        const arcStart    = riverEnd + 0.01;
-        const arcLen      = (riverStart + Math.PI * 2 - 0.01) - arcStart;
-        const innerR = Math.max(0, ring.innerR);
-        const outerR = Math.max(innerR + 1, ring.outerR);
-
-        return (
-          <mesh key={`green-ring-${i}`} rotation-x={-Math.PI / 2} position={[0, -0.42, 0]} receiveShadow material={grassMat}>
-            <ringGeometry args={[innerR, outerR, 192, 1, arcStart, arcLen]} />
-          </mesh>
-        );
-      })}
-
-      {ringsData.map((d, i) => {
-        if (d.treeCount === 0) return null;
-        return (
-          <TreeInstances
-            key={`trees-${i}`}
-            count={d.treeCount}
-            trunkMatrices={d.treeMatrices}
-            leafMatrices={d.leafMatrices}
-          />
-        );
-      })}
+      {rings.map((ring, i) => (
+        <mesh key={`green-${i}`} rotation-x={-Math.PI / 2} position={[0, -0.42, 0]} receiveShadow>
+          <ringGeometry args={[Math.max(1, ring.innerR), Math.max(ring.innerR + 1, ring.outerR), 192, 1, arcStart, arcLen]} />
+          <meshStandardMaterial color={ring.kind === "district" ? "#1d3c2a" : "#254f33"} roughness={0.95} />
+        </mesh>
+      ))}
     </group>
   );
 }
@@ -1065,101 +631,6 @@ function Moon({ position }: { position: [number, number, number] }) {
   // rotation={moonRotRad} ← tweak MOON_ROTATION_DEG above to spin which face points toward the city
   return (
     <primitive object={scene} position={position} rotation={moonRotRad} scale={500.0} />
-  );
-}
-
-// ─── River ────────────────────────────────────────────────────────────────────
-//  A wedge-shaped water body occupying the river gap sector, radiating outward.
-
-interface RiverProps {
-  outerRadius: number;
-}
-
-function River({ outerRadius }: RiverProps) {
-  const riverGeo = useMemo(() => {
-    // Build a flat fan geometry for the river sector
-    const innerR = 0;
-    const outerR = outerRadius + 200;
-    const segments = 32;
-
-    const riverStart = RIVER_CENTER - RIVER_HALF_WIDTH * 1.4;
-    const riverEnd   = RIVER_CENTER + RIVER_HALF_WIDTH * 1.4;
-    const span       = riverEnd - riverStart;
-
-    const positions: number[] = [];
-    const uvs: number[]       = [];
-    const indices: number[]   = [];
-
-    // Centre fan vertex
-    positions.push(0, 0, 0);
-    uvs.push(0.5, 0.5);
-
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments;
-      const a = riverStart + t * span;
-      const x = Math.cos(a) * outerR;
-      const z = Math.sin(a) * outerR;
-      positions.push(x, 0, z);
-      uvs.push((x / outerR + 1) / 2, (z / outerR + 1) / 2);
-    }
-
-    for (let i = 0; i < segments; i++) {
-      indices.push(0, i + 1, i + 2);
-    }
-
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    geo.setAttribute("uv",       new THREE.Float32BufferAttribute(uvs, 2));
-    geo.setIndex(indices);
-    geo.computeVertexNormals();
-    return geo;
-  }, [outerRadius]);
-
-  return (
-    <group>
-      {/* Water surface */}
-      <mesh geometry={riverGeo} rotation-x={-Math.PI / 2} position={[0, 0.05, 0]} receiveShadow>
-        <meshStandardMaterial
-          color="#0a2840"
-          emissive="#0d3352"
-          emissiveIntensity={0.25}
-          roughness={0.05}
-          metalness={0.92}
-          transparent
-          opacity={0.88}
-        />
-      </mesh>
-      {/* Water shimmer layer */}
-      <mesh geometry={riverGeo} rotation-x={-Math.PI / 2} position={[0, 0.2, 0]}>
-        <meshStandardMaterial
-          color="#1d6fa8"
-          emissive="#1d4ed8"
-          emissiveIntensity={0.12}
-          roughness={0.02}
-          metalness={0.95}
-          transparent
-          opacity={0.3}
-          depthWrite={false}
-        />
-      </mesh>
-      {/* River bank edges */}
-      {[RIVER_CENTER - RIVER_HALF_WIDTH * 1.45, RIVER_CENTER + RIVER_HALF_WIDTH * 1.45].map((edgeAngle, ei) => {
-        const edgeLen = outerRadius + 200;
-        const cx = Math.cos(edgeAngle) * edgeLen * 0.5;
-        const cz = Math.sin(edgeAngle) * edgeLen * 0.5;
-        return (
-          <mesh
-            key={`bank-${ei}`}
-            position={[cx, 0.15, cz]}
-            rotation-y={-edgeAngle + Math.PI / 2}
-            rotation-x={-Math.PI / 2}
-          >
-            <planeGeometry args={[8, edgeLen]} />
-            <meshStandardMaterial color="#132810" roughness={0.9} />
-          </mesh>
-        );
-      })}
-    </group>
   );
 }
 
@@ -2574,8 +2045,10 @@ export function CityCanvas({
     try {
       ws = new WebSocket(wsUrl);
     } catch {
-      setToast("Multiplayer unavailable: invalid websocket endpoint");
-      window.setTimeout(() => setToast(null), 2600);
+      window.setTimeout(() => {
+        setToast("Multiplayer unavailable: invalid websocket endpoint");
+        window.setTimeout(() => setToast(null), 2600);
+      }, 0);
       return;
     }
     wsRef.current = ws;

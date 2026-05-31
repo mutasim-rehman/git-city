@@ -9,16 +9,6 @@ const ATLAS_BAND_ROWS = 42;
 // Six bands from "mostly dark" to "very bright"
 const ATLAS_LIT_PCTS = [0.2, 0.35, 0.5, 0.65, 0.8, 0.95];
 
-function colorToABGR(hex: string): number {
-  const c = new THREE.Color(hex);
-  return (
-    (255 << 24) |
-    (Math.round(c.b * 255) << 16) |
-    (Math.round(c.g * 255) << 8) |
-    Math.round(c.r * 255)
-  );
-}
-
 function colorToABGRWithAlpha(hex: string, alpha: number): number {
   const a = Math.max(0, Math.min(255, Math.round(alpha * 255)));
   const c = new THREE.Color(hex);
