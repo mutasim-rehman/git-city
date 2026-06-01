@@ -1,6 +1,7 @@
 "use client";
 
 import type { LayoutRect } from "@/lib/city/layout";
+import { rectCenter } from "@/components/city/utils/rectCenter";
 
 /** Lake water appearance — edit colors here. */
 export const LAKE_COLORS = {
@@ -10,15 +11,6 @@ export const LAKE_COLORS = {
   roughness: 0.15,
   metalness: 0.35,
 } as const;
-
-function rectCenter(rect: LayoutRect) {
-  return {
-    x: (rect.minX + rect.maxX) / 2,
-    z: (rect.minZ + rect.maxZ) / 2,
-    w: rect.maxX - rect.minX,
-    d: rect.maxZ - rect.minZ,
-  };
-}
 
 export function CityLake({ lake }: { lake: LayoutRect }) {
   const { x, z, w, d } = rectCenter(lake);

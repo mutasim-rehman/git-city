@@ -3,6 +3,8 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { LayoutRect } from "@/lib/city/layout";
+import { rectCenter } from "@/components/city/utils/rectCenter";
+import { seededRng } from "@/components/city/utils/seededRng";
 
 // ─── Colors & materials (edit here for all non-park trees) ─────────────────────
 /**
@@ -46,19 +48,6 @@ export const TREE_COLORS = {
 
 export type TreeColorKey = keyof typeof TREE_COLORS;
 
-// ─── Layout helpers ───────────────────────────────────────────────────────────
-function rectCenter(rect: LayoutRect) {
-  return {
-    x: (rect.minX + rect.maxX) / 2,
-    z: (rect.minZ + rect.maxZ) / 2,
-    w: rect.maxX - rect.minX,
-    d: rect.maxZ - rect.minZ,
-  };
-}
-function seededRng(seed: number): number {
-  return Math.abs((Math.sin(seed * 127.1 + 311.7) * 43758.5453) % 1);
-}
-
 export type TreeDetail = "full" | "lite";
 
 export interface ProceduralTreeProps {
@@ -81,12 +70,6 @@ export interface ProceduralTreeProps {
   grassHighlight?: string;
   /** "lite" = trunk + few puffs (forest). "full" = grass skirt + chunky canopy (park/median). */
   detail?: TreeDetail;
-}
-
-/** Fast seeded float in [0,1) */
-function srng(s: number): number {
-  const v = Math.sin(s * 127.1 + 311.7) * 43758.5453;
-  return v - Math.floor(v);
 }
 
 /**
@@ -121,40 +104,40 @@ export function ProceduralTree({
 
     out.push({ ox: 0, oy: 0, oz: 0, r: canopyRadius * (isLite ? 0.85 : 0.92), color: canopyColor });
 
-    const innerCount = isLite ? 4 : 5 + Math.floor(srng(seed) * 2);
+    const innerCount = isLite ? 4 : 5 + Math.floor(seededRng(seed) * 2);
     for (let i = 0; i < innerCount; i++) {
-      const angle = (i / innerCount) * Math.PI * 2 + srng(seed + i * 7) * 0.5;
-      const dist = canopyRadius * (0.35 + srng(seed + i * 3) * 0.22);
-      const oy = -canopyHeight * 0.05 + srng(seed + i * 5) * canopyHeight * 0.15;
-      const r = canopyRadius * (0.58 + srng(seed + i * 11) * 0.22);
+      const angle = (i / innerCount) * Math.PI * 2 + seededRng(seed + i * 7) * 0.5;
+      const dist = canopyRadius * (0.35 + seededRng(seed + i * 3) * 0.22);
+      const oy = -canopyHeight * 0.05 + seededRng(seed + i * 5) * canopyHeight * 0.15;
+      const r = canopyRadius * (0.58 + seededRng(seed + i * 11) * 0.22);
       out.push({ ox: Math.cos(angle) * dist, oy, oz: Math.sin(angle) * dist, r, color: canopyColor });
     }
 
     if (!isLite) {
-      const outerCount = 6 + Math.floor(srng(seed + 50) * 3);
+      const outerCount = 6 + Math.floor(seededRng(seed + 50) * 3);
       for (let i = 0; i < outerCount; i++) {
-        const angle = (i / outerCount) * Math.PI * 2 + srng(seed + i * 19) * 0.7;
-        const dist = canopyRadius * (0.62 + srng(seed + i * 13) * 0.28);
-        const oy = -canopyHeight * 0.18 + srng(seed + i * 17) * canopyHeight * 0.22;
-        const r = canopyRadius * (0.44 + srng(seed + i * 23) * 0.24);
+        const angle = (i / outerCount) * Math.PI * 2 + seededRng(seed + i * 19) * 0.7;
+        const dist = canopyRadius * (0.62 + seededRng(seed + i * 13) * 0.28);
+        const oy = -canopyHeight * 0.18 + seededRng(seed + i * 17) * canopyHeight * 0.22;
+        const r = canopyRadius * (0.44 + seededRng(seed + i * 23) * 0.24);
         out.push({ ox: Math.cos(angle) * dist, oy, oz: Math.sin(angle) * dist, r, color: canopyColor });
       }
 
-      const topCount = 3 + Math.floor(srng(seed + 99) * 3);
+      const topCount = 3 + Math.floor(seededRng(seed + 99) * 3);
       for (let i = 0; i < topCount; i++) {
-        const angle = (i / topCount) * Math.PI * 2 + srng(seed + i * 31) * 1.1;
-        const dist = canopyRadius * (0.08 + srng(seed + i * 9) * 0.32);
-        const oy = canopyHeight * (0.22 + srng(seed + i * 41) * 0.26);
-        const r = canopyRadius * (0.36 + srng(seed + i * 37) * 0.22);
+        const angle = (i / topCount) * Math.PI * 2 + seededRng(seed + i * 31) * 1.1;
+        const dist = canopyRadius * (0.08 + seededRng(seed + i * 9) * 0.32);
+        const oy = canopyHeight * (0.22 + seededRng(seed + i * 41) * 0.26);
+        const r = canopyRadius * (0.36 + seededRng(seed + i * 37) * 0.22);
         out.push({ ox: Math.cos(angle) * dist, oy, oz: Math.sin(angle) * dist, r, color: highlight });
       }
     } else {
-      const topCount = 2 + Math.floor(srng(seed + 99) * 2);
+      const topCount = 2 + Math.floor(seededRng(seed + 99) * 2);
       for (let i = 0; i < topCount; i++) {
-        const angle = (i / topCount) * Math.PI * 2 + srng(seed + i * 31) * 1.1;
-        const dist = canopyRadius * (0.1 + srng(seed + i * 9) * 0.25);
-        const oy = canopyHeight * (0.18 + srng(seed + i * 41) * 0.2);
-        const r = canopyRadius * (0.32 + srng(seed + i * 37) * 0.18);
+        const angle = (i / topCount) * Math.PI * 2 + seededRng(seed + i * 31) * 1.1;
+        const dist = canopyRadius * (0.1 + seededRng(seed + i * 9) * 0.25);
+        const oy = canopyHeight * (0.18 + seededRng(seed + i * 41) * 0.2);
+        const r = canopyRadius * (0.32 + seededRng(seed + i * 37) * 0.18);
         out.push({ ox: Math.cos(angle) * dist, oy, oz: Math.sin(angle) * dist, r, color: highlight });
       }
     }
@@ -165,18 +148,18 @@ export function ProceduralTree({
   const blades = useMemo(() => {
     if (isLite) return [];
     const out: { bx: number; bz: number; h: number; r: number; angle: number; color: string }[] = [];
-    const bladeCount = 12 + Math.floor(srng(seed + 200) * 8);
+    const bladeCount = 12 + Math.floor(seededRng(seed + 200) * 8);
 
     for (let i = 0; i < bladeCount; i++) {
-      const angle = (i / bladeCount) * Math.PI * 2 + srng(seed + i * 53) * 0.4;
-      const ringRoll = srng(seed + i * 61);
+      const angle = (i / bladeCount) * Math.PI * 2 + seededRng(seed + i * 53) * 0.4;
+      const ringRoll = seededRng(seed + i * 61);
       const dist =
         ringRoll < 0.55
-          ? canopyRadius * (0.55 + srng(seed + i * 71) * 0.45)
-          : canopyRadius * (1.05 + srng(seed + i * 83) * 0.55);
-      const h = 0.55 + srng(seed + i * 97) * 0.7;
-      const r = 0.12 + srng(seed + i * 103) * 0.14;
-      const col = srng(seed + i * 109) > 0.5 ? grassColor : grassHighlight;
+          ? canopyRadius * (0.55 + seededRng(seed + i * 71) * 0.45)
+          : canopyRadius * (1.05 + seededRng(seed + i * 83) * 0.55);
+      const h = 0.55 + seededRng(seed + i * 97) * 0.7;
+      const r = 0.12 + seededRng(seed + i * 103) * 0.14;
+      const col = seededRng(seed + i * 109) > 0.5 ? grassColor : grassHighlight;
       out.push({ bx: Math.cos(angle) * dist, bz: Math.sin(angle) * dist, h, r, angle, color: col });
     }
     return out;
@@ -195,7 +178,7 @@ export function ProceduralTree({
       )}
 
       {blades.map((b, i) => {
-        const tilt = 0.42 + srng(seed + i * 200) * 0.32;
+        const tilt = 0.42 + seededRng(seed + i * 200) * 0.32;
         return (
           <mesh
             key={`gr-${i}`}

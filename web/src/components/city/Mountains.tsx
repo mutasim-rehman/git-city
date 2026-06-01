@@ -4,16 +4,8 @@ import { useMemo } from "react";
 import * as THREE from "three";
 import type { PositionedBuilding } from "@/lib/types";
 import type { LayoutRect } from "@/lib/city/layout";
-function normalizeAngle(a: number) {
-  const twoPi = Math.PI * 2;
-  let x = a % twoPi;
-  if (x < 0) x += twoPi;
-  return x;
-}
-
-function seededRng(seed: number): number {
-  return Math.abs((Math.sin(seed * 127.1 + 311.7) * 43758.5453) % 1);
-}
+import { normalizeAngle } from "@/components/city/utils/normalizeAngle";
+import { seededRng } from "@/components/city/utils/seededRng";
 
 function fbm(x: number, z: number, octaves: number, seed: number): number {
   let val = 0, amp = 1, freq = 1, total = 0;

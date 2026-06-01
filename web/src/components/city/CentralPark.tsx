@@ -3,6 +3,8 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { CityLayoutResult, LayoutRect } from "@/lib/city/layout";
+import { rectCenter } from "@/components/city/utils/rectCenter";
+import { seededRng } from "@/components/city/utils/seededRng";
 
 /** Central park palette — ground, fence, and instanced tree materials. */
 export const PARK_COLORS = {
@@ -11,19 +13,6 @@ export const PARK_COLORS = {
   trunk: "#7A4F2D",
   canopy: "#3DAA4E",
 } as const;
-
-function rectCenter(rect: LayoutRect) {
-  return {
-    x: (rect.minX + rect.maxX) / 2,
-    z: (rect.minZ + rect.maxZ) / 2,
-    w: rect.maxX - rect.minX,
-    d: rect.maxZ - rect.minZ,
-  };
-}
-
-function seededRng(seed: number): number {
-  return Math.abs((Math.sin(seed * 127.1 + 311.7) * 43758.5453) % 1);
-}
 
 function InstancedParkTrees({ park }: { park: LayoutRect }) {
   const { x, z, w, d } = rectCenter(park);

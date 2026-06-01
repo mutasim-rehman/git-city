@@ -2,10 +2,8 @@
 
 import { useMemo } from "react";
 import * as THREE from "three";
+import { seededRng } from "@/components/city/utils/seededRng";
 
-function seededRng(seed: number): number {
-  return Math.abs((Math.sin(seed * 127.1 + 311.7) * 43758.5453) % 1);
-}
 // ─── Sky Dome ─────────────────────────────────────────────────────────────────
 
 export function SkyDome({ stops }: { stops: [number, string][] }) {
