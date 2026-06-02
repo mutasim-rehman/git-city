@@ -379,8 +379,10 @@ export function CityCanvas({
     try {
       ws = new WebSocket(wsUrl);
     } catch {
-      setToast("Multiplayer unavailable: invalid websocket endpoint");
-      window.setTimeout(() => setToast(null), 2600);
+      window.setTimeout(() => {
+        setToast("Multiplayer unavailable: invalid websocket endpoint");
+        window.setTimeout(() => setToast(null), 2600);
+      }, 0);
       return;
     }
     wsRef.current = ws;

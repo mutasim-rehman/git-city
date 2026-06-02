@@ -18,7 +18,7 @@ export function SectorCityTerrain({
 }) {
   return (
     <>
-      <InstancedForestTrees forest={layout.forest} />
+      <InstancedForestTrees forest={layout.forest} roads={layout.roads} />
       <CityLake lake={layout.lake} />
       <CentralParkTerrain park={layout.park} />
       <BatchedGridRoads
@@ -26,7 +26,7 @@ export function SectorCityTerrain({
         sidewalkColor={sidewalkColor}
         markingColor={markingColor}
       />
-      <MedianTrees belts={layout.greenBelts} />
+      <MedianTrees belts={layout.greenBelts} roads={layout.roads} />
     </>
   );
 }
