@@ -5,6 +5,7 @@ import { BatchedGridRoads } from "@/components/city/Roads";
 import { MedianTrees, InstancedForestTrees } from "@/components/city/Trees";
 import { CentralParkTerrain } from "@/components/city/CentralPark";
 import { CityLake } from "@/components/city/Lake";
+import { TrafficSignals } from "@/components/city/TrafficSignals";
 
 /** Roads, parks, forest, and lake — toggle or reorder layers here. */
 export function SectorCityTerrain({
@@ -26,6 +27,7 @@ export function SectorCityTerrain({
         sidewalkColor={sidewalkColor}
         markingColor={markingColor}
       />
+      <TrafficSignals roads={layout.roads} />
       <MedianTrees belts={layout.greenBelts} roads={layout.roads} />
     </>
   );
