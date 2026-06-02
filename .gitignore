@@ -10,3 +10,7 @@ gitcity/
 islamabad.csv
 karachi.csv
 lahore.csv
+
+.cursor
+eda_output
+checkpoint_unified.json

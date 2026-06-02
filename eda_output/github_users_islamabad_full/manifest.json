@@ -1,0 +1,18 @@
+{
+  "input": "E:\\git-city\\docs\\github_users_islamabad_full.csv",
+  "rows": 19455,
+  "columns": [
+    "Username",
+    "Profile URL",
+    "GitHub ID",
+    "Year_Group",
+    "Public_Repositories",
+    "Lifetime_Commits",
+    "Followers",
+    "Total_Stars",
+    "Repo_Names",
+    "Repo_Metadata"
+  ],
+  "output_dir": "E:\\git-city\\eda_output\\github_users_islamabad_full",
+  "sample_rows": 2000
+}
