@@ -2,10 +2,10 @@ import type { Building, PositionedBuilding } from "../types";
 
 // ─── Road / biome dimensions (shared with CityCanvas + RoadGraph) ─────────────
 
-export const LANE_WIDTH = 14;
+export const LANE_WIDTH = 24;
 export const MEDIAN_WIDTH = 12;
 export const ARTERIAL_ROAD_WIDTH = LANE_WIDTH * 2 + MEDIAN_WIDTH;
-export const LOCAL_ROAD_WIDTH = 10;
+export const LOCAL_ROAD_WIDTH = 15;
 export const BUILDING_GAP = 6;
 export const BUILDING_FOOTPRINT_SCALE = 0.5;
 

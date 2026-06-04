@@ -76,18 +76,19 @@ function ParkBoundary({ park }: { park: CityLayoutResult["park"] }) {
     () => new THREE.MeshStandardMaterial({ color: PARK_COLORS.ground, roughness: 0.92 }),
     [],
   );
-  const fenceH = 1.2;
-  const fenceT = 0.6;
+  const fenceH = 4.2;
+  const fenceT = 0.8;
   const fenceMat = useMemo(
     () => new THREE.MeshStandardMaterial({ color: PARK_COLORS.fence, roughness: 0.85 }),
     [],
   );
+  const inset = 4.5;
   const sides = useMemo(
     () => [
-      { px: cx, pz: cz - d / 2, sx: w + fenceT, sz: fenceT },
-      { px: cx, pz: cz + d / 2, sx: w + fenceT, sz: fenceT },
-      { px: cx - w / 2, pz: cz, sx: fenceT, sz: d },
-      { px: cx + w / 2, pz: cz, sx: fenceT, sz: d },
+      { px: cx, pz: cz - d / 2 + inset, sx: w - inset * 2 + fenceT, sz: fenceT },
+      { px: cx, pz: cz + d / 2 - inset, sx: w - inset * 2 + fenceT, sz: fenceT },
+      { px: cx - w / 2 + inset, pz: cz, sx: fenceT, sz: d - inset * 2 },
+      { px: cx + w / 2 - inset, pz: cz, sx: fenceT, sz: d - inset * 2 },
     ],
     [cx, cz, w, d],
   );
@@ -96,9 +97,8 @@ function ParkBoundary({ park }: { park: CityLayoutResult["park"] }) {
     <group>
       <mesh geometry={groundGeo} material={groundMat} position={[cx, 0.02, cz]} rotation-x={-Math.PI / 2} receiveShadow />
       {sides.map((s, i) => (
-        <mesh key={i} position={[s.px, fenceH / 2, s.pz]} receiveShadow>
+        <mesh key={i} position={[s.px, fenceH / 2, s.pz]} material={fenceMat} receiveShadow>
           <boxGeometry args={[s.sx, fenceH, s.sz]} />
-          <primitive object={fenceMat} attach="material" />
         </mesh>
       ))}
     </group>
