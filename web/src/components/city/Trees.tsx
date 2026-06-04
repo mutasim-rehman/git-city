@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { LayoutRect } from "@/lib/city/layout";
@@ -598,7 +598,7 @@ export function InstancedMedianTrees({ belts, roads = [] }: { belts: LayoutRect[
         const scale = alongX ? 1.0 + seededRng(i * 17) * 0.7 : 1.0 + seededRng(i * 19) * 0.7;
 
         // Filter out if inside any road intersection (e.g. crossing of vertical and horizontal arterials)
-        if (isInsideIntersection(tx, tz, intersections, 8.0)) continue;
+        if (isInsideIntersection(tx, tz, intersections, 36.0)) continue;
 
         out.push({ x: tx, z: tz, scale });
       }
@@ -705,5 +705,459 @@ export function ForestBelt({ forest, roads = [] }: { forest: LayoutRect; roads?:
       })}
     </group>
   );
+}
+
+// ─── Instanced Median Grass (Minecraft Billboard Style) ──────────────────────
+
+function createGrassTexture() {
+  if (typeof window === "undefined") return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  // Clear to transparent
+  ctx.clearRect(0, 0, 64, 64);
+
+  // Colors matching Minecraft grass
+  const colors = [
+    "#3da84e", // light bright green
+    "#2d8239", // mid green
+    "#1e5c26", // dark green
+    "#4bb85c", // highlights
+  ];
+
+  const blockW = 4;
+  const blockH = 4;
+  const cols = 16;
+  const rows = 16;
+
+  for (let c = 0; c < cols; c++) {
+    const distFromCenter = Math.abs(c - 7.5);
+    const maxBladeHeight = 13.5 - distFromCenter * 0.85 + Math.sin(c * 2) * 1.5;
+    const height = Math.max(4, Math.floor(maxBladeHeight));
+    const bendDir = c < 8 ? -1 : 1;
+    
+    let currentX = c;
+    for (let r = rows - 1; r >= rows - height; r--) {
+      const heightFrac = (rows - 1 - r) / height;
+      if (heightFrac > 0.4 && Math.random() < 0.5) {
+        currentX += bendDir;
+      }
+      
+      const drawX = Math.max(0, Math.min(cols - 1, currentX));
+      const colorSeed = (c * 7 + r * 13) % colors.length;
+      ctx.fillStyle = colors[colorSeed]!;
+      ctx.fillRect(drawX * blockW, r * blockH, blockW, blockH);
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  return texture;
+}
+
+export function InstancedMedianGrass({ belts, roads = [] }: { belts: LayoutRect[]; roads?: any[] }) {
+  const intersections = useMemo((): RoadIntersection[] => {
+    const out: RoadIntersection[] = [];
+    const vertical = roads.filter((r) => Math.abs(r.x1 - r.x2) < 0.1);
+    const horizontal = roads.filter((r) => Math.abs(r.z1 - r.z2) < 0.1);
+    
+    for (const v of vertical) {
+      const minVz = Math.min(v.z1, v.z2);
+      const maxVz = Math.max(v.z1, v.z2);
+      
+      for (const h of horizontal) {
+        const minHx = Math.min(h.x1, h.x2);
+        const maxHx = Math.max(h.x1, h.x2);
+        
+        if (
+          v.x1 >= minHx - 0.1 && v.x1 <= maxHx + 0.1 &&
+          h.z1 >= minVz - 0.1 && h.z1 <= maxVz + 0.1
+        ) {
+          out.push({
+            x: v.x1,
+            z: h.z1,
+            w: v.width,
+            d: h.width,
+          });
+        }
+      }
+    }
+    return out;
+  }, [roads]);
+
+  const grassGeo = useMemo(() => {
+    const p1 = new THREE.PlaneGeometry(2.4, 2.4);
+    p1.translate(0, 1.2, 0); // pivot at base
+    
+    const p2 = p1.clone();
+    p2.rotateY(Math.PI / 2);
+    
+    const merged = mergeGeometries([p1, p2], false);
+    p1.dispose();
+    p2.dispose();
+    return merged ?? new THREE.BufferGeometry();
+  }, []);
+
+  const grassMat = useMemo(() => {
+    const tex = createGrassTexture();
+    return new THREE.MeshStandardMaterial({
+      map: tex,
+      alphaTest: 0.5,
+      transparent: true,
+      side: THREE.DoubleSide,
+      shadowSide: THREE.DoubleSide,
+      roughness: 1.0,
+      metalness: 0,
+    });
+  }, []);
+
+  const grassInstances = useMemo(() => {
+    const out: { x: number; z: number; scale: number; rotY: number }[] = [];
+    
+    // Spacing of 2.2 units along the length
+    const spacing = 2.2;
+
+    for (let bi = 0; bi < belts.length; bi++) {
+      const belt = belts[bi]!;
+      const { x, z, w, d } = rectCenter(belt);
+      const alongX = w > d;
+      const span   = alongX ? w : d;
+      const count  = Math.max(6, Math.floor(span / spacing));
+
+      for (let i = 0; i < count; i++) {
+        const t = (i + 0.5) / count;
+        
+        // Random placement with jitter inside the median width of 12 (up to ±4.5 units)
+        const perpOffset = (seededRng(bi * 123 + i) - 0.5) * 8.5; 
+        const alongJitter = (seededRng(bi * 231 + i) - 0.5) * 1.0;
+
+        const tx = alongX 
+          ? belt.minX + t * w + alongJitter 
+          : x + perpOffset;
+        const tz = alongX 
+          ? z + perpOffset 
+          : belt.minZ + t * d + alongJitter;
+        
+        // Filter out intersections
+        if (isInsideIntersection(tx, tz, intersections, 36.0)) continue;
+
+        const scale = 0.85 + seededRng(bi * 456 + i) * 0.6;
+        const rotY = seededRng(bi * 789 + i) * Math.PI * 2;
+
+        out.push({ x: tx, z: tz, scale, rotY });
+      }
+    }
+    return out;
+  }, [belts, intersections]);
+
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const tmp = useMemo(() => new THREE.Object3D(), []);
+
+  useLayoutEffect(() => {
+    const mesh = meshRef.current;
+    if (!mesh || grassInstances.length === 0) return;
+
+    for (let i = 0; i < grassInstances.length; i++) {
+      const g = grassInstances[i]!;
+      tmp.position.set(g.x, 0.38, g.z); // Spawn on top of the elevated median (y = 0.38)
+      tmp.rotation.set(0, g.rotY, 0);
+      tmp.scale.set(g.scale, g.scale, g.scale);
+      tmp.updateMatrix();
+      mesh.setMatrixAt(i, tmp.matrix);
+    }
+    mesh.count = grassInstances.length;
+    mesh.instanceMatrix.needsUpdate = true;
+  }, [grassInstances, tmp]);
+
+  useEffect(() => {
+    return () => {
+      grassGeo.dispose();
+      if (grassMat.map) {
+        grassMat.map.dispose();
+      }
+      grassMat.dispose();
+    };
+  }, [grassGeo, grassMat]);
+
+  if (grassInstances.length === 0) return null;
+
+  return (
+    <instancedMesh
+      ref={meshRef}
+      args={[grassGeo, grassMat, grassInstances.length]}
+      castShadow
+      receiveShadow
+    />
+  );
+}
+
+export function MedianGrass({ belts, roads = [] }: { belts: LayoutRect[]; roads?: any[] }) {
+  return <InstancedMedianGrass belts={belts} roads={roads} />;
+}
+
+// ─── Instanced Median Flowers (Minecraft Billboard Style) ────────────────────
+
+function drawPixelFlower(ctx: CanvasRenderingContext2D, type: "daisy" | "poppy" | "orchid" | "dandelion") {
+  ctx.clearRect(0, 0, 64, 64);
+  const blockW = 4;
+  const blockH = 4;
+  const cols = 16;
+  const rows = 16;
+
+  // Draw green stem
+  ctx.fillStyle = "#2d8239";
+  for (let r = 15; r >= 6; r--) {
+    let c = 8;
+    if (r === 9 || r === 8) c = 7; // slight wiggle
+    ctx.fillRect(c * blockW, r * blockH, blockW, blockH);
+  }
+
+  // Draw leaves
+  ctx.fillRect(6 * blockW, 11 * blockH, blockW, blockH);
+  ctx.fillRect(9 * blockW, 12 * blockH, blockW, blockH);
+
+  if (type === "daisy") {
+    // Yellow center
+    ctx.fillStyle = "#f59e0b"; // amber-500
+    ctx.fillRect(7 * blockW, 5 * blockH, blockW, blockH);
+    ctx.fillRect(8 * blockW, 5 * blockH, blockW, blockH);
+    ctx.fillRect(7 * blockW, 6 * blockH, blockW, blockH);
+    ctx.fillRect(8 * blockW, 6 * blockH, blockW, blockH);
+
+    // White petals
+    ctx.fillStyle = "#ffffff";
+    // Top
+    ctx.fillRect(7 * blockW, 3 * blockH, blockW, blockH);
+    ctx.fillRect(8 * blockW, 3 * blockH, blockW, blockH);
+    ctx.fillRect(7 * blockW, 4 * blockH, blockW, blockH);
+    ctx.fillRect(8 * blockW, 4 * blockH, blockW, blockH);
+    // Bottom
+    ctx.fillRect(7 * blockW, 7 * blockH, blockW, blockH);
+    ctx.fillRect(8 * blockW, 7 * blockH, blockW, blockH);
+    ctx.fillRect(7 * blockW, 8 * blockH, blockW, blockH);
+    ctx.fillRect(8 * blockW, 8 * blockH, blockW, blockH);
+    // Left
+    ctx.fillRect(5 * blockW, 5 * blockH, blockW, blockH);
+    ctx.fillRect(5 * blockW, 6 * blockH, blockW, blockH);
+    ctx.fillRect(6 * blockW, 5 * blockH, blockW, blockH);
+    ctx.fillRect(6 * blockW, 6 * blockH, blockW, blockH);
+    // Right
+    ctx.fillRect(9 * blockW, 5 * blockH, blockW, blockH);
+    ctx.fillRect(9 * blockW, 6 * blockH, blockW, blockH);
+    ctx.fillRect(10 * blockW, 5 * blockH, blockW, blockH);
+    ctx.fillRect(10 * blockW, 6 * blockH, blockW, blockH);
+    // Diagonals
+    ctx.fillRect(6 * blockW, 4 * blockH, blockW, blockH);
+    ctx.fillRect(9 * blockW, 4 * blockH, blockW, blockH);
+    ctx.fillRect(6 * blockW, 7 * blockH, blockW, blockH);
+    ctx.fillRect(9 * blockW, 7 * blockH, blockW, blockH);
+  } else if (type === "poppy") {
+    // Red petals
+    ctx.fillStyle = "#ef4444"; // red-500
+    ctx.fillRect(6 * blockW, 4 * blockH, 4 * blockW, 3 * blockH);
+    ctx.fillRect(5 * blockW, 5 * blockH, 6 * blockW, 1 * blockH);
+    ctx.fillRect(7 * blockW, 3 * blockH, 2 * blockW, 1 * blockH);
+
+    // Black center
+    ctx.fillStyle = "#1e293b";
+    ctx.fillRect(7 * blockW, 5 * blockH, 2 * blockW, 1 * blockH);
+  } else if (type === "orchid") {
+    // Blue petals
+    ctx.fillStyle = "#3b82f6"; // blue-500
+    ctx.fillRect(6 * blockW, 5 * blockH, blockW, blockH);
+    ctx.fillRect(9 * blockW, 6 * blockH, blockW, blockH);
+    ctx.fillRect(5 * blockW, 7 * blockH, blockW, blockH);
+    ctx.fillRect(10 * blockW, 8 * blockH, blockW, blockH);
+
+    ctx.fillStyle = "#60a5fa"; // light blue-400
+    ctx.fillRect(7 * blockW, 4 * blockH, 2 * blockW, 1 * blockH);
+    ctx.fillRect(6 * blockW, 6 * blockH, 4 * blockW, 1 * blockH);
+    
+    // Purple center
+    ctx.fillStyle = "#a855f7"; // purple-500
+    ctx.fillRect(7 * blockW, 5 * blockH, 2 * blockW, 1 * blockH);
+  } else if (type === "dandelion") {
+    // Yellow petals
+    ctx.fillStyle = "#fbbf24"; // yellow-400
+    ctx.fillRect(6 * blockW, 4 * blockH, 4 * blockW, 2 * blockH);
+    ctx.fillRect(7 * blockW, 3 * blockH, 2 * blockW, 4 * blockH);
+    ctx.fillRect(5 * blockW, 5 * blockH, 6 * blockW, 1 * blockH);
+    
+    ctx.fillStyle = "#f59e0b"; // amber-500
+    ctx.fillRect(7 * blockW, 4 * blockH, blockW, blockH);
+    ctx.fillRect(8 * blockW, 5 * blockH, blockW, blockH);
+  }
+}
+
+function createFlowerTexture(type: "daisy" | "poppy" | "orchid" | "dandelion") {
+  if (typeof window === "undefined") return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  drawPixelFlower(ctx, type);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  return texture;
+}
+
+export function InstancedMedianFlowers({ belts, roads = [] }: { belts: LayoutRect[]; roads?: any[] }) {
+  const intersections = useMemo((): RoadIntersection[] => {
+    const out: RoadIntersection[] = [];
+    const vertical = roads.filter((r) => Math.abs(r.x1 - r.x2) < 0.1);
+    const horizontal = roads.filter((r) => Math.abs(r.z1 - r.z2) < 0.1);
+    
+    for (const v of vertical) {
+      const minVz = Math.min(v.z1, v.z2);
+      const maxVz = Math.max(v.z1, v.z2);
+      for (const h of horizontal) {
+        const minHx = Math.min(h.x1, h.x2);
+        const maxHx = Math.max(h.x1, h.x2);
+        if (
+          v.x1 >= minHx - 0.1 && v.x1 <= maxHx + 0.1 &&
+          h.z1 >= minVz - 0.1 && h.z1 <= maxVz + 0.1
+        ) {
+          out.push({ x: v.x1, z: h.z1, w: v.width, d: h.width });
+        }
+      }
+    }
+    return out;
+  }, [roads]);
+
+  const flowerGeo = useMemo(() => {
+    const p1 = new THREE.PlaneGeometry(2.0, 2.0);
+    p1.translate(0, 1.0, 0); // pivot at base
+    const p2 = p1.clone();
+    p2.rotateY(Math.PI / 2);
+    const merged = mergeGeometries([p1, p2], false);
+    p1.dispose();
+    p2.dispose();
+    return merged ?? new THREE.BufferGeometry();
+  }, []);
+
+  const flowerTypes = ["daisy", "poppy", "orchid", "dandelion"] as const;
+
+  const materials = useMemo(() => {
+    return flowerTypes.map((type) => {
+      const tex = createFlowerTexture(type);
+      return new THREE.MeshStandardMaterial({
+        map: tex,
+        alphaTest: 0.5,
+        transparent: true,
+        side: THREE.DoubleSide,
+        shadowSide: THREE.DoubleSide,
+        roughness: 1.0,
+        metalness: 0,
+      });
+    });
+  }, []);
+
+  const flowerInstances = useMemo(() => {
+    const out: { x: number; z: number; scale: number; rotY: number }[][] = [[], [], [], []];
+    const spacing = 3.8;
+
+    for (let bi = 0; bi < belts.length; bi++) {
+      const belt = belts[bi]!;
+      const { x, z, w, d } = rectCenter(belt);
+      const alongX = w > d;
+      const span   = alongX ? w : d;
+      const count  = Math.max(4, Math.floor(span / spacing));
+
+      for (let i = 0; i < count; i++) {
+        const t = (i + 0.5) / count;
+        
+        // Random placement inside the median bounds
+        const perpOffset = (seededRng(bi * 345 + i) - 0.5) * 8.5; 
+        const alongJitter = (seededRng(bi * 543 + i) - 0.5) * 1.5;
+
+        const tx = alongX 
+          ? belt.minX + t * w + alongJitter 
+          : x + perpOffset;
+        const tz = alongX 
+          ? z + perpOffset 
+          : belt.minZ + t * d + alongJitter;
+        
+        // Filter out intersections
+        if (isInsideIntersection(tx, tz, intersections, 36.0)) continue;
+
+        // Choose type
+        const typeIndex = Math.floor(seededRng(bi * 12 + i * 23) * 4);
+        const scale = 0.75 + seededRng(bi * 88 + i * 9) * 0.45;
+        const rotY = seededRng(bi * 77 + i * 11) * Math.PI * 2;
+
+        out[typeIndex]!.push({ x: tx, z: tz, scale, rotY });
+      }
+    }
+    return out;
+  }, [belts, intersections]);
+
+  const daisyRef = useRef<THREE.InstancedMesh>(null);
+  const poppyRef = useRef<THREE.InstancedMesh>(null);
+  const orchidRef = useRef<THREE.InstancedMesh>(null);
+  const dandelionRef = useRef<THREE.InstancedMesh>(null);
+
+  const refs = [daisyRef, poppyRef, orchidRef, dandelionRef];
+  const tmp = useMemo(() => new THREE.Object3D(), []);
+
+  useLayoutEffect(() => {
+    for (let fIdx = 0; fIdx < 4; fIdx++) {
+      const mesh = refs[fIdx]!.current;
+      const instances = flowerInstances[fIdx]!;
+      if (!mesh || instances.length === 0) continue;
+
+      for (let i = 0; i < instances.length; i++) {
+        const g = instances[i]!;
+        tmp.position.set(g.x, 0.38, g.z); // Spawn on top of the elevated median (y = 0.38)
+        tmp.rotation.set(0, g.rotY, 0);
+        tmp.scale.set(g.scale, g.scale, g.scale);
+        tmp.updateMatrix();
+        mesh.setMatrixAt(i, tmp.matrix);
+      }
+      mesh.count = instances.length;
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+  }, [flowerInstances, tmp]);
+
+  useEffect(() => {
+    return () => {
+      flowerGeo.dispose();
+      for (const mat of materials) {
+        if (mat.map) mat.map.dispose();
+        mat.dispose();
+      }
+    };
+  }, [flowerGeo, materials]);
+
+  return (
+    <group>
+      {flowerTypes.map((type, idx) => {
+        const instances = flowerInstances[idx]!;
+        if (instances.length === 0) return null;
+        return (
+          <instancedMesh
+            key={type}
+            ref={refs[idx]}
+            args={[flowerGeo, materials[idx]!, instances.length]}
+            castShadow
+            receiveShadow
+          />
+        );
+      })}
+    </group>
+  );
+}
+
+export function MedianFlowers({ belts, roads = [] }: { belts: LayoutRect[]; roads?: any[] }) {
+  return <InstancedMedianFlowers belts={belts} roads={roads} />;
 }
 
