@@ -491,7 +491,15 @@ export function InstancedTreesGroup({
 
 // ─── Instanced Forest Trees ──────────────────────────────────────────────────
 
-export function InstancedForestTrees({ forest, roads = [] }: { forest: LayoutRect; roads?: any[] }) {
+export function InstancedForestTrees({
+  forest,
+  roads = [],
+  cityBounds,
+}: {
+  forest: LayoutRect;
+  roads?: any[];
+  cityBounds?: LayoutRect;
+}) {
   const trees = useMemo((): TreePlacement[] => {
     const out: TreePlacement[] = [];
     const step = 20; // Increased density: grid step reduced from 32 to 20
@@ -503,6 +511,11 @@ export function InstancedForestTrees({ forest, roads = [] }: { forest: LayoutRec
         const tx = x + (seededRng(s + 1) - 0.5) * step * 0.8;
         const tz = z + (seededRng(s + 2) - 0.5) * step * 0.8;
         
+        // Filter out if on the lake side (positive Z beyond the city boundary)
+        if (cityBounds && tz > cityBounds.maxZ) {
+          continue;
+        }
+
         // Filter out if too close to any road segment
         if (isPointOnRoad(tx, tz, roads, 8.0)) continue;
 
@@ -514,7 +527,7 @@ export function InstancedForestTrees({ forest, roads = [] }: { forest: LayoutRec
       }
     }
     return out.slice(0, 1500); // Increased cap from 720 to 1500
-  }, [forest, roads]);
+  }, [forest, roads, cityBounds]);
 
   // Group trees by style index deterministically
   const treesByStyle = useMemo(() => {

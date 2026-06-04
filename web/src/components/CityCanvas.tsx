@@ -257,6 +257,7 @@ interface CityCanvasProps {
   startInStreetMode?: boolean;
   /** When true, canvas fills the viewport (for fullscreen gameplay) */
   fullHeight?: boolean;
+  initialBiome?: "alpine" | "canyon" | "volcanic" | "tundra" | "cyberpunk";
 }
 
 const BIOME_ENV_THEMES = {
@@ -355,13 +356,14 @@ export function CityCanvas({
   carVariant = DEFAULT_CAR_VARIANT,
   startInStreetMode = false,
   fullHeight = false,
+  initialBiome = "cyberpunk",
 }: CityCanvasProps) {
   const [geoGenSettings, setGeoGenSettings] = useState({
-    theme: "cyberpunk" as "alpine" | "canyon" | "volcanic" | "tundra" | "cyberpunk",
+    theme: initialBiome,
     snow: true,
     wire: false,
     hScale: 1.0,
-    seedOffset: 0,
+    seedOffset: useMemo(() => Math.floor(Math.random() * 100000), []),
   });
   const [showGeoGen, setShowGeoGen] = useState(false);
 
@@ -944,75 +946,12 @@ export function CityCanvas({
               </div>
             </div>
 
-            {/* Height Scale */}
-            <div>
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-[9px] uppercase tracking-wider text-purple-400/80">
-                  Height Scale
-                </span>
-                <span className="text-pink-300 font-bold text-[10px]">
-                  {geoGenSettings.hScale.toFixed(1)}x
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0.5}
-                max={1.8}
-                step={0.1}
-                value={geoGenSettings.hScale}
-                onChange={(e) =>
-                  setGeoGenSettings((prev) => ({
-                    ...prev,
-                    hScale: Number(e.target.value),
-                  }))
-                }
-                className="w-full accent-pink-500 cursor-pointer h-1 rounded bg-purple-950/50"
-              />
-            </div>
-
-            {/* Switches */}
-            <div className="flex items-center justify-between border-t border-purple-500/20 pt-2.5">
-              <span className="text-[9px] uppercase tracking-wider text-purple-400/80">
-                Snow Cap
-              </span>
-              <button
-                onClick={() =>
-                  setGeoGenSettings((prev) => ({ ...prev, snow: !prev.snow }))
-                }
-                className={`rounded-lg px-2 py-0.5 text-[9px] border ${
-                  geoGenSettings.snow
-                    ? "border-pink-500/40 bg-pink-500/15 text-white"
-                    : "border-purple-500/20 bg-black/40 text-purple-400"
-                }`}
-              >
-                {geoGenSettings.snow ? "ON" : "OFF"}
-              </button>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-[9px] uppercase tracking-wider text-purple-400/80">
-                Wireframe
-              </span>
-              <button
-                onClick={() =>
-                  setGeoGenSettings((prev) => ({ ...prev, wire: !prev.wire }))
-                }
-                className={`rounded-lg px-2 py-0.5 text-[9px] border ${
-                  geoGenSettings.wire
-                    ? "border-pink-500/40 bg-pink-500/15 text-white"
-                    : "border-purple-500/20 bg-black/40 text-purple-400"
-                }`}
-              >
-                {geoGenSettings.wire ? "ON" : "OFF"}
-              </button>
-            </div>
-
             {/* Seed offset generator */}
             <button
               onClick={() =>
                 setGeoGenSettings((prev) => ({
                   ...prev,
-                  seedOffset: Math.floor(Math.random() * 10000),
+                  seedOffset: Math.floor(Math.random() * 100000),
                 }))
               }
               className="w-full py-1.5 mt-1 rounded-xl border border-purple-500/40 bg-purple-500/15 text-[10px] text-purple-200 hover:bg-purple-500/25 transition text-center"

@@ -19,7 +19,11 @@ export function SectorCityTerrain({
 }) {
   return (
     <>
-      <InstancedForestTrees forest={layout.forest} roads={layout.roads} />
+      <InstancedForestTrees
+        forest={layout.forest}
+        roads={layout.roads}
+        cityBounds={layout.cityBounds}
+      />
       <CityLake lake={layout.lake} />
       <CentralParkTerrain park={layout.park} />
       <BatchedGridRoads

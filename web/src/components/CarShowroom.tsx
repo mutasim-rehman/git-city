@@ -299,13 +299,16 @@ export function CarShowroom({
   cityLabel,
 }: {
   initialCar?: CarVariant;
-  onStart: (car: CarVariant) => void;
+  onStart: (car: CarVariant, biome: "alpine" | "canyon" | "volcanic" | "tundra" | "cyberpunk") => void;
   cityLabel?: string;
 }) {
   const [idx, setIdx] = React.useState(() => Math.max(0, CAR_VARIANTS.indexOf(initialCar)));
   const variant = CAR_VARIANTS[idx] ?? DEFAULT_CAR_VARIANT;
   const cfg = CAR_CONFIGS[variant];
   const stats = React.useMemo(() => getCarStats(variant), [variant]);
+
+  const [selectedBiome, setSelectedBiome] = React.useState<"alpine" | "canyon" | "volcanic" | "tundra" | "cyberpunk">("cyberpunk");
+
   const [garageScale, setGarageScale] = React.useState(GARAGE_PRESET.scale);
   const [garagePos, setGaragePos] = React.useState<[number, number, number]>(GARAGE_PRESET.position);
   const [garageRotY, setGarageRotY] = React.useState(0);
@@ -353,13 +356,13 @@ export function CarShowroom({
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code === "ArrowRight") setIdx((i) => (i + 1) % CAR_VARIANTS.length);
       if (e.code === "ArrowLeft") setIdx((i) => (i - 1 + CAR_VARIANTS.length) % CAR_VARIANTS.length);
-      if (e.code === "Enter") onStart(variant);
+      if (e.code === "Enter") onStart(variant, selectedBiome);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [onStart, variant]);
+  }, [onStart, variant, selectedBiome]);
 
   const { active, progress } = useProgress();
 
@@ -431,11 +434,34 @@ export function CarShowroom({
             <StatBar label="Handle" value={stats.handling} />
           </div>
 
+          {/* Biome Preset selection */}
+          <div className="mt-4 border-t border-purple-500/20 pt-3">
+            <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-pink-300/80 mb-2">
+              Select Biome Preset
+            </p>
+            <div className="grid grid-cols-2 gap-1 font-mono text-[9px]">
+              {(["alpine", "canyon", "volcanic", "tundra", "cyberpunk"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setSelectedBiome(t)}
+                  className={`rounded-lg py-1 px-1.5 text-center border transition ${
+                    selectedBiome === t
+                      ? "border-pink-500/50 bg-pink-500/20 text-white font-semibold shadow-[0_0_8px_rgba(236,72,153,0.25)]"
+                      : "border-purple-500/20 bg-purple-500/5 text-purple-300/80 hover:bg-purple-500/10"
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="mt-4 flex items-center gap-2">
             <button
               type="button"
               className="inline-flex h-10 flex-1 items-center justify-center rounded-xl border border-pink-400/60 bg-pink-500/15 px-4 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-50 shadow-[0_0_20px_rgba(236,72,153,0.35)] transition hover:bg-pink-500/25"
-              onClick={() => onStart(variant)}
+              onClick={() => onStart(variant, selectedBiome)}
             >
               Drive
             </button>

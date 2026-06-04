@@ -26,6 +26,7 @@ export default function Home() {
   const [layoutResult, setLayoutResult] = useState<CityLayoutResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [carVariant, setCarVariant] = useState<CarVariant>(DEFAULT_CAR_VARIANT);
+  const [selectedBiome, setSelectedBiome] = useState<"alpine" | "canyon" | "volcanic" | "tundra" | "cyberpunk">("cyberpunk");
   const [playerName, setPlayerName] = useState("");
   const [bootMessage, setBootMessage] = useState("Loading city data…");
   const [bootProgress, setBootProgress] = useState(0);
@@ -139,13 +140,14 @@ export default function Home() {
           <CarShowroom
             initialCar={carVariant}
             cityLabel={selectedCity.toUpperCase()}
-            onStart={(car) => {
+            onStart={(car, biome) => {
               const cleaned = playerName.trim();
               if (!cleaned) {
                 setError("Enter a player name before starting.");
                 return;
               }
               setCarVariant(car);
+              setSelectedBiome(biome);
               setFade("out");
               setPhase("transition");
               // Fullscreen request during user gesture
@@ -203,6 +205,7 @@ export default function Home() {
             layoutResult={layoutResult}
             playerName={playerName.trim() || "player"}
             carVariant={carVariant}
+            initialBiome={selectedBiome}
             startInStreetMode
             fullHeight
           />

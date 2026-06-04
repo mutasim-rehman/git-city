@@ -328,10 +328,10 @@ export function Mountains({
     const result: MountainPeak[] = [];
     let seed = 1;
     const bands = [
-      { rMin: cityEdge,        rMax: cityEdge + 540,  rangeCount: 5, spread: 0.22, minPeaks: 1, maxPeaks: 2, hMin: 110, hMax: 240, wMin: 260, wMax: 420, profileMin: 0.58, profileMax: 0.88, snowMin: 0.94, snowMax: 0.99, treeMin: 0.18, treeMax: 0.30, vistaPad: 0.08 },
-      { rMin: cityEdge + 260,  rMax: cityEdge + 1100, rangeCount: 5, spread: 0.24, minPeaks: 1, maxPeaks: 2, hMin: 240, hMax: 420, wMin: 320, wMax: 500, profileMin: 0.82, profileMax: 1.18, snowMin: 0.68, snowMax: 0.82, treeMin: 0.24, treeMax: 0.38, vistaPad: 0.10 },
-      { rMin: cityEdge + 900,  rMax: cityEdge + 2100, rangeCount: 6, spread: 0.28, minPeaks: 1, maxPeaks: 2, hMin: 420, hMax: 700, wMin: 380, wMax: 620, profileMin: 0.95, profileMax: 1.48, snowMin: 0.56, snowMax: 0.72, treeMin: 0.18, treeMax: 0.31, vistaPad: 0.12 },
-      { rMin: cityEdge + 1800, rMax: cityEdge + 3600, rangeCount: 4, spread: 0.32, minPeaks: 1, maxPeaks: 2, hMin: 700, hMax: 1060, wMin: 520, wMax: 760, profileMin: 1.08, profileMax: 1.62, snowMin: 0.46, snowMax: 0.62, treeMin: 0.14, treeMax: 0.24, vistaPad: 0.16 },
+      { rMin: cityEdge,        rMax: cityEdge + 540,  rangeCount: 8, spread: 0.22, minPeaks: 1, maxPeaks: 3, hMin: 110, hMax: 240, wMin: 260, wMax: 420, profileMin: 0.58, profileMax: 0.88, snowMin: 0.94, snowMax: 0.99, treeMin: 0.18, treeMax: 0.30, vistaPad: 0.08 },
+      { rMin: cityEdge + 260,  rMax: cityEdge + 1100, rangeCount: 8, spread: 0.24, minPeaks: 1, maxPeaks: 3, hMin: 240, hMax: 420, wMin: 320, wMax: 500, profileMin: 0.82, profileMax: 1.18, snowMin: 0.68, snowMax: 0.82, treeMin: 0.24, treeMax: 0.38, vistaPad: 0.10 },
+      { rMin: cityEdge + 900,  rMax: cityEdge + 2100, rangeCount: 9, spread: 0.28, minPeaks: 1, maxPeaks: 3, hMin: 420, hMax: 700, wMin: 380, wMax: 620, profileMin: 0.95, profileMax: 1.48, snowMin: 0.56, snowMax: 0.72, treeMin: 0.18, treeMax: 0.31, vistaPad: 0.12 },
+      { rMin: cityEdge + 1800, rMax: cityEdge + 3600, rangeCount: 7, spread: 0.32, minPeaks: 1, maxPeaks: 3, hMin: 700, hMax: 1060, wMin: 520, wMax: 760, profileMin: 1.08, profileMax: 1.62, snowMin: 0.46, snowMax: 0.62, treeMin: 0.14, treeMax: 0.24, vistaPad: 0.16 },
     ];
 
     for (const band of bands) {
@@ -347,14 +347,22 @@ export function Mountains({
           const primary = peakIdx === 0;
           const shoulderScale = primary ? 1 : 0.52 + seededRng(seed + 44 + peakIdx) * 0.28;
           const angleOffset = primary ? 0 : (seededRng(seed + 55 + peakIdx) - 0.5) * band.spread;
-          const radialOffset = primary ? 0 : (seededRng(seed + 66 + peakIdx) - 0.35) * (band.rMax - band.rMin) * 0.14;
           const angle = normalizeAngle(anchorAngle + angleOffset);
+
+          // Lake is on positive Z side (South). Skip peaks in the sector [0.15 * PI, 0.85 * PI]
+          if (angle > 0.15 * Math.PI && angle < 0.85 * Math.PI) {
+            continue;
+          }
+
+          const radialOffset = primary ? 0 : (seededRng(seed + 66 + peakIdx) - 0.35) * (band.rMax - band.rMin) * 0.14;
           const r = THREE.MathUtils.clamp(anchorRadius + radialOffset, band.rMin, band.rMax);
-          const height = (band.hMin + seededRng(seed + 77 + peakIdx) * (band.hMax - band.hMin)) * shoulderScale;
-          const baseRadius = (band.wMin + seededRng(seed + 88 + peakIdx) * (band.wMax - band.wMin)) * (primary ? 1 : 0.82 + seededRng(seed + 99 + peakIdx) * 0.16);
-          const profile = band.profileMin + seededRng(seed + 111 + peakIdx) * (band.profileMax - band.profileMin);
-          
+
+          // Randomize parameters using peakSeed (incorporating the random seedOffset)
           const peakSeed = seed * 0.07 + peakIdx * 1.13 + 1.3 + seedOffset;
+          const height = (band.hMin + seededRng(peakSeed * 10 + 77) * (band.hMax - band.hMin)) * shoulderScale;
+          const baseRadius = (band.wMin + seededRng(peakSeed * 10 + 88) * (band.wMax - band.wMin)) * (primary ? 1 : 0.82 + seededRng(peakSeed * 10 + 99) * 0.16);
+          const profile = band.profileMin + seededRng(peakSeed * 10 + 111) * (band.profileMax - band.profileMin);
+          
           const geo = buildRealisticMountain(baseRadius, height, profile, peakSeed, theme, snow, hScale);
           result.push({
             x: Math.cos(angle) * r,
@@ -375,8 +383,8 @@ export function Mountains({
   return (
     <group>
       {peaks.map((p, i) => {
-        // Position on ground (local Y offset)
-        const worldY = p.height / 2 - 12;
+        // Place bases flat at ground level (y = -3)
+        const worldY = -3;
 
         return (
           <group key={i} position={[p.x, worldY, p.z]}>
