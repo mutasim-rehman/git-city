@@ -10,41 +10,41 @@ import { seededRng } from "@/components/city/utils/seededRng";
 // ─── Sakura Cherry Blossom color palette ──────────────────────────────────────
 export const TREE_COLORS = {
   // ── Trunks — warm dark brown bark tones ────────────────────────────────────
-  trunk:        "#5C3A21",   // trunk base bark
-  trunkDark:    "#3E2412",   // deep shadowed bark
-  trunkLight:   "#7A5235",   // light highlighted bark
-  trunkShadow:  "#2B1408",   // dark trunk base crevice shadow
+  trunk: "#5C3A21",   // trunk base bark
+  trunkDark: "#3E2412",   // deep shadowed bark
+  trunkLight: "#7A5235",   // light highlighted bark
+  trunkShadow: "#2B1408",   // dark trunk base crevice shadow
 
   // ── Ground ────────────────────────────────────────────────────────────────
-  parkGround:       "#4A7A35",   // mowed lawn
-  parkGroundEdge:   "#3D6628",
-  forestGround:     "#1F2E14",   // damp forest floor
+  parkGround: "#4A7A35",   // mowed lawn
+  parkGroundEdge: "#3D6628",
+  forestGround: "#1F2E14",   // damp forest floor
   forestGroundEdge: "#2D3D1A",
 
   // ── Sakura foliage — layered pink tones ────────────────────────────────────
-  sakuraDark:       "#B54D73",   // deep pink/magenta interior shadow
-  sakuraMid:        "#FFAEC9",   // classic cherry blossom pink
-  sakuraLight:      "#FFD3E2",   // sunlit light pink
-  sakuraWhite:      "#FFF0F5",   // sun highlight / white pink
+  sakuraDark: "#B54D73",   // deep pink/magenta interior shadow
+  sakuraMid: "#FFAEC9",   // classic cherry blossom pink
+  sakuraLight: "#FFD3E2",   // sunlit light pink
+  sakuraWhite: "#FFF0F5",   // sun highlight / white pink
 
   // ── Legacy colors mapped to Sakura palette for backward compatibility ──
-  foliageDark:    "#B54D73",
-  foliageMid:     "#FFAEC9",
-  foliageLight:   "#FFD3E2",
-  foliageYellow:  "#FFF0F5",
-  foliageUnder:   "#994B68",
+  foliageDark: "#B54D73",
+  foliageMid: "#FFAEC9",
+  foliageLight: "#FFD3E2",
+  foliageYellow: "#FFF0F5",
+  foliageUnder: "#994B68",
 
-  coniferDark:    "#B54D73",
-  coniferMid:     "#FFAEC9",
-  coniferLight:   "#FFD3E2",
+  coniferDark: "#B54D73",
+  coniferMid: "#FFAEC9",
+  coniferLight: "#FFD3E2",
 
-  medianDark:     "#B54D73",
-  medianMid:      "#FFAEC9",
-  medianLight:    "#FFD3E2",
+  medianDark: "#B54D73",
+  medianMid: "#FFAEC9",
+  medianLight: "#FFD3E2",
 } as const;
 
 export type TreeColorKey = keyof typeof TREE_COLORS;
-export type TreeDetail   = "full" | "lite";
+export type TreeDetail = "full" | "lite";
 
 // Seeded HSL color jittering utility for instanced rendering
 export function getJitteredColor(
@@ -83,18 +83,18 @@ export function makePixelClump(
   w: number, h: number, d: number,
 ): THREE.BufferGeometry {
   const geometries: THREE.BufferGeometry[] = [];
-  
+
   // Main body
   geometries.push(makeBoxGeo(w, h, d, cx, cy, cz));
-  
+
   // Side steps (fluffier)
   geometries.push(makeBoxGeo(w * 0.55, h * 0.85, d * 0.85, cx - w * 0.35, cy, cz));
   geometries.push(makeBoxGeo(w * 0.55, h * 0.85, d * 0.85, cx + w * 0.35, cy, cz));
-  
+
   // Top/bottom steps (fluffier)
   geometries.push(makeBoxGeo(w * 0.85, h * 0.4, d * 0.85, cx, cy + h * 0.35, cz));
   geometries.push(makeBoxGeo(w * 0.85, h * 0.4, d * 0.85, cx, cy - h * 0.35, cz));
-  
+
   // Front/back steps (fluffier)
   geometries.push(makeBoxGeo(w * 0.85, h * 0.85, d * 0.55, cx, cy, cz - d * 0.35));
   geometries.push(makeBoxGeo(w * 0.85, h * 0.85, d * 0.55, cx, cy, cz + d * 0.35));
@@ -476,7 +476,7 @@ export function InstancedTreesGroup({
   canopyMidKey,
   canopyLightKey,
 }: InstancedTreesGroupProps) {
-  const trunkRef    = useRef<THREE.InstancedMesh>(null);
+  const trunkRef = useRef<THREE.InstancedMesh>(null);
   const canopyBotRef = useRef<THREE.InstancedMesh>(null);
   const canopyMidRef = useRef<THREE.InstancedMesh>(null);
   const canopyTopRef = useRef<THREE.InstancedMesh>(null);
@@ -486,16 +486,16 @@ export function InstancedTreesGroup({
     return getCachedTreeGeometries()[styleIndex]!;
   }, [styleIndex]);
 
-  const trunkMat    = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.98, metalness: 0, flatShading: true }), []);
+  const trunkMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.98, metalness: 0, flatShading: true }), []);
   const canopyBotMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.92, metalness: 0, flatShading: true }), []);
   const canopyMidMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.92, metalness: 0, flatShading: true }), []);
   const canopyTopMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.92, metalness: 0, flatShading: true }), []);
 
   useLayoutEffect(() => {
     const trunk = trunkRef.current;
-    const bot   = canopyBotRef.current;
-    const mid   = canopyMidRef.current;
-    const top   = canopyTopRef.current;
+    const bot = canopyBotRef.current;
+    const mid = canopyMidRef.current;
+    const top = canopyTopRef.current;
     if (!trunk || !bot || !mid || !top) return;
 
     for (let i = 0; i < trees.length; i++) {
@@ -539,10 +539,10 @@ export function InstancedTreesGroup({
     }
 
     trunk.count = bot.count = mid.count = top.count = trees.length;
-    
+
     trunk.instanceMatrix.needsUpdate = bot.instanceMatrix.needsUpdate =
-      mid.instanceMatrix.needsUpdate  = top.instanceMatrix.needsUpdate = true;
-      
+      mid.instanceMatrix.needsUpdate = top.instanceMatrix.needsUpdate = true;
+
     if (trunk.instanceColor) trunk.instanceColor.needsUpdate = true;
     if (bot.instanceColor) bot.instanceColor.needsUpdate = true;
     if (mid.instanceColor) mid.instanceColor.needsUpdate = true;
@@ -551,7 +551,7 @@ export function InstancedTreesGroup({
 
   return (
     <group>
-      <instancedMesh ref={trunkRef}    args={[trunkGeo,     trunkMat,     trees.length]} castShadow receiveShadow />
+      <instancedMesh ref={trunkRef} args={[trunkGeo, trunkMat, trees.length]} castShadow receiveShadow />
       <instancedMesh ref={canopyBotRef} args={[canopyBotGeo, canopyBotMat, trees.length]} castShadow receiveShadow />
       <instancedMesh ref={canopyMidRef} args={[canopyMidGeo, canopyMidMat, trees.length]} castShadow receiveShadow />
       <instancedMesh ref={canopyTopRef} args={[canopyTopGeo, canopyTopMat, trees.length]} castShadow receiveShadow />
@@ -566,7 +566,7 @@ export function InstancedForestTreesGroup({
   styleIndex: number;
   trees: TreePlacement[];
 }) {
-  const trunkRef    = useRef<THREE.InstancedMesh>(null);
+  const trunkRef = useRef<THREE.InstancedMesh>(null);
   const canopyBotRef = useRef<THREE.InstancedMesh>(null);
   const canopyMidRef = useRef<THREE.InstancedMesh>(null);
   const canopyTopRef = useRef<THREE.InstancedMesh>(null);
@@ -576,16 +576,16 @@ export function InstancedForestTreesGroup({
     return getCachedConiferGeometries()[styleIndex]!;
   }, [styleIndex]);
 
-  const trunkMat    = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.98, metalness: 0, flatShading: true }), []);
+  const trunkMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.98, metalness: 0, flatShading: true }), []);
   const canopyBotMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.92, metalness: 0, flatShading: true }), []);
   const canopyMidMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.92, metalness: 0, flatShading: true }), []);
   const canopyTopMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.92, metalness: 0, flatShading: true }), []);
 
   useLayoutEffect(() => {
     const trunk = trunkRef.current;
-    const bot   = canopyBotRef.current;
-    const mid   = canopyMidRef.current;
-    const top   = canopyTopRef.current;
+    const bot = canopyBotRef.current;
+    const mid = canopyMidRef.current;
+    const top = canopyTopRef.current;
     if (!trunk || !bot || !mid || !top) return;
 
     for (let i = 0; i < trees.length; i++) {
@@ -647,10 +647,10 @@ export function InstancedForestTreesGroup({
     }
 
     trunk.count = bot.count = mid.count = top.count = trees.length;
-    
+
     trunk.instanceMatrix.needsUpdate = bot.instanceMatrix.needsUpdate =
-      mid.instanceMatrix.needsUpdate  = top.instanceMatrix.needsUpdate = true;
-      
+      mid.instanceMatrix.needsUpdate = top.instanceMatrix.needsUpdate = true;
+
     if (trunk.instanceColor) trunk.instanceColor.needsUpdate = true;
     if (bot.instanceColor) bot.instanceColor.needsUpdate = true;
     if (mid.instanceColor) mid.instanceColor.needsUpdate = true;
@@ -659,7 +659,7 @@ export function InstancedForestTreesGroup({
 
   return (
     <group>
-      <instancedMesh ref={trunkRef}    args={[trunkGeo,     trunkMat,     trees.length]} castShadow receiveShadow />
+      <instancedMesh ref={trunkRef} args={[trunkGeo, trunkMat, trees.length]} castShadow receiveShadow />
       <instancedMesh ref={canopyBotRef} args={[canopyBotGeo, canopyBotMat, trees.length]} castShadow receiveShadow />
       <instancedMesh ref={canopyMidRef} args={[canopyMidGeo, canopyMidMat, trees.length]} castShadow receiveShadow />
       <instancedMesh ref={canopyTopRef} args={[canopyTopGeo, canopyTopMat, trees.length]} castShadow receiveShadow />
@@ -685,11 +685,11 @@ export function InstancedForestTrees({
     for (let x = forest.minX; x < forest.maxX; x += step) {
       for (let z = forest.minZ; z < forest.maxZ; z += step) {
         const s = x * 0.13 + z * 0.17;
-        if (seededRng(s) > 0.85) continue; // Keep 85% of grid positions for highly dense cover
-        
+        if (seededRng(s) > 0.25) continue; // Keep 85% of grid positions for highly dense cover
+
         const tx = x + (seededRng(s + 1) - 0.5) * step * 0.85;
         const tz = z + (seededRng(s + 2) - 0.5) * step * 0.85;
-        
+
         // Filter out if on the lake side (positive Z beyond the city boundary)
         if (tz > cityBounds.maxZ) {
           continue;
@@ -751,15 +751,15 @@ export function InstancedMedianTrees({ belts, roads = [] }: { belts: LayoutRect[
     const out: RoadIntersection[] = [];
     const vertical = roads.filter(r => Math.abs(r.x1 - r.x2) < 0.1);
     const horizontal = roads.filter(r => Math.abs(r.z1 - r.z2) < 0.1);
-    
+
     for (const v of vertical) {
       const minVz = Math.min(v.z1, v.z2);
       const maxVz = Math.max(v.z1, v.z2);
-      
+
       for (const h of horizontal) {
         const minHx = Math.min(h.x1, h.x2);
         const maxHx = Math.max(h.x1, h.x2);
-        
+
         if (
           v.x1 >= minHx - 0.1 && v.x1 <= maxHx + 0.1 &&
           h.z1 >= minVz - 0.1 && h.z1 <= maxVz + 0.1
@@ -782,12 +782,12 @@ export function InstancedMedianTrees({ belts, roads = [] }: { belts: LayoutRect[
       const belt = belts[bi]!;
       const { x, z, w, d } = rectCenter(belt);
       const alongX = w > d;
-      const span   = alongX ? w : d;
-      const count  = Math.max(4, Math.floor(span / 16)); // Increased count: divide span by 16 instead of 28
+      const span = alongX ? w : d;
+      const count = Math.max(4, Math.floor(span / 16)); // Increased count: divide span by 16 instead of 28
       for (let i = 0; i < count; i++) {
-        const t      = (i + 0.5) / count;
+        const t = (i + 0.5) / count;
         const jitter = (seededRng(bi * 100 + i) - 0.5) * 8;
-        
+
         const tx = alongX ? belt.minX + t * w + jitter : x + (seededRng(bi + i * 5) - 0.5) * (w * 0.35);
         const tz = alongX ? z + (seededRng(bi + i * 3) - 0.5) * (d * 0.35) : belt.minZ + t * d + jitter;
         const scale = alongX ? 1.0 + seededRng(i * 17) * 0.7 : 1.0 + seededRng(i * 19) * 0.7;
@@ -934,14 +934,14 @@ function createGrassTexture() {
     const maxBladeHeight = 13.5 - distFromCenter * 0.85 + Math.sin(c * 2) * 1.5;
     const height = Math.max(4, Math.floor(maxBladeHeight));
     const bendDir = c < 8 ? -1 : 1;
-    
+
     let currentX = c;
     for (let r = rows - 1; r >= rows - height; r--) {
       const heightFrac = (rows - 1 - r) / height;
       if (heightFrac > 0.4 && Math.random() < 0.5) {
         currentX += bendDir;
       }
-      
+
       const drawX = Math.max(0, Math.min(cols - 1, currentX));
       const colorSeed = (c * 7 + r * 13) % colors.length;
       ctx.fillStyle = colors[colorSeed]!;
@@ -960,15 +960,15 @@ export function InstancedMedianGrass({ belts, roads = [] }: { belts: LayoutRect[
     const out: RoadIntersection[] = [];
     const vertical = roads.filter((r) => Math.abs(r.x1 - r.x2) < 0.1);
     const horizontal = roads.filter((r) => Math.abs(r.z1 - r.z2) < 0.1);
-    
+
     for (const v of vertical) {
       const minVz = Math.min(v.z1, v.z2);
       const maxVz = Math.max(v.z1, v.z2);
-      
+
       for (const h of horizontal) {
         const minHx = Math.min(h.x1, h.x2);
         const maxHx = Math.max(h.x1, h.x2);
-        
+
         if (
           v.x1 >= minHx - 0.1 && v.x1 <= maxHx + 0.1 &&
           h.z1 >= minVz - 0.1 && h.z1 <= maxVz + 0.1
@@ -988,10 +988,10 @@ export function InstancedMedianGrass({ belts, roads = [] }: { belts: LayoutRect[
   const grassGeo = useMemo(() => {
     const p1 = new THREE.PlaneGeometry(2.4, 2.4);
     p1.translate(0, 1.2, 0); // pivot at base
-    
+
     const p2 = p1.clone();
     p2.rotateY(Math.PI / 2);
-    
+
     const merged = mergeGeometries([p1, p2], false);
     p1.dispose();
     p2.dispose();
@@ -1013,7 +1013,7 @@ export function InstancedMedianGrass({ belts, roads = [] }: { belts: LayoutRect[
 
   const grassInstances = useMemo(() => {
     const out: { x: number; z: number; scale: number; rotY: number }[] = [];
-    
+
     // Spacing of 2.2 units along the length
     const spacing = 2.2;
 
@@ -1021,23 +1021,23 @@ export function InstancedMedianGrass({ belts, roads = [] }: { belts: LayoutRect[
       const belt = belts[bi]!;
       const { x, z, w, d } = rectCenter(belt);
       const alongX = w > d;
-      const span   = alongX ? w : d;
-      const count  = Math.max(6, Math.floor(span / spacing));
+      const span = alongX ? w : d;
+      const count = Math.max(6, Math.floor(span / spacing));
 
       for (let i = 0; i < count; i++) {
         const t = (i + 0.5) / count;
-        
+
         // Random placement with jitter inside the median width of 12 (up to ±4.5 units)
-        const perpOffset = (seededRng(bi * 123 + i) - 0.5) * 8.5; 
+        const perpOffset = (seededRng(bi * 123 + i) - 0.5) * 8.5;
         const alongJitter = (seededRng(bi * 231 + i) - 0.5) * 1.0;
 
-        const tx = alongX 
-          ? belt.minX + t * w + alongJitter 
+        const tx = alongX
+          ? belt.minX + t * w + alongJitter
           : x + perpOffset;
-        const tz = alongX 
-          ? z + perpOffset 
+        const tz = alongX
+          ? z + perpOffset
           : belt.minZ + t * d + alongJitter;
-        
+
         // Filter out intersections
         if (isInsideIntersection(tx, tz, intersections, 36.0)) continue;
 
@@ -1172,7 +1172,7 @@ function drawPixelFlower(ctx: CanvasRenderingContext2D, type: "daisy" | "poppy" 
     ctx.fillStyle = "#60a5fa"; // light blue-400
     ctx.fillRect(7 * blockW, 4 * blockH, 2 * blockW, 1 * blockH);
     ctx.fillRect(6 * blockW, 6 * blockH, 4 * blockW, 1 * blockH);
-    
+
     // Purple center
     ctx.fillStyle = "#a855f7"; // purple-500
     ctx.fillRect(7 * blockW, 5 * blockH, 2 * blockW, 1 * blockH);
@@ -1182,7 +1182,7 @@ function drawPixelFlower(ctx: CanvasRenderingContext2D, type: "daisy" | "poppy" 
     ctx.fillRect(6 * blockW, 4 * blockH, 4 * blockW, 2 * blockH);
     ctx.fillRect(7 * blockW, 3 * blockH, 2 * blockW, 4 * blockH);
     ctx.fillRect(5 * blockW, 5 * blockH, 6 * blockW, 1 * blockH);
-    
+
     ctx.fillStyle = "#f59e0b"; // amber-500
     ctx.fillRect(7 * blockW, 4 * blockH, blockW, blockH);
     ctx.fillRect(8 * blockW, 5 * blockH, blockW, blockH);
@@ -1211,7 +1211,7 @@ export function InstancedMedianFlowers({ belts, roads = [] }: { belts: LayoutRec
     const out: RoadIntersection[] = [];
     const vertical = roads.filter((r) => Math.abs(r.x1 - r.x2) < 0.1);
     const horizontal = roads.filter((r) => Math.abs(r.z1 - r.z2) < 0.1);
-    
+
     for (const v of vertical) {
       const minVz = Math.min(v.z1, v.z2);
       const maxVz = Math.max(v.z1, v.z2);
@@ -1265,23 +1265,23 @@ export function InstancedMedianFlowers({ belts, roads = [] }: { belts: LayoutRec
       const belt = belts[bi]!;
       const { x, z, w, d } = rectCenter(belt);
       const alongX = w > d;
-      const span   = alongX ? w : d;
-      const count  = Math.max(4, Math.floor(span / spacing));
+      const span = alongX ? w : d;
+      const count = Math.max(4, Math.floor(span / spacing));
 
       for (let i = 0; i < count; i++) {
         const t = (i + 0.5) / count;
-        
+
         // Random placement inside the median bounds
-        const perpOffset = (seededRng(bi * 345 + i) - 0.5) * 8.5; 
+        const perpOffset = (seededRng(bi * 345 + i) - 0.5) * 8.5;
         const alongJitter = (seededRng(bi * 543 + i) - 0.5) * 1.5;
 
-        const tx = alongX 
-          ? belt.minX + t * w + alongJitter 
+        const tx = alongX
+          ? belt.minX + t * w + alongJitter
           : x + perpOffset;
-        const tz = alongX 
-          ? z + perpOffset 
+        const tz = alongX
+          ? z + perpOffset
           : belt.minZ + t * d + alongJitter;
-        
+
         // Filter out intersections
         if (isInsideIntersection(tx, tz, intersections, 36.0)) continue;
 
@@ -1355,4 +1355,4 @@ export function InstancedMedianFlowers({ belts, roads = [] }: { belts: LayoutRec
 export function MedianFlowers({ belts, roads = [] }: { belts: LayoutRect[]; roads?: any[] }) {
   return <InstancedMedianFlowers belts={belts} roads={roads} />;
 }
-
+
