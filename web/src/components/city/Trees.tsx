@@ -239,6 +239,76 @@ export function getCachedTreeGeometries() {
   return cachedGeometries;
 }
 
+export function generateConiferGeometriesForStyle(style: number): {
+  trunkGeo: THREE.BufferGeometry;
+  canopyBotGeo: THREE.BufferGeometry;
+  canopyMidGeo: THREE.BufferGeometry;
+  canopyTopGeo: THREE.BufferGeometry;
+} {
+  const trunkParts: THREE.BufferGeometry[] = [];
+  const botParts: THREE.BufferGeometry[] = [];
+  const midParts: THREE.BufferGeometry[] = [];
+  const topParts: THREE.BufferGeometry[] = [];
+
+  // Scaling helper to make the canopy fluffier and larger
+  const S = (v: number) => v * 1.15;
+
+  if (style === 0) {
+    // Style 0: Standard tall pine
+    trunkParts.push(makeBoxGeo(0.6, 6.5, 0.6, 0, 3.25, 0));
+    botParts.push(makePixelClump(0, S(3.2), 0, S(4.0), S(1.5), S(4.0)));
+    midParts.push(makePixelClump(0, S(4.7), 0, S(3.0), S(1.5), S(3.0)));
+    topParts.push(makePixelClump(0, S(6.2), 0, S(1.8), S(1.5), S(1.8)));
+    topParts.push(makeBoxGeo(0.8, 1.2, 0.8, 0, S(7.3), 0));
+  } else if (style === 1) {
+    // Style 1: Shorter stout fir
+    trunkParts.push(makeBoxGeo(0.8, 5.0, 0.8, 0, 2.5, 0));
+    botParts.push(makePixelClump(0, S(2.4), 0, S(4.4), S(1.4), S(4.4)));
+    midParts.push(makePixelClump(0, S(3.8), 0, S(3.2), S(1.4), S(3.2)));
+    topParts.push(makePixelClump(0, S(5.2), 0, S(2.0), S(1.4), S(2.0)));
+    topParts.push(makeBoxGeo(0.8, 1.0, 0.8, 0, S(6.2), 0));
+  } else if (style === 2) {
+    // Style 2: Spiky larch
+    trunkParts.push(makeBoxGeo(0.5, 7.5, 0.5, 0, 3.75, 0));
+    botParts.push(makePixelClump(0, S(3.5), 0, S(3.4), S(1.6), S(3.4)));
+    midParts.push(makePixelClump(0, S(5.1), 0, S(2.4), S(1.6), S(2.4)));
+    topParts.push(makePixelClump(0, S(6.7), 0, S(1.4), S(1.6), S(1.4)));
+    topParts.push(makeBoxGeo(0.6, 1.2, 0.6, 0, S(8.0), 0));
+  } else {
+    // Style 3: Layered spruce
+    trunkParts.push(makeBoxGeo(0.7, 6.0, 0.7, 0, 3.0, 0));
+    botParts.push(makePixelClump(0, S(2.8), 0, S(3.8), S(1.2), S(3.8)));
+    midParts.push(makePixelClump(0, S(4.0), 0, S(2.8), S(1.2), S(2.8)));
+    topParts.push(makePixelClump(0, S(5.2), 0, S(1.8), S(1.2), S(1.8)));
+    topParts.push(makeBoxGeo(0.8, 1.0, 0.8, 0, S(6.2), 0));
+  }
+
+  const trunkGeo = mergeGeometries(trunkParts, false) ?? new THREE.BufferGeometry();
+  const canopyBotGeo = mergeGeometries(botParts, false) ?? new THREE.BufferGeometry();
+  const canopyMidGeo = mergeGeometries(midParts, false) ?? new THREE.BufferGeometry();
+  const canopyTopGeo = mergeGeometries(topParts, false) ?? new THREE.BufferGeometry();
+
+  for (const g of trunkParts) g.dispose();
+  for (const g of botParts) g.dispose();
+  for (const g of midParts) g.dispose();
+  for (const g of topParts) g.dispose();
+
+  return { trunkGeo, canopyBotGeo, canopyMidGeo, canopyTopGeo };
+}
+
+let cachedConiferGeometries: {
+  trunkGeo: THREE.BufferGeometry;
+  canopyBotGeo: THREE.BufferGeometry;
+  canopyMidGeo: THREE.BufferGeometry;
+  canopyTopGeo: THREE.BufferGeometry;
+}[] | null = null;
+
+export function getCachedConiferGeometries() {
+  if (cachedConiferGeometries) return cachedConiferGeometries;
+  cachedConiferGeometries = [0, 1, 2, 3].map(style => generateConiferGeometriesForStyle(style));
+  return cachedConiferGeometries;
+}
+
 export function getTreeStyleIndex(x: number, z: number): number {
   const raw = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453123;
   return Math.floor((raw - Math.floor(raw)) * 4);
@@ -489,6 +559,114 @@ export function InstancedTreesGroup({
   );
 }
 
+export function InstancedForestTreesGroup({
+  styleIndex,
+  trees,
+}: {
+  styleIndex: number;
+  trees: TreePlacement[];
+}) {
+  const trunkRef    = useRef<THREE.InstancedMesh>(null);
+  const canopyBotRef = useRef<THREE.InstancedMesh>(null);
+  const canopyMidRef = useRef<THREE.InstancedMesh>(null);
+  const canopyTopRef = useRef<THREE.InstancedMesh>(null);
+  const tmp = useMemo(() => new THREE.Object3D(), []);
+
+  const { trunkGeo, canopyBotGeo, canopyMidGeo, canopyTopGeo } = useMemo(() => {
+    return getCachedConiferGeometries()[styleIndex]!;
+  }, [styleIndex]);
+
+  const trunkMat    = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.98, metalness: 0, flatShading: true }), []);
+  const canopyBotMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.92, metalness: 0, flatShading: true }), []);
+  const canopyMidMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.92, metalness: 0, flatShading: true }), []);
+  const canopyTopMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.92, metalness: 0, flatShading: true }), []);
+
+  useLayoutEffect(() => {
+    const trunk = trunkRef.current;
+    const bot   = canopyBotRef.current;
+    const mid   = canopyMidRef.current;
+    const top   = canopyTopRef.current;
+    if (!trunk || !bot || !mid || !top) return;
+
+    for (let i = 0; i < trees.length; i++) {
+      const t = trees[i]!;
+      const s = t.scale;
+
+      // Unique rotation for each tree instance
+      const ry = seededRng(i * 7 + 1) * Math.PI * 2;
+
+      // Trunk
+      tmp.position.set(t.x, 0, t.z);
+      tmp.rotation.set(0, ry, 0);
+      tmp.scale.set(s, s * 1.5, s);
+      tmp.updateMatrix();
+      trunk.setMatrixAt(i, tmp.matrix);
+      trunk.setColorAt(i, getJitteredColor("#352010", i, 0.01, 0.08, 0.06));
+
+      // Deterministically choose a color theme for this tree: 0 = green, 1 = brown, 2 = orange
+      const colorType = Math.floor(seededRng(i * 19 + 5) * 3);
+      let colBot = "#1B321C"; // Dark spruce green
+      let colMid = "#2D542E"; // Forest green
+      let colTop = "#447C47"; // Pine needle light green
+
+      if (colorType === 1) {
+        // Brown / Copper
+        colBot = "#2C1E15";
+        colMid = "#4B3621";
+        colTop = "#705335";
+      } else if (colorType === 2) {
+        // Autumn Orange / Rust
+        colBot = "#4E1A07";
+        colMid = "#8F3D12";
+        colTop = "#C86B28";
+      }
+
+      // Bottom Layer
+      tmp.position.set(t.x, 0, t.z);
+      tmp.rotation.set(0, ry, 0);
+      tmp.scale.set(s, s * 1.5, s);
+      tmp.updateMatrix();
+      bot.setMatrixAt(i, tmp.matrix);
+      bot.setColorAt(i, getJitteredColor(colBot, i, 0.04, 0.12, 0.08));
+
+      // Mid Layer
+      tmp.position.set(t.x, 0, t.z);
+      tmp.rotation.set(0, ry, 0);
+      tmp.scale.set(s, s * 1.5, s);
+      tmp.updateMatrix();
+      mid.setMatrixAt(i, tmp.matrix);
+      mid.setColorAt(i, getJitteredColor(colMid, i, 0.04, 0.12, 0.08));
+
+      // Top Layer
+      tmp.position.set(t.x, 0, t.z);
+      tmp.rotation.set(0, ry, 0);
+      tmp.scale.set(s, s * 1.5, s);
+      tmp.updateMatrix();
+      top.setMatrixAt(i, tmp.matrix);
+      top.setColorAt(i, getJitteredColor(colTop, i, 0.05, 0.14, 0.10));
+    }
+
+    trunk.count = bot.count = mid.count = top.count = trees.length;
+    
+    trunk.instanceMatrix.needsUpdate = bot.instanceMatrix.needsUpdate =
+      mid.instanceMatrix.needsUpdate  = top.instanceMatrix.needsUpdate = true;
+      
+    if (trunk.instanceColor) trunk.instanceColor.needsUpdate = true;
+    if (bot.instanceColor) bot.instanceColor.needsUpdate = true;
+    if (mid.instanceColor) mid.instanceColor.needsUpdate = true;
+    if (top.instanceColor) top.instanceColor.needsUpdate = true;
+  }, [trees, tmp, styleIndex]);
+
+  return (
+    <group>
+      <instancedMesh ref={trunkRef}    args={[trunkGeo,     trunkMat,     trees.length]} castShadow receiveShadow />
+      <instancedMesh ref={canopyBotRef} args={[canopyBotGeo, canopyBotMat, trees.length]} castShadow receiveShadow />
+      <instancedMesh ref={canopyMidRef} args={[canopyMidGeo, canopyMidMat, trees.length]} castShadow receiveShadow />
+      <instancedMesh ref={canopyTopRef} args={[canopyTopGeo, canopyTopMat, trees.length]} castShadow receiveShadow />
+    </group>
+  );
+}
+
 // ─── Instanced Forest Trees ──────────────────────────────────────────────────
 
 export function InstancedForestTrees({
@@ -501,18 +679,26 @@ export function InstancedForestTrees({
   cityBounds?: LayoutRect;
 }) {
   const trees = useMemo((): TreePlacement[] => {
+    if (!cityBounds) return [];
     const out: TreePlacement[] = [];
-    const step = 20; // Increased density: grid step reduced from 32 to 20
+    const step = 8; // Highly dense forest spacing
     for (let x = forest.minX; x < forest.maxX; x += step) {
       for (let z = forest.minZ; z < forest.maxZ; z += step) {
         const s = x * 0.13 + z * 0.17;
-        if (seededRng(s) > 0.45) continue; // Keep more grid points (55% instead of 62% of a sparser grid)
+        if (seededRng(s) > 0.85) continue; // Keep 85% of grid positions for highly dense cover
         
-        const tx = x + (seededRng(s + 1) - 0.5) * step * 0.8;
-        const tz = z + (seededRng(s + 2) - 0.5) * step * 0.8;
+        const tx = x + (seededRng(s + 1) - 0.5) * step * 0.85;
+        const tz = z + (seededRng(s + 2) - 0.5) * step * 0.85;
         
         // Filter out if on the lake side (positive Z beyond the city boundary)
-        if (cityBounds && tz > cityBounds.maxZ) {
+        if (tz > cityBounds.maxZ) {
+          continue;
+        }
+
+        // Filter out if inside the city bounds (we only want forest outside the city)
+        const insideCityX = tx >= cityBounds.minX && tx <= cityBounds.maxX;
+        const insideCityZ = tz >= cityBounds.minZ && tz <= cityBounds.maxZ;
+        if (insideCityX && insideCityZ) {
           continue;
         }
 
@@ -522,11 +708,11 @@ export function InstancedForestTrees({
         out.push({
           x: tx,
           z: tz,
-          scale: 1.0 + seededRng(s + 3) * 1.3, // Larger base scale for forest trees
+          scale: 3.2 + seededRng(s + 3) * 2.8, // Tall trees for the border forest
         });
       }
     }
-    return out.slice(0, 1500); // Increased cap from 720 to 1500
+    return out.slice(0, 15000); // Increased cap to support extremely dense coverage
   }, [forest, roads, cityBounds]);
 
   // Group trees by style index deterministically
@@ -548,14 +734,10 @@ export function InstancedForestTrees({
         <meshStandardMaterial color={TREE_COLORS.forestGround} roughness={1.0} metalness={0} />
       </mesh>
       {treesByStyle.map((groupTrees, idx) => (
-        <InstancedTreesGroup
+        <InstancedForestTreesGroup
           key={idx}
           styleIndex={idx}
           trees={groupTrees}
-          trunkColorKey="trunkDark"
-          canopyDarkKey="coniferDark"
-          canopyMidKey="coniferMid"
-          canopyLightKey="coniferLight"
         />
       ))}
     </group>

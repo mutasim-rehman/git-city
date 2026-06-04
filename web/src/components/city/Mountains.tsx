@@ -175,6 +175,9 @@ function buildRealisticMountain(
   theme: keyof typeof BIOMES,
   snowEnabled: boolean,
   hScaleMult: number,
+  peakX: number,
+  peakZ: number,
+  cityBounds: LayoutRect,
 ): THREE.BufferGeometry {
   const SEGS = 36;
   const SIZE = baseRadius * 2.2;
@@ -188,23 +191,48 @@ function buildRealisticMountain(
   const B = BIOMES[theme] || BIOMES.alpine;
   const hs = height * hScaleMult;
 
+  const spacing = SIZE / SEGS;
+  const stepSize = 12; // Height steps in world units
+
   for (let i = 0; i < N; i++) {
     const x = pos.getX(i);
     const z = pos.getZ(i);
 
-    const nx = (x / SIZE) * 3.8;
-    const nz = (z / SIZE) * 3.8;
+    // Quantize horizontal positions to create flat voxel squares (Minecraft style)
+    const qx = Math.round(x / spacing) * spacing;
+    const qz = Math.round(z / spacing) * spacing;
+
+    const nx = (qx / SIZE) * 3.8;
+    const nz = (qz / SIZE) * 3.8;
 
     let raw = warpedH(nx, nz, seed);
     raw = Math.pow(Math.max(0, raw), 1.12);
 
-    const d = Math.sqrt(x * x + z * z) / (SIZE * 0.5);
+    const d = Math.sqrt(qx * qx + qz * qz) / (SIZE * 0.5);
     const fall = 1 - Math.pow(Math.max(0, Math.min(1, d * 1.08)), 2.2);
     const shore = Math.pow(fall, 1.5);
 
-    const h = raw * shore * hs;
+    let h = raw * shore * hs;
+
+    // Absolute world coordinates
+    const worldX = peakX + qx;
+    const worldZ = peakZ + qz;
+
+    // Carve out if inside the city bounds (plus 20 units safety buffer)
+    const insideCityX = worldX >= cityBounds.minX - 20 && worldX <= cityBounds.maxX + 20;
+    const insideCityZ = worldZ >= cityBounds.minZ - 20 && worldZ <= cityBounds.maxZ + 20;
+
+    if (insideCityX && insideCityZ) {
+      h = 0; // Force height to 0 to keep it below the city floor
+    } else {
+      // Stepped height quantization (Minecraft style)
+      h = Math.round(h / stepSize) * stepSize;
+    }
+
     hArr[i] = h;
+    pos.setX(i, qx);
     pos.setY(i, h);
+    pos.setZ(i, qz);
   }
 
   geom.computeVertexNormals();
@@ -316,22 +344,21 @@ export function Mountains({
   const peaks = useMemo<MountainPeak[]>(() => {
     const halfW = (cityBounds.maxX - cityBounds.minX) / 2;
     const halfD = (cityBounds.maxZ - cityBounds.minZ) / 2;
-    let cityEdge = Math.max(halfW, halfD) + 80;
+    let cityEdge = Math.max(halfW, halfD) + 120; // 120 is the FOREST_BUFFER
     for (const b of buildings) {
       const centerDist = Math.sqrt(b.x * b.x + b.z * b.z);
       const footprintRadius = Math.hypot(b.width, b.depth) * 0.75;
-      cityEdge = Math.max(cityEdge, centerDist + footprintRadius);
+      cityEdge = Math.max(cityEdge, centerDist + footprintRadius + 120);
     }
-
-    cityEdge += 520;
 
     const result: MountainPeak[] = [];
     let seed = 1;
+    // Dense and overlapping bands to create a solid boundary wall of mountains
     const bands = [
-      { rMin: cityEdge,        rMax: cityEdge + 540,  rangeCount: 8, spread: 0.22, minPeaks: 1, maxPeaks: 3, hMin: 110, hMax: 240, wMin: 260, wMax: 420, profileMin: 0.58, profileMax: 0.88, snowMin: 0.94, snowMax: 0.99, treeMin: 0.18, treeMax: 0.30, vistaPad: 0.08 },
-      { rMin: cityEdge + 260,  rMax: cityEdge + 1100, rangeCount: 8, spread: 0.24, minPeaks: 1, maxPeaks: 3, hMin: 240, hMax: 420, wMin: 320, wMax: 500, profileMin: 0.82, profileMax: 1.18, snowMin: 0.68, snowMax: 0.82, treeMin: 0.24, treeMax: 0.38, vistaPad: 0.10 },
-      { rMin: cityEdge + 900,  rMax: cityEdge + 2100, rangeCount: 9, spread: 0.28, minPeaks: 1, maxPeaks: 3, hMin: 420, hMax: 700, wMin: 380, wMax: 620, profileMin: 0.95, profileMax: 1.48, snowMin: 0.56, snowMax: 0.72, treeMin: 0.18, treeMax: 0.31, vistaPad: 0.12 },
-      { rMin: cityEdge + 1800, rMax: cityEdge + 3600, rangeCount: 7, spread: 0.32, minPeaks: 1, maxPeaks: 3, hMin: 700, hMax: 1060, wMin: 520, wMax: 760, profileMin: 1.08, profileMax: 1.62, snowMin: 0.46, snowMax: 0.62, treeMin: 0.14, treeMax: 0.24, vistaPad: 0.16 },
+      { rMin: cityEdge,        rMax: cityEdge + 250,  rangeCount: 20, spread: 0.22, minPeaks: 2, maxPeaks: 4, hMin: 120, hMax: 260, wMin: 280, wMax: 440, profileMin: 0.58, profileMax: 0.88, snowMin: 0.94, snowMax: 0.99, treeMin: 0.18, treeMax: 0.30, vistaPad: 0.08 },
+      { rMin: cityEdge + 150,  rMax: cityEdge + 600,  rangeCount: 20, spread: 0.24, minPeaks: 2, maxPeaks: 4, hMin: 260, hMax: 480, wMin: 380, wMax: 580, profileMin: 0.82, profileMax: 1.18, snowMin: 0.68, snowMax: 0.82, treeMin: 0.24, treeMax: 0.38, vistaPad: 0.10 },
+      { rMin: cityEdge + 450,  rMax: cityEdge + 1200, rangeCount: 16, spread: 0.28, minPeaks: 2, maxPeaks: 3, hMin: 480, hMax: 800, wMin: 500, wMax: 800, profileMin: 0.95, profileMax: 1.48, snowMin: 0.56, snowMax: 0.72, treeMin: 0.18, treeMax: 0.31, vistaPad: 0.12 },
+      { rMin: cityEdge + 1000, rMax: cityEdge + 2200, rangeCount: 12, spread: 0.32, minPeaks: 2, maxPeaks: 3, hMin: 800, hMax: 1200, wMin: 700, wMax: 1100, profileMin: 1.08, profileMax: 1.62, snowMin: 0.46, snowMax: 0.62, treeMin: 0.14, treeMax: 0.24, vistaPad: 0.16 },
     ];
 
     for (const band of bands) {
@@ -363,10 +390,12 @@ export function Mountains({
           const baseRadius = (band.wMin + seededRng(peakSeed * 10 + 88) * (band.wMax - band.wMin)) * (primary ? 1 : 0.82 + seededRng(peakSeed * 10 + 99) * 0.16);
           const profile = band.profileMin + seededRng(peakSeed * 10 + 111) * (band.profileMax - band.profileMin);
           
-          const geo = buildRealisticMountain(baseRadius, height, profile, peakSeed, theme, snow, hScale);
+          const peakX = Math.cos(angle) * r;
+          const peakZ = Math.sin(angle) * r;
+          const geo = buildRealisticMountain(baseRadius, height, profile, peakSeed, theme, snow, hScale, peakX, peakZ, cityBounds);
           result.push({
-            x: Math.cos(angle) * r,
-            z: Math.sin(angle) * r,
+            x: peakX,
+            z: peakZ,
             height,
             baseRadius,
             profile,
@@ -394,8 +423,9 @@ export function Mountains({
                 roughness={0.87}
                 metalness={0.03}
                 bumpMap={bumpTex || undefined}
-                bumpScale={0.55}
+                bumpScale={0.28}
                 wireframe={wire}
+                flatShading={true}
               />
             </mesh>
           </group>
