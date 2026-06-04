@@ -946,19 +946,6 @@ export function CityCanvas({
                 ))}
               </div>
             </div>
-
-            {/* Seed offset generator */}
-            <button
-              onClick={() =>
-                setGeoGenSettings((prev) => ({
-                  ...prev,
-                  seedOffset: Math.floor(Math.random() * 100000),
-                }))
-              }
-              className="w-full py-1.5 mt-1 rounded-xl border border-purple-500/40 bg-purple-500/15 text-[10px] text-purple-200 hover:bg-purple-500/25 transition text-center"
-            >
-              ⟳ Regenerate Seeds
-            </button>
           </div>
         </div>
       )}
