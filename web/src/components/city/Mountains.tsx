@@ -7,365 +7,312 @@ import type { LayoutRect } from "@/lib/city/layout";
 import { normalizeAngle } from "@/components/city/utils/normalizeAngle";
 import { seededRng } from "@/components/city/utils/seededRng";
 
-function fbm(x: number, z: number, octaves: number, seed: number): number {
-  let val = 0, amp = 1, freq = 1, total = 0;
-  for (let o = 0; o < octaves; o++) {
-    val   += Math.sin(x * freq + seed * 1.3 + o * 2.7) * Math.cos(z * freq - seed * 0.9 + o * 1.8) * amp;
-    val   += Math.sin((x + z) * freq * 0.7 + seed * 2.1 + o) * amp * 0.5;
-    total += amp; amp *= 0.52; freq *= 2.17;
+const fract = (x: number): number => x - Math.floor(x);
+
+function h21(x: number, y: number): [number, number] {
+  const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return [fract(h), fract(h * 1.3172)];
+}
+
+function gradN(x: number, y: number): number {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const fx = x - ix;
+  const fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+
+  const g = (gx: number, gy: number, dx: number, dy: number): number => {
+    const [hx] = h21(gx, gy);
+    const a = hx * Math.PI * 4;
+    return Math.cos(a) * dx + Math.sin(a) * dy;
+  };
+
+  return (
+    g(ix, iy, fx, fy) * (1 - ux) * (1 - uy) +
+    g(ix + 1, iy, fx - 1, fy) * ux * (1 - uy) +
+    g(ix, iy + 1, fx, fy - 1) * (1 - ux) * uy +
+    g(ix + 1, iy + 1, fx - 1, fy - 1) * ux * uy
+  ) * 0.5 + 0.5;
+}
+
+function fbm(x: number, y: number, oct = 7, lac = 2.07, gain = 0.46): number {
+  let v = 0, a = 1, f = 1, s = 0;
+  for (let i = 0; i < oct; i++) {
+    v += a * gradN(x * f, y * f);
+    s += a;
+    a *= gain;
+    f *= lac;
   }
-  return val / total;
+  return v / s;
 }
 
-/** Ridged noise — inverted absolute-value gives sharp mountain ridgelines */
-function ridgedFbm(x: number, z: number, octaves: number, seed: number): number {
-  let val = 0, amp = 1, freq = 1, total = 0;
-  for (let o = 0; o < octaves; o++) {
-    const n = 1 - Math.abs(Math.sin(x * freq + seed * 1.7 + o * 3.1) * Math.cos(z * freq - seed * 1.1 + o * 2.3));
-    val += n * amp; total += amp; amp *= 0.5; freq *= 2.1;
+function ridgeFbm(x: number, y: number, oct = 6): number {
+  let v = 0, a = 0.5, f = 1, s = 0, prev = 1;
+  for (let i = 0; i < oct; i++) {
+    let n = 1 - Math.abs(2 * gradN(x * f, y * f) - 1);
+    n = n * n * prev;
+    prev = n;
+    v += a * n;
+    s += a;
+    a *= 0.48;
+    f *= 2.25;
   }
-  return val / total;
+  return v / s;
 }
 
-function lerpColor(a: number[], b: number[], t: number): number[] {
-  const tc = Math.max(0, Math.min(1, t));
-  return [a[0] + (b[0] - a[0]) * tc, a[1] + (b[1] - a[1]) * tc, a[2] + (b[2] - a[2]) * tc];
+function warpedH(x: number, y: number, seed: number): number {
+  const s = seed * 0.01;
+  // Optimize octaves: coordinate warping only needs low frequency structure (3 octaves)
+  const q1 = fbm(x + s, y + s + 1.7, 3);
+  const q2 = fbm(x + s + 3.2, y + s + 5.8, 3);
+  const r1 = fbm(x + 3.8 * q1 + 1.7 + s, y + 3.8 * q2 + 9.2 + s, 3);
+  const r2 = fbm(x + 3.8 * q1 + 8.3 + s, y + 3.8 * q2 + 2.8 + s, 3);
+  // Final composite
+  const warped = fbm(x + 3.5 * r1, y + 3.5 * r2, 5) * 0.42 + ridgeFbm(x * 1.05 + s * 0.3, y * 1.05 + s * 0.3, 5) * 0.58;
+  return warped;
 }
 
-interface MountainGeoResult {
-  mainGeo: THREE.BufferGeometry;
-  snowGeo: THREE.BufferGeometry;
-  screeGeo: THREE.BufferGeometry;
+function ss(a: number, b: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+
+export interface BiomeLayer {
+  h: number;
+  c: string;
+}
+
+export interface BiomeConfig {
+  sky: string;
+  fog: string;
+  fogD: number;
+  sun: string;
+  sunI: number;
+  sunP: [number, number, number];
+  hemi: [string, string];
+  hemiI: number;
+  wCol: number;
+  wOp: number;
+  layers: BiomeLayer[];
+}
+
+export const BIOMES: Record<string, BiomeConfig> = {
+  alpine: {
+    sky: "#3d6e96", fog: "#6899bb", fogD: 0.0038,
+    sun: "#fff4d8", sunI: 2.3, sunP: [130, 65, -85],
+    hemi: ["#bbd5f2", "#3a3628"], hemiI: 0.5,
+    wCol: 0x132e46, wOp: 0.83,
+    layers: [
+      { h: -2, c: "#7a8e78" }, { h: 2, c: "#968b6a" }, { h: 6, c: "#556a38" },
+      { h: 13, c: "#2d4522" }, { h: 21, c: "#544e44" }, { h: 30, c: "#48433e" }, { h: 40, c: "#f6faff" }
+    ]
+  },
+  canyon: {
+    sky: "#b06838", fog: "#c07848", fogD: 0.003,
+    sun: "#ffd080", sunI: 2.6, sunP: [90, 38, 65],
+    hemi: ["#e8b880", "#5a2c1a"], hemiI: 0.55,
+    wCol: 0x142218, wOp: 0.78,
+    layers: [
+      { h: -2, c: "#3e2008" }, { h: 2, c: "#7a3a18" }, { h: 8, c: "#9c5228" },
+      { h: 16, c: "#b86835" }, { h: 24, c: "#8a4a28" }, { h: 32, c: "#5c3820" }, { h: 42, c: "#d8b890" }
+    ]
+  },
+  volcanic: {
+    sky: "#120604", fog: "#1e0a06", fogD: 0.007,
+    sun: "#ff6020", sunI: 2.1, sunP: [55, 90, 35],
+    hemi: ["#3a1808", "#060200"], hemiI: 0.28,
+    wCol: 0x280600, wOp: 0.92,
+    layers: [
+      { h: -2, c: "#100302" }, { h: 2, c: "#1c0705" }, { h: 7, c: "#160502" },
+      { h: 14, c: "#2e0e06" }, { h: 22, c: "#200a04" }, { h: 30, c: "#130402" }, { h: 40, c: "#ff3808" }
+    ]
+  },
+  tundra: {
+    sky: "#c0d0e0", fog: "#d0e0ee", fogD: 0.0045,
+    sun: "#e0ecff", sunI: 1.5, sunP: [200, 22, -110],
+    hemi: ["#cce4ff", "#585e50"], hemiI: 0.52,
+    wCol: 0x08161e, wOp: 0.86,
+    layers: [
+      { h: -2, c: "#3c4432" }, { h: 2, c: "#525a44" }, { h: 6, c: "#445238" },
+      { h: 12, c: "#606858" }, { h: 20, c: "#888e86" }, { h: 29, c: "#b8c0b8" }, { h: 38, c: "#ecf2f8" }
+    ]
+  },
+  cyberpunk: {
+    sky: "#110726", fog: "#2a0f3a", fogD: 0.004,
+    sun: "#ff77b7", sunI: 2.0, sunP: [120, 60, -90],
+    hemi: ["#ec4899", "#1e1b4b"], hemiI: 0.6,
+    wCol: 0x0f172a, wOp: 0.85,
+    layers: [
+      { h: -2, c: "#0c0a1c" }, { h: 2, c: "#1e153b" }, { h: 8, c: "#311042" },
+      { h: 16, c: "#6d1b7d" }, { h: 24, c: "#be185d" }, { h: 32, c: "#db2777" }, { h: 42, c: "#fbcfe8" }
+    ]
+  }
+};
+
+function lerpCol(layers: BiomeLayer[], h: number): THREE.Color {
+  for (let i = layers.length - 1; i >= 0; i--) {
+    const cur = layers[i];
+    if (h >= cur.h) {
+      if (i < layers.length - 1) {
+        const nxt = layers[i + 1];
+        const t = ss(cur.h, nxt.h, h);
+        const ca = new THREE.Color(cur.c);
+        const cb = new THREE.Color(nxt.c);
+        return ca.lerp(cb, t);
+      }
+      return new THREE.Color(cur.c);
+    }
+  }
+  return new THREE.Color(layers[0].c);
 }
 
 function buildRealisticMountain(
-  baseRadius: number, height: number, profile: number, seed: number,
-  snowFrac: number, treeFrac: number,
-): MountainGeoResult {
-  const RADIAL = 72; const HEIGHT = 52; const halfH = height / 2;
+  baseRadius: number,
+  height: number,
+  profile: number,
+  seed: number,
+  theme: keyof typeof BIOMES,
+  snowEnabled: boolean,
+  hScaleMult: number,
+): THREE.BufferGeometry {
+  const SEGS = 36;
+  const SIZE = baseRadius * 2.2;
+  const geom = new THREE.PlaneGeometry(SIZE, SIZE, SEGS, SEGS);
+  geom.rotateX(-Math.PI / 2);
 
-  // Per-mountain personality
-  const mainRidgeCount  = 2 + Math.floor(seededRng(seed + 90) * 3);
-  const mainRidgeAmp    = 0.18 + seededRng(seed + 91) * 0.22;
-  const secondaryRidges = 5 + Math.floor(seededRng(seed + 95) * 6);
-  const secondaryAmp    = 0.07 + seededRng(seed + 96) * 0.10;
-  const tiltAngle       = seededRng(seed + 92) * Math.PI * 2;
-  const tiltAmt         = seededRng(seed + 93) * 0.10;
-  const cliffSide       = seededRng(seed + 94) * Math.PI * 2;
-  const cliffSharpness  = 0.18 + seededRng(seed + 97) * 0.38;
-  const snowVariance    = 0.06 + seededRng(seed + 98) * 0.09;
-  const windDir         = seededRng(seed + 100) * Math.PI * 2;
-  const mineralTint     = seededRng(seed + 101);
-  const wetSide         = seededRng(seed + 102) * Math.PI * 2;
-  const strataFreq      = 4 + Math.floor(seededRng(seed + 103) * 5);
-  const strataAmp       = 0.013 + seededRng(seed + 104) * 0.022;
-  // FIX 3: Big spur ridges radiating from base
-  const spurCount       = 3 + Math.floor(seededRng(seed + 110) * 4);
-  const spurPhase       = seededRng(seed + 111) * Math.PI * 2;
-  const spurStrength    = 0.28 + seededRng(seed + 112) * 0.38;
-  // Per-mountain footprint lobe shape (glacial carving)
-  const lobeCount       = 2 + Math.floor(seededRng(seed + 113) * 3);
-  const lobePhase       = seededRng(seed + 114) * Math.PI * 2;
-  const lobeStrength    = 0.22 + seededRng(seed + 115) * 0.30;
+  const pos = geom.attributes.position;
+  const N = pos.count;
+  const hArr = new Float32Array(N);
 
-  const C = {
-    bedrock:    [0.13, 0.11, 0.10],
-    darkRock:   [0.18, 0.16, 0.14],
-    wetRock:    [0.14, 0.13, 0.12],
-    rock:       [0.36, 0.32, 0.27],
-    lightRock:  [0.52, 0.47, 0.40],
-    ironRock:   [0.45, 0.29, 0.18],
-    scree:      [0.40, 0.36, 0.31],
-    screeLight: [0.54, 0.49, 0.42],
-    alpine:     [0.26, 0.33, 0.19],
-    alpineWet:  [0.17, 0.27, 0.14],
-    treeLine:   [0.10, 0.23, 0.10],
-    lichen:     [0.46, 0.49, 0.30],
-    snow:       [0.91, 0.93, 0.97],
-    snowShadow: [0.76, 0.82, 0.91],
-    corniceSnow:[0.94, 0.96, 0.99],
-    iceShadow:  [0.66, 0.74, 0.88],
-  };
+  const B = BIOMES[theme] || BIOMES.alpine;
+  const hs = height * hScaleMult;
 
-  const positions: number[] = []; const colors: number[] = []; const indices: number[] = [];
+  for (let i = 0; i < N; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
 
-  for (let hRing = 0; hRing <= HEIGHT; hRing++) {
-    const t = hRing / HEIGHT;
-    const vy = -halfH + t * height;
-    const profileT = Math.pow(t, profile);
-    const ringRadius = baseRadius * (1 - profileT);
+    const nx = (x / SIZE) * 3.8;
+    const nz = (z / SIZE) * 3.8;
 
-    for (let a = 0; a <= RADIAL; a++) {
-      const angle = (a / RADIAL) * Math.PI * 2;
-      const ca = Math.cos(angle); const sa = Math.sin(angle);
+    let raw = warpedH(nx, nz, seed);
+    raw = Math.pow(Math.max(0, raw), 1.12);
 
-      // ── FIX 2 & 3: Base irregularity ─────────────────────────────────────
-      // Spur ridges: sharp lobes radiating outward from the base, fading with height
-      // Use power curve so effect is strong at base and gone by ~half-height
-      const baseWeight = Math.pow(Math.max(0, 1 - t * 1.8), 2.2);
+    const d = Math.sqrt(x * x + z * z) / (SIZE * 0.5);
+    const fall = 1 - Math.pow(Math.max(0, Math.min(1, d * 1.08)), 2.2);
+    const shore = Math.pow(fall, 1.5);
 
-      // Glacial cirque lobes (large, sweeping concavities/convexities at the foot)
-      const lobeFactor = Math.cos(angle * lobeCount + lobePhase) * lobeStrength * baseWeight;
-
-      // Spur ridges (narrower, sharper features like buttresses)
-      const spurFactor = Math.max(0, Math.sin(angle * spurCount + spurPhase)) * spurStrength * baseWeight;
-
-      // Large-amplitude base footprint noise (was ~17%, now up to 55% at base)
-      const footprintNoise = fbm(ca * 1.6, sa * 1.6, 6, seed * 0.16 + 4) * 0.55 * baseWeight;
-
-      // Mid-slope erosion noise (unchanged from before)
-      const macroNoise  = fbm(ca * 2.1, sa * 2.1, 5, seed * 0.17) * 0.15 * (1 - t * 0.30);
-      const midNoise    = fbm(ca * 5.0 + t * 2, sa * 5.0 + t * 2, 4, seed * 0.29 + 3) * 0.06 * (1 - t * 0.20);
-      const microNoise  = fbm(ca * 12.0 + t * 5, sa * 12.0 + t * 5, 3, seed * 0.41 + 7) * 0.020;
-      const sharpRidge  = ridgedFbm(ca * 4.5 + t, sa * 4.5 + t, 3, seed * 0.55 + 11) * 0.045 * t;
-
-      // Ridge system
-      const ridgeFactor = 1
-        + Math.sin(angle * mainRidgeCount + seed * 1.9) * mainRidgeAmp * (1 - t * 0.50)
-        + Math.sin(angle * secondaryRidges + seed * 3.7) * secondaryAmp * (1 - t * 0.35)
-        + Math.sin(angle * secondaryRidges * 2.3 + seed * 5.9) * secondaryAmp * 0.35 * (1 - t * 0.20);
-
-      // Cliff face
-      const cliffDiff = Math.cos(angle - cliffSide);
-      const cliffPull = cliffDiff > 0 ? -cliffDiff * cliffSharpness * t * (1 - t) * 4.2 : 0;
-
-      // Combine: footprint dominates at base, ridges + macro dominate above
-      const r = ringRadius
-        * ridgeFactor
-        * (1 + macroNoise + midNoise + microNoise + sharpRidge + footprintNoise + lobeFactor)
-        + spurFactor * ringRadius
-        + cliffPull * ringRadius;
-
-      // Strata / terrace
-      const terraceFreq = 3 + Math.floor(seededRng(seed + 99) * 3);
-      const terrace     = Math.sin(t * Math.PI * terraceFreq + angle * 0.8 + seed) * height * 0.016 * (1 - t);
-      const strata      = Math.sin(t * Math.PI * strataFreq + seed * 0.7) * height * strataAmp * (1 - t * 0.5);
-      const midYNoise   = fbm(ca * 3, sa * 3, 4, seed * 0.23 + 2) * height * 0.030 * t;
-
-      // FIX 2: Y irregularity at the base — gullies and talus fans push base down
-      const baseGully   = fbm(ca * 4.5, sa * 4.5, 4, seed * 0.37 + 9) * height * 0.10 * baseWeight;
-      const yNoise      = midYNoise + terrace + strata - baseGully;
-
-      const tiltOffset = t * height * tiltAmt;
-      positions.push(
-        ca * r + Math.cos(tiltAngle) * tiltOffset,
-        vy + yNoise,
-        sa * r + Math.sin(tiltAngle) * tiltOffset,
-      );
-
-      // ── Vertex coloring ───────────────────────────────────────────────────
-      const cliffFace  = Math.max(0, cliffDiff) * (1 - t);
-      const wetFactor  = Math.max(0, Math.cos(angle - wetSide)) * 0.65;
-      const lichenVal  = Math.max(0, fbm(ca * 6.5, sa * 6.5, 3, seed * 0.5 + 2) * 0.5 + 0.25);
-      const mineralVal = Math.max(0, fbm(ca * 3.5, sa * 3.5, 2, seed * 0.4 + 13) * 0.5 + 0.1) * mineralTint;
-      const strataLine = Math.abs(Math.sin(t * Math.PI * strataFreq + seed * 0.7)) * 0.5;
-
-      const snowLineLocal = snowFrac
-        + Math.sin(angle * 5.3 + seed * 2.1) * snowVariance
-        + Math.cos(angle * 3.7 + seed * 1.4) * snowVariance * 0.5
-        + Math.cos(angle - windDir) * snowVariance * 0.28;
-
-      let color: number[];
-
-      if (t > snowLineLocal + 0.05) {
-        const windShadow = Math.max(0, Math.cos(angle - windDir + Math.PI)) * 0.30;
-        color = lerpColor(C.corniceSnow, C.iceShadow, cliffFace * 0.50 + windShadow);
-        if (cliffFace > 0.25) color = lerpColor(color, C.snowShadow, (cliffFace - 0.25) * 1.6);
-      } else if (t > snowLineLocal - 0.045) {
-        const blend      = Math.max(0, Math.min(1, (t - (snowLineLocal - 0.045)) / 0.095));
-        const patchNoise = fbm(ca * 9, sa * 9, 3, seed * 0.8 + 15) * 0.35 + 0.5;
-        const patchBlend = Math.max(0, Math.min(1, blend * patchNoise * 1.6));
-        const rockBase   = lerpColor(C.rock, C.lightRock, strataLine * 0.6);
-        color = lerpColor(rockBase, C.snow, patchBlend);
-        if (patchBlend < 0.45) color = lerpColor(color, C.ironRock, mineralVal * (1 - patchBlend) * 0.45);
-      } else if (t > treeFrac + 0.15) {
-        const rockBase   = lerpColor(C.rock, C.lightRock, strataLine * 0.65);
-        const stained    = lerpColor(rockBase, C.ironRock, mineralVal * 0.55);
-        const withLichen = lerpColor(stained, C.lichen, lichenVal * (1 - cliffFace) * 0.42 * (1 - t * 0.8));
-        color = withLichen;
-        if (wetFactor > 0.2)  color = lerpColor(color, C.wetRock, (wetFactor - 0.2) * 0.85);
-        if (cliffFace > 0.15) color = lerpColor(color, C.darkRock, Math.min(1, (cliffFace - 0.15) * 2.2));
-      } else if (t > treeFrac + 0.04) {
-        const blend = Math.max(0, Math.min(1, (t - (treeFrac + 0.04)) / 0.11));
-        color = lerpColor(C.alpine, lerpColor(C.rock, C.lightRock, strataLine * 0.4), blend);
-        if (wetFactor > 0.30) color = lerpColor(color, C.alpineWet, wetFactor * 0.55);
-      } else if (t > treeFrac - 0.04) {
-        const blend = Math.max(0, Math.min(1, (t - (treeFrac - 0.04)) / 0.08));
-        color = lerpColor(C.treeLine, C.alpine, blend);
-      } else if (t > 0.06) {
-        const forestNoise = fbm(ca * 4.5, sa * 4.5, 2, seed * 0.6 + 8) * 0.28;
-        color = lerpColor(C.treeLine, C.scree, Math.min(1, t / treeFrac * 0.55 + forestNoise * 0.2));
-      } else {
-        // Base / talus: warmer color variation from mineral deposits & exposed bedrock
-        color = lerpColor(C.scree, C.bedrock, 1 - t / 0.06);
-        color = lerpColor(color, C.darkRock, strataLine * 0.30);
-        color = lerpColor(color, C.ironRock, spurFactor * 0.35); // spur ridges = iron-stained
-      }
-
-      if (cliffFace > 0.2 && t < snowLineLocal) {
-        color = lerpColor(color, C.darkRock, Math.min(1, (cliffFace - 0.2) * 2.4));
-      }
-      const sideLight = Math.cos(angle + seed) * 0.04;
-      colors.push(
-        Math.max(0, Math.min(1, color[0] + sideLight)),
-        Math.max(0, Math.min(1, color[1] + sideLight)),
-        Math.max(0, Math.min(1, color[2] + sideLight)),
-      );
-    }
+    const h = raw * shore * hs;
+    hArr[i] = h;
+    pos.setY(i, h);
   }
 
-  // FIX 1: Apex must include the tilt offset (same as the top ring vertices)
-  const apexTiltX = Math.cos(tiltAngle) * height * tiltAmt;
-  const apexTiltZ = Math.sin(tiltAngle) * height * tiltAmt;
-  const apexIdx = (HEIGHT + 1) * (RADIAL + 1);
-  positions.push(apexTiltX, halfH, apexTiltZ);
-  colors.push(...C.corniceSnow);
+  geom.computeVertexNormals();
+  const normals = geom.attributes.normal;
+  const colors = new Float32Array(N * 3);
 
-  const bottomCenterIdx = apexIdx + 1;
-  // Bottom center is also irregular: pulled to the weighted centroid of base noise
-  // (keeping it simple: just use 0,0 but push it down a touch for better base silhouette)
-  positions.push(0, -halfH - height * 0.012, 0);
-  colors.push(...C.scree);
+  for (let i = 0; i < N; i++) {
+    const h = hArr[i];
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
 
-  for (let hRing = 0; hRing < HEIGHT; hRing++) {
-    for (let a = 0; a < RADIAL; a++) {
-      const row = hRing * (RADIAL + 1); const nextRow = (hRing + 1) * (RADIAL + 1);
-      indices.push(row + a, nextRow + a, nextRow + a + 1, row + a, nextRow + a + 1, row + a + 1);
+    const ny = Math.max(0.01, normals.getY(i));
+    const slope = 1 - ny;
+
+    const normH = hs > 0 ? (h / hs) * 42 : 0;
+    const col = lerpCol(B.layers, normH);
+
+    if (slope > 0.16) {
+      const rAmt = Math.min(1, (slope - 0.16) / 0.28);
+      const rCol = theme === "volcanic" ? new THREE.Color("#0e0301") : new THREE.Color("#353230");
+      col.lerp(rCol, rAmt * 0.92);
     }
-  }
-  const topRow = HEIGHT * (RADIAL + 1);
-  for (let a = 0; a < RADIAL; a++) indices.push(topRow + a, apexIdx, topRow + a + 1);
-  for (let a = 0; a < RADIAL; a++) indices.push(a, a + 1, bottomCenterIdx);
 
-  const mainGeo = new THREE.BufferGeometry();
-  mainGeo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  mainGeo.setAttribute("color",    new THREE.Float32BufferAttribute(colors, 3));
-  mainGeo.setIndex(indices);
-  mainGeo.computeVertexNormals();
-
-  // ── Snow Cap ─────────────────────────────────────────────────────────────────
-  const SNOW_RADIAL = 52; const SNOW_HEIGHT_RINGS = 20;
-  const snowStartT = snowFrac - 0.025;
-  const snowBaseY  = -halfH + snowStartT * height;
-  const snowCapH   = halfH - snowBaseY;
-  const snowPos: number[] = []; const snowColors: number[] = []; const snowIdx: number[] = [];
-
-  for (let sh = 0; sh <= SNOW_HEIGHT_RINGS; sh++) {
-    const st = sh / SNOW_HEIGHT_RINGS;
-    const sy = snowBaseY + st * snowCapH;
-    const globalT = snowStartT + st * (1 - snowStartT);
-    const sr = baseRadius * (1 - Math.pow(globalT, profile)) * 1.10;
-
-    for (let a = 0; a <= SNOW_RADIAL; a++) {
-      const angle = (a / SNOW_RADIAL) * Math.PI * 2;
-      const ca = Math.cos(angle); const sa2 = Math.sin(angle);
-      const edgeScale = sh === 0 ? 0.58 : 0.08 * (1 - st * 0.65);
-      const edgeJag   = fbm(ca * 5.5, sa2 * 5.5, 4, seed * 0.6 + 5 + sh * 0.5) * sr * edgeScale;
-      const leeward   = Math.max(0, Math.cos(angle - windDir + Math.PI)) * sr
-                        * (sh === 0 ? 0.20 : 0.055 * (1 - st));
-      const dune      = Math.sin(angle * 3.1 + seed * 2) * sr * 0.05 * (1 - st);
-      const snowR     = Math.max(0, sr * (1 - st * 0.28) + edgeJag + dune + leeward);
-      const tiltOff   = st * snowCapH * tiltAmt;
-      snowPos.push(
-        ca * snowR + Math.cos(tiltAngle) * tiltOff,
-        sy,
-        sa2 * snowR + Math.sin(tiltAngle) * tiltOff,
-      );
-      const shadowAmount = Math.max(0, Math.cos(angle - windDir + Math.PI)) * 0.28 + st * 0.08;
-      snowColors.push(...lerpColor(C.corniceSnow, C.snowShadow, shadowAmount));
+    if (snowEnabled && normH > 20) {
+      const wind = Math.max(0, (x * 0.65 + z * 0.35) / SIZE + 0.52);
+      const snowH = ss(20, 42 * 0.76, normH);
+      const slopeSnow = Math.max(0, 1 - slope * 3.8);
+      const cornice = Math.max(0, 1 - slope * 1.5) * ss(42 * 0.7, 42, normH) * 0.35;
+      const snowAmt = Math.min(1, (snowH * slopeSnow * (0.55 + wind * 0.45)) + cornice);
+      const snowC = theme === "tundra" ? new THREE.Color("#dce6f2") : new THREE.Color("#f4f8ff");
+      col.lerp(snowC, snowAmt);
     }
+
+    const micro = fbm(x * 1.4 + seed, z * 1.4 + seed, 3) * 0.14 - 0.07;
+    col.r = Math.max(0, Math.min(1, col.r + micro));
+    col.g = Math.max(0, Math.min(1, col.g + micro * 0.82));
+    col.b = Math.max(0, Math.min(1, col.b + micro * 0.64));
+
+    const wetness = Math.max(0, 1 - normH / 6) * 0.12;
+    col.r *= (1 - wetness);
+    col.g *= (1 - wetness);
+    col.b *= (1 - wetness);
+
+    colors[i * 3] = col.r;
+    colors[i * 3 + 1] = col.g;
+    colors[i * 3 + 2] = col.b;
   }
 
-  // FIX 1 (snow cap apex): match tilt of top snow ring
-  const snowApex = (SNOW_HEIGHT_RINGS + 1) * (SNOW_RADIAL + 1);
-  snowPos.push(apexTiltX, halfH + height * 0.018, apexTiltZ); // <-- fixed
-  snowColors.push(...C.corniceSnow);
-
-  for (let sh = 0; sh < SNOW_HEIGHT_RINGS; sh++) {
-    for (let a = 0; a < SNOW_RADIAL; a++) {
-      const row = sh * (SNOW_RADIAL + 1); const nr = (sh + 1) * (SNOW_RADIAL + 1);
-      snowIdx.push(row + a, nr + a, nr + a + 1, row + a, nr + a + 1, row + a + 1);
-    }
-  }
-  const sTopRow = SNOW_HEIGHT_RINGS * (SNOW_RADIAL + 1);
-  for (let a = 0; a < SNOW_RADIAL; a++) snowIdx.push(sTopRow + a, snowApex, sTopRow + a + 1);
-
-  const snowGeo = new THREE.BufferGeometry();
-  snowGeo.setAttribute("position", new THREE.Float32BufferAttribute(snowPos, 3));
-  snowGeo.setAttribute("color",    new THREE.Float32BufferAttribute(snowColors, 3));
-  snowGeo.setIndex(snowIdx);
-  snowGeo.computeVertexNormals();
-
-  // ── Scree Apron ───────────────────────────────────────────────────────────────
-  // FIX 2: Much more irregular Y and radial shape — no more flat concentric rings
-  const SCREE_RADIAL = 48;
-  const screePos: number[] = []; const screeColors: number[] = []; const screeIdx: number[] = [];
-  const screeInner = baseRadius * 0.62; const screeOuter = baseRadius * 1.48;
-
-  for (let ring = 0; ring <= 5; ring++) {
-    const rt  = ring / 5;
-    const rad = screeInner + rt * (screeOuter - screeInner);
-    for (let a = 0; a <= SCREE_RADIAL; a++) {
-      const angle = (a / SCREE_RADIAL) * Math.PI * 2;
-      const ca = Math.cos(angle); const sa2 = Math.sin(angle);
-
-      // Large irregular radial variation (fan-shaped talus cones)
-      const jag       = fbm(ca * 5, sa2 * 5, 5, seed * 0.3 + ring * 3.1) * rad * 0.28;
-      const microJag  = fbm(ca * 14, sa2 * 14, 2, seed * 0.6 + ring * 1.8 + 50) * rad * 0.06;
-      // Align scree fans with spur ridges (rock falls along spurs)
-      const spurAlign = Math.max(0, Math.sin(angle * spurCount + spurPhase)) * rad * 0.35 * (1 - rt * 0.5);
-
-      // FIX 2: Highly varied Y — talus fans slope unevenly, gullies cut between
-      const talFan    = fbm(ca * 3, sa2 * 3, 4, seed * 0.22 + ring * 2.4 + 8) * height * 0.09 * rt;
-      const gully     = Math.max(0, -fbm(ca * 6, sa2 * 6, 3, seed * 0.48 + ring + 15)) * height * 0.07 * rt;
-
-      screePos.push(
-        ca * (rad + jag + microJag + spurAlign),
-        -halfH - rt * height * 0.048 - talFan - gully - 1,
-        sa2 * (rad + jag + microJag + spurAlign),
-      );
-
-      const n      = fbm(ca * 5, sa2 * 5, 2, seed * 0.4 + ring * 2 + 20) * 0.5 + 0.5;
-      const sColor = lerpColor(
-        lerpColor(C.scree, C.screeLight, n * 0.55),
-        C.darkRock, rt * 0.18 + (1 - n) * 0.18,
-      );
-      screeColors.push(...sColor);
-    }
-  }
-
-  for (let ring = 0; ring < 5; ring++) {
-    for (let a = 0; a < SCREE_RADIAL; a++) {
-      const row = ring * (SCREE_RADIAL + 1); const nr = (ring + 1) * (SCREE_RADIAL + 1);
-      screeIdx.push(row + a, nr + a, nr + a + 1, row + a, nr + a + 1, row + a + 1);
-    }
-  }
-
-  const screeGeo = new THREE.BufferGeometry();
-  screeGeo.setAttribute("position", new THREE.Float32BufferAttribute(screePos, 3));
-  screeGeo.setAttribute("color",    new THREE.Float32BufferAttribute(screeColors, 3));
-  screeGeo.setIndex(screeIdx);
-  screeGeo.computeVertexNormals();
-
-  return { mainGeo, snowGeo, screeGeo };
+  geom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  return geom;
 }
 
-// ─── Mountain peaks + bands — unchanged ──────────────────────────────────────
 interface MountainPeak {
-  x: number; z: number; height: number; baseRadius: number;
-  snowFrac: number; treeFrac: number; profile: number;
-  mainGeo: THREE.BufferGeometry;
-  snowGeo: THREE.BufferGeometry;
-  screeGeo: THREE.BufferGeometry;
+  x: number;
+  z: number;
+  height: number;
+  baseRadius: number;
+  profile: number;
+  geo: THREE.BufferGeometry;
 }
 
 export function Mountains({
   buildings,
   cityBounds,
+  theme = "alpine",
+  snow = true,
+  wire = false,
+  hScale = 1.0,
+  seedOffset = 0,
 }: {
   buildings: PositionedBuilding[];
   cityBounds: LayoutRect;
+  theme?: keyof typeof BIOMES;
+  snow?: boolean;
+  wire?: boolean;
+  hScale?: number;
+  seedOffset?: number;
 }) {
+  const bumpTex = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    const size = 512;
+    const cv = document.createElement("canvas");
+    cv.width = size;
+    cv.height = size;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return null;
+    const img = ctx.createImageData(size, size);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const u = x / size;
+        const v = y / size;
+        const val = fbm(u * 20, v * 20, 5) * 0.6 + fbm(u * 80, v * 80, 3) * 0.4;
+        const pixelVal = Math.max(0, Math.min(255, val * 255));
+        const i = (y * size + x) * 4;
+        img.data[i] = pixelVal;
+        img.data[i + 1] = pixelVal;
+        img.data[i + 2] = pixelVal;
+        img.data[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    const t = new THREE.CanvasTexture(cv);
+    t.wrapS = THREE.RepeatWrapping;
+    t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(90, 90);
+    return t;
+  }, []);
+
   const peaks = useMemo<MountainPeak[]>(() => {
     const halfW = (cityBounds.maxX - cityBounds.minX) / 2;
     const halfD = (cityBounds.maxZ - cityBounds.minZ) / 2;
@@ -406,37 +353,42 @@ export function Mountains({
           const height = (band.hMin + seededRng(seed + 77 + peakIdx) * (band.hMax - band.hMin)) * shoulderScale;
           const baseRadius = (band.wMin + seededRng(seed + 88 + peakIdx) * (band.wMax - band.wMin)) * (primary ? 1 : 0.82 + seededRng(seed + 99 + peakIdx) * 0.16);
           const profile = band.profileMin + seededRng(seed + 111 + peakIdx) * (band.profileMax - band.profileMin);
-          const snowFrac = band.snowMin + seededRng(seed + 122 + peakIdx) * (band.snowMax - band.snowMin);
-          const treeFrac = band.treeMin + seededRng(seed + 133 + peakIdx) * (band.treeMax - band.treeMin);
-          const peakSeed = seed * 0.07 + peakIdx * 1.13 + 1.3;
-          const { mainGeo, snowGeo, screeGeo } = buildRealisticMountain(baseRadius, height, profile, peakSeed, snowFrac, treeFrac);
-          result.push({ x: Math.cos(angle) * r, z: Math.sin(angle) * r, height, baseRadius, snowFrac, treeFrac, profile, mainGeo, snowGeo, screeGeo });
+          
+          const peakSeed = seed * 0.07 + peakIdx * 1.13 + 1.3 + seedOffset;
+          const geo = buildRealisticMountain(baseRadius, height, profile, peakSeed, theme, snow, hScale);
+          result.push({
+            x: Math.cos(angle) * r,
+            z: Math.sin(angle) * r,
+            height,
+            baseRadius,
+            profile,
+            geo,
+          });
         }
       }
     }
     return result;
-  }, [buildings, cityBounds]);
+  }, [buildings, cityBounds, theme, snow, hScale, seedOffset]);
 
   if (!peaks.length) return null;
 
   return (
     <group>
       {peaks.map((p, i) => {
-        const worldY    = p.height / 2 - 12;
+        // Position on ground (local Y offset)
+        const worldY = p.height / 2 - 12;
 
         return (
           <group key={i} position={[p.x, worldY, p.z]}>
-
-            <mesh geometry={p.screeGeo} receiveShadow>
-              <meshLambertMaterial vertexColors />
-            </mesh>
-
-            <mesh geometry={p.mainGeo} receiveShadow>
-              <meshLambertMaterial vertexColors />
-            </mesh>
-
-            <mesh geometry={p.snowGeo} receiveShadow>
-              <meshLambertMaterial vertexColors />
+            <mesh geometry={p.geo} receiveShadow>
+              <meshStandardMaterial
+                vertexColors
+                roughness={0.87}
+                metalness={0.03}
+                bumpMap={bumpTex || undefined}
+                bumpScale={0.55}
+                wireframe={wire}
+              />
             </mesh>
           </group>
         );

@@ -32,7 +32,7 @@ import {
   Moon,
   MOON_LIGHT_LAYER,
 } from "@/components/city/Moon";
-import { Mountains } from "@/components/city/Mountains";
+import { Mountains, BIOMES } from "@/components/city/Mountains";
 import { Clouds } from "@/components/city/Clouds";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { OrbitCityCamera } from "@/components/city/CameraView";
@@ -259,6 +259,93 @@ interface CityCanvasProps {
   fullHeight?: boolean;
 }
 
+const BIOME_ENV_THEMES = {
+  alpine: {
+    sky: [
+      [0, "#05152a"],
+      [0.4, "#183e65"],
+      [0.8, "#3d6e96"],
+      [1, "#7bb5e2"],
+    ] as [number, string][],
+    fogColor: "#6899bb",
+    sunColor: "#fff4d8",
+    sunIntensity: 1.6,
+    ambientColor: "#bbd5f2",
+    ambientIntensity: 0.45,
+    hemiSky: "#bbd5f2",
+    hemiGround: "#3a3628",
+    hemiIntensity: 0.55,
+  },
+  canyon: {
+    sky: [
+      [0, "#1f0c03"],
+      [0.4, "#5a2c1a"],
+      [0.8, "#b06838"],
+      [1, "#e8b880"],
+    ] as [number, string][],
+    fogColor: "#c07848",
+    sunColor: "#ffd080",
+    sunIntensity: 1.8,
+    ambientColor: "#e8b880",
+    ambientIntensity: 0.5,
+    hemiSky: "#e8b880",
+    hemiGround: "#5a2c1a",
+    hemiIntensity: 0.6,
+  },
+  volcanic: {
+    sky: [
+      [0, "#000000"],
+      [0.4, "#0f0302"],
+      [0.8, "#2e0e06"],
+      [1, "#ff3808"],
+    ] as [number, string][],
+    fogColor: "#1e0a06",
+    sunColor: "#ff6020",
+    sunIntensity: 1.5,
+    ambientColor: "#3a1808",
+    ambientIntensity: 0.3,
+    hemiSky: "#3a1808",
+    hemiGround: "#060200",
+    hemiIntensity: 0.35,
+  },
+  tundra: {
+    sky: [
+      [0, "#0b121c"],
+      [0.4, "#3c4858"],
+      [0.8, "#c0d0e0"],
+      [1, "#e0ecff"],
+    ] as [number, string][],
+    fogColor: "#d0e0ee",
+    sunColor: "#e0ecff",
+    sunIntensity: 1.2,
+    ambientColor: "#cce4ff",
+    ambientIntensity: 0.45,
+    hemiSky: "#cce4ff",
+    hemiGround: "#585e50",
+    hemiIntensity: 0.5,
+  },
+  cyberpunk: {
+    sky: [
+      [0, "#05010f"],
+      [0.12, "#120523"],
+      [0.28, "#2a0a3d"],
+      [0.45, "#5b146a"],
+      [0.62, "#a21caf"],
+      [0.78, "#ff7a18"],
+      [0.9, "#fbbf24"],
+      [1, "#ffe4b5"],
+    ] as [number, string][],
+    fogColor: "#2a0f3a",
+    sunColor: "#ffd08a",
+    sunIntensity: 1.45,
+    ambientColor: "#ffb4c8",
+    ambientIntensity: 0.5,
+    hemiSky: "#ff77b7",
+    hemiGround: "#2a0f2f",
+    hemiIntensity: 0.6,
+  },
+};
+
 export function CityCanvas({
   city,
   buildings,
@@ -269,7 +356,31 @@ export function CityCanvas({
   startInStreetMode = false,
   fullHeight = false,
 }: CityCanvasProps) {
-  const theme = EMERALD_THEME;
+  const [geoGenSettings, setGeoGenSettings] = useState({
+    theme: "cyberpunk" as "alpine" | "canyon" | "volcanic" | "tundra" | "cyberpunk",
+    snow: true,
+    wire: false,
+    hScale: 1.0,
+    seedOffset: 0,
+  });
+  const [showGeoGen, setShowGeoGen] = useState(false);
+
+  const theme = useMemo(() => {
+    const env = BIOME_ENV_THEMES[geoGenSettings.theme];
+    return {
+      ...EMERALD_THEME,
+      sky: env.sky,
+      fogColor: env.fogColor,
+      sunColor: env.sunColor,
+      sunIntensity: env.sunIntensity,
+      ambientColor: env.ambientColor,
+      ambientIntensity: env.ambientIntensity,
+      hemiSky: env.hemiSky,
+      hemiGround: env.hemiGround,
+      hemiIntensity: env.hemiIntensity,
+    };
+  }, [geoGenSettings.theme]);
+
   const atlasTexture = useMemo(() => createWindowAtlas(theme.building), [theme.building]);
 
   const parkCenter = useMemo((): [number, number, number] => {
@@ -649,7 +760,15 @@ export function CityCanvas({
         <BuildingSignBoards buildings={signTargetBuildings} activeBuildingId={signTagBuildingId} />
 
         {/* Scenery */}
-        <Mountains buildings={buildings} cityBounds={layoutResult.cityBounds} />
+        <Mountains
+          buildings={buildings}
+          cityBounds={layoutResult.cityBounds}
+          theme={geoGenSettings.theme}
+          snow={geoGenSettings.snow}
+          wire={geoGenSettings.wire}
+          hScale={geoGenSettings.hScale}
+          seedOffset={geoGenSettings.seedOffset}
+        />
         <Clouds extent={cityExtent} />
 
         {!streetMode && (
@@ -724,8 +843,8 @@ export function CityCanvas({
       {/* HUD */}
       <div className="pointer-events-none absolute inset-x-4 bottom-4 flex justify-center">
         <div className="w-full max-w-md rounded-2xl border border-purple-500/40 bg-black/70 px-4 py-3 text-xs text-slate-100 shadow-[0_0_30px_rgba(168,85,247,0.3)] backdrop-blur-md">
-          <div className="flex justify-between gap-3">
-            <div>
+          <div className="flex justify-between gap-3 items-center">
+            <div className="min-w-0">
               {/*
                 In aerial mode: show hovered building.
                 In street mode: prefer the building directly in front; fall back to the focused one.
@@ -736,10 +855,10 @@ export function CityCanvas({
                 if (active) {
                   return (
                     <>
-                      <p className="font-semibold text-pink-200">
+                      <p className="font-semibold text-pink-200 truncate">
                         {active.username}
                       </p>
-                      <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-purple-300/80">
+                      <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-purple-300/80 truncate">
                         Repos: {active.publicRepos.toLocaleString()} · Commits:{" "}
                         {active.lifetimeCommits.toLocaleString()}
                       </p>
@@ -758,9 +877,151 @@ export function CityCanvas({
                 );
               })()}
             </div>
+
+            <div className="pointer-events-auto flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setStreetMode((prev) => !prev)}
+                className="rounded-xl border border-pink-500/40 bg-pink-500/10 px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider text-pink-300 transition hover:bg-pink-500/20"
+              >
+                {streetMode ? "✈ Fly" : "🚗 Drive"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowGeoGen((prev) => !prev)}
+                className={`rounded-xl border px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider transition ${
+                  showGeoGen
+                    ? "border-purple-400 bg-purple-500/20 text-purple-200"
+                    : "border-purple-500/40 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20"
+                }`}
+              >
+                ▲ Terrain
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      {showGeoGen && (
+        <div className="pointer-events-auto absolute right-4 bottom-24 z-40 w-56 rounded-2xl border border-purple-500/30 bg-black/85 p-4 text-slate-100 shadow-[0_0_40px_rgba(168,85,247,0.35)] backdrop-blur-md">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-mono text-xs font-bold tracking-[0.2em] text-pink-300">
+              ▲ GEOGEN ULTRA
+            </span>
+            <button
+              onClick={() => setShowGeoGen(false)}
+              className="text-purple-400 hover:text-purple-200 font-mono text-[10px]"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="text-[9px] leading-relaxed text-purple-300/60 font-mono mb-4">
+            Domain-warped ridges, erosion, 5-layer biome splatting
+          </p>
+
+          <div className="space-y-3 text-[11px] font-mono">
+            {/* Biome Presets */}
+            <div>
+              <span className="text-[9px] uppercase tracking-wider text-purple-400/80 block mb-1.5">
+                Biome Preset
+              </span>
+              <div className="grid grid-cols-2 gap-1">
+                {(["alpine", "canyon", "volcanic", "tundra", "cyberpunk"] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() =>
+                      setGeoGenSettings((prev) => ({ ...prev, theme: t }))
+                    }
+                    className={`rounded-lg py-1 px-1.5 text-center text-[9px] border transition ${
+                      geoGenSettings.theme === t
+                        ? "border-pink-500/50 bg-pink-500/20 text-white font-semibold"
+                        : "border-purple-500/20 bg-purple-500/5 text-purple-300/80 hover:bg-purple-500/10"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Height Scale */}
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-[9px] uppercase tracking-wider text-purple-400/80">
+                  Height Scale
+                </span>
+                <span className="text-pink-300 font-bold text-[10px]">
+                  {geoGenSettings.hScale.toFixed(1)}x
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.5}
+                max={1.8}
+                step={0.1}
+                value={geoGenSettings.hScale}
+                onChange={(e) =>
+                  setGeoGenSettings((prev) => ({
+                    ...prev,
+                    hScale: Number(e.target.value),
+                  }))
+                }
+                className="w-full accent-pink-500 cursor-pointer h-1 rounded bg-purple-950/50"
+              />
+            </div>
+
+            {/* Switches */}
+            <div className="flex items-center justify-between border-t border-purple-500/20 pt-2.5">
+              <span className="text-[9px] uppercase tracking-wider text-purple-400/80">
+                Snow Cap
+              </span>
+              <button
+                onClick={() =>
+                  setGeoGenSettings((prev) => ({ ...prev, snow: !prev.snow }))
+                }
+                className={`rounded-lg px-2 py-0.5 text-[9px] border ${
+                  geoGenSettings.snow
+                    ? "border-pink-500/40 bg-pink-500/15 text-white"
+                    : "border-purple-500/20 bg-black/40 text-purple-400"
+                }`}
+              >
+                {geoGenSettings.snow ? "ON" : "OFF"}
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] uppercase tracking-wider text-purple-400/80">
+                Wireframe
+              </span>
+              <button
+                onClick={() =>
+                  setGeoGenSettings((prev) => ({ ...prev, wire: !prev.wire }))
+                }
+                className={`rounded-lg px-2 py-0.5 text-[9px] border ${
+                  geoGenSettings.wire
+                    ? "border-pink-500/40 bg-pink-500/15 text-white"
+                    : "border-purple-500/20 bg-black/40 text-purple-400"
+                }`}
+              >
+                {geoGenSettings.wire ? "ON" : "OFF"}
+              </button>
+            </div>
+
+            {/* Seed offset generator */}
+            <button
+              onClick={() =>
+                setGeoGenSettings((prev) => ({
+                  ...prev,
+                  seedOffset: Math.floor(Math.random() * 10000),
+                }))
+              }
+              className="w-full py-1.5 mt-1 rounded-xl border border-purple-500/40 bg-purple-500/15 text-[10px] text-purple-200 hover:bg-purple-500/25 transition text-center"
+            >
+              ⟳ Regenerate Seeds
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Navigation + minimap (street mode) */}
       {streetMode && (
