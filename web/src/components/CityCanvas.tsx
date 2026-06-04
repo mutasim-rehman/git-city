@@ -727,12 +727,13 @@ export function CityCanvas({
         <SkyDome stops={theme.sky} />
         <Stars />
 
-        {/* Moon-only lighting: camera must see MOON_LIGHT_LAYER; beam runs from city center toward moon */}
+        {/* Moon-only lighting: camera must see MOON_LIGHT_LAYER; beam runs from city center toward moon
         <EnableMoonLayerOnCamera layer={MOON_LIGHT_LAYER} />
         <MoonOnlyAmbient layer={MOON_LIGHT_LAYER} intensity={0.42} color="#dcd6ff" />
         <MoonBeamFromCity moonPosition={moonPosition} layer={MOON_LIGHT_LAYER} />
 
         <Moon position={moonPosition} />
+        */}
 
         <SunDisc position={theme.sunPos as [number, number, number]} />
 
