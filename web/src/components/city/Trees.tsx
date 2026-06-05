@@ -749,8 +749,8 @@ export function InstancedForestTrees({
 export function InstancedMedianTrees({ belts, roads = [] }: { belts: LayoutRect[]; roads?: any[] }) {
   const intersections = useMemo((): RoadIntersection[] => {
     const out: RoadIntersection[] = [];
-    const vertical = roads.filter(r => Math.abs(r.x1 - r.x2) < 0.1);
-    const horizontal = roads.filter(r => Math.abs(r.z1 - r.z2) < 0.1);
+    const vertical = roads.filter(r => r.kind === "arterial" && Math.abs(r.x1 - r.x2) < 0.1);
+    const horizontal = roads.filter(r => r.kind === "arterial" && Math.abs(r.z1 - r.z2) < 0.1);
 
     for (const v of vertical) {
       const minVz = Math.min(v.z1, v.z2);
@@ -958,8 +958,8 @@ function createGrassTexture() {
 export function InstancedMedianGrass({ belts, roads = [] }: { belts: LayoutRect[]; roads?: any[] }) {
   const intersections = useMemo((): RoadIntersection[] => {
     const out: RoadIntersection[] = [];
-    const vertical = roads.filter((r) => Math.abs(r.x1 - r.x2) < 0.1);
-    const horizontal = roads.filter((r) => Math.abs(r.z1 - r.z2) < 0.1);
+    const vertical = roads.filter((r) => r.kind === "arterial" && Math.abs(r.x1 - r.x2) < 0.1);
+    const horizontal = roads.filter((r) => r.kind === "arterial" && Math.abs(r.z1 - r.z2) < 0.1);
 
     for (const v of vertical) {
       const minVz = Math.min(v.z1, v.z2);
@@ -1209,8 +1209,8 @@ function createFlowerTexture(type: "daisy" | "poppy" | "orchid" | "dandelion") {
 export function InstancedMedianFlowers({ belts, roads = [] }: { belts: LayoutRect[]; roads?: any[] }) {
   const intersections = useMemo((): RoadIntersection[] => {
     const out: RoadIntersection[] = [];
-    const vertical = roads.filter((r) => Math.abs(r.x1 - r.x2) < 0.1);
-    const horizontal = roads.filter((r) => Math.abs(r.z1 - r.z2) < 0.1);
+    const vertical = roads.filter((r) => r.kind === "arterial" && Math.abs(r.x1 - r.x2) < 0.1);
+    const horizontal = roads.filter((r) => r.kind === "arterial" && Math.abs(r.z1 - r.z2) < 0.1);
 
     for (const v of vertical) {
       const minVz = Math.min(v.z1, v.z2);

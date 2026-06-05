@@ -39,8 +39,8 @@ function createAsphaltTexture(type: "arterial" | "local", roadWidth: number) {
   for (let i = 0; i < data.length; i += 4) {
     const noise = (Math.random() - 0.5) * 12;
     data[i] = Math.min(255, Math.max(0, data[i] + noise));
-    data[i+1] = Math.min(255, Math.max(0, data[i+1] + noise));
-    data[i+2] = Math.min(255, Math.max(0, data[i+2] + noise));
+    data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + noise));
+    data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + noise));
   }
   ctx.putImageData(imgData, 0, 0);
 
@@ -50,7 +50,7 @@ function createAsphaltTexture(type: "arterial" | "local", roadWidth: number) {
     // Outer edge lines (solid white)
     ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
     ctx.lineWidth = 0.35 * pxPerUnit;
-    
+
     // Left edge
     ctx.beginPath();
     ctx.moveTo(0, 1.2 * pxPerUnit);
@@ -73,31 +73,35 @@ function createAsphaltTexture(type: "arterial" | "local", roadWidth: number) {
     ctx.stroke();
     ctx.setLineDash([]);
   } else if (type === "local") {
-    // Outer edge lines (soft, thin white)
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.38)";
-    ctx.lineWidth = 0.18 * pxPerUnit;
-    
+    // Outer edge lines (solid white)
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
+    ctx.lineWidth = 0.3 * pxPerUnit;
+
     // Left edge
     ctx.beginPath();
-    ctx.moveTo(0, 0.9 * pxPerUnit);
-    ctx.lineTo(512, 0.9 * pxPerUnit);
+    ctx.moveTo(0, 1.0 * pxPerUnit);
+    ctx.lineTo(512, 1.0 * pxPerUnit);
     ctx.stroke();
 
     // Right edge
     ctx.beginPath();
-    ctx.moveTo(0, 512 - 0.9 * pxPerUnit);
-    ctx.lineTo(512, 512 - 0.9 * pxPerUnit);
+    ctx.moveTo(0, 512 - 1.0 * pxPerUnit);
+    ctx.lineTo(512, 512 - 1.0 * pxPerUnit);
     ctx.stroke();
 
-    // Single dashed center line (very soft, thin, clean)
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
-    ctx.lineWidth = 0.15 * pxPerUnit;
-    ctx.setLineDash([3 * pxPerUnit, 5 * pxPerUnit]);
+    // Center double white line
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
+    ctx.lineWidth = 0.25 * pxPerUnit;
+
     ctx.beginPath();
-    ctx.moveTo(0, 256);
-    ctx.lineTo(512, 256);
+    ctx.moveTo(0, 256 - 0.45 * pxPerUnit);
+    ctx.lineTo(512, 256 - 0.45 * pxPerUnit);
     ctx.stroke();
-    ctx.setLineDash([]);
+
+    ctx.beginPath();
+    ctx.moveTo(0, 256 + 0.45 * pxPerUnit);
+    ctx.lineTo(512, 256 + 0.45 * pxPerUnit);
+    ctx.stroke();
   }
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -175,20 +179,20 @@ function appendMedianBoxes(
 
   const isVertical = Math.abs(seg.x1 - seg.x2) < 0.1;
   const rotY = -Math.atan2(seg.z2 - seg.z1, seg.x2 - seg.x1);
-  
+
   // End the green belt 35 units before the center of any intersection
-  const gap = 35; 
+  const gap = 35;
   const intersections: number[] = [];
-  
+
   if (isVertical) {
     const cx = seg.x1;
     const minZ = Math.min(seg.z1, seg.z2);
     const maxZ = Math.max(seg.z1, seg.z2);
-    
+
     const horizontalArterials = roads.filter(
       (r) => r.kind === "arterial" && Math.abs(r.z1 - r.z2) < 0.1,
     );
-    
+
     for (const h of horizontalArterials) {
       const minHx = Math.min(h.x1, h.x2);
       const maxHx = Math.max(h.x1, h.x2);
@@ -201,13 +205,13 @@ function appendMedianBoxes(
         intersections.push(h.z1);
       }
     }
-    
+
     intersections.sort((a, b) => a - b);
-    
+
     const startZ = minZ;
     const endZ = maxZ;
     let prevZ = startZ;
-    
+
     for (const cz of intersections) {
       const segmentEnd = cz - gap;
       if (segmentEnd - prevZ > 1.0) {
@@ -217,22 +221,22 @@ function appendMedianBoxes(
       }
       prevZ = cz + gap;
     }
-    
+
     if (endZ - prevZ > 1.0) {
       const segLen = endZ - prevZ;
       const segCenterZ = (prevZ + endZ) / 2;
       appendOrientedBox(medians, cx, 0.22, segCenterZ, rotY, 0, 0, 0, segLen, 0.32, medianW);
     }
-    
+
   } else {
     const cz = seg.z1;
     const minX = Math.min(seg.x1, seg.x2);
     const maxX = Math.max(seg.x1, seg.x2);
-    
+
     const verticalArterials = roads.filter(
       (r) => r.kind === "arterial" && Math.abs(r.x1 - r.x2) < 0.1,
     );
-    
+
     for (const v of verticalArterials) {
       const minVz = Math.min(v.z1, v.z2);
       const maxVz = Math.max(v.z1, v.z2);
@@ -245,13 +249,13 @@ function appendMedianBoxes(
         intersections.push(v.x1);
       }
     }
-    
+
     intersections.sort((a, b) => a - b);
-    
+
     const startX = minX;
     const endX = maxX;
     let prevX = startX;
-    
+
     for (const cx of intersections) {
       const segmentEnd = cx - gap;
       if (segmentEnd - prevX > 1.0) {
@@ -261,7 +265,7 @@ function appendMedianBoxes(
       }
       prevX = cx + gap;
     }
-    
+
     if (endX - prevX > 1.0) {
       const segLen = endX - prevX;
       const segCenterX = (prevX + endX) / 2;
@@ -305,13 +309,18 @@ function buildBatchedRoadGeometries(roads: RoadSegment[]): BatchedRoadMeshes {
     const totalW = isArterial ? seg.width : seg.width;
 
     const rotY = -angle;
-    appendOrientedBox(sidewalks, cx, 0.02, cz, rotY, 0, 0, 0, len + 2, 0.12, totalW + 4);
+    if (isArterial) {
+      appendOrientedBox(sidewalks, cx, 0.02, cz, rotY, 0, 0, 0, len + 2, 0.12, totalW + 4);
+    } else {
+      // Slightly lower local sidewalk to avoid z-fighting where it overlaps with arterial roads
+      appendOrientedBox(sidewalks, cx, 0.019, cz, rotY, 0, 0, 0, len + 2, 0.118, totalW + 4);
+    }
 
     if (isArterial) {
       const off = medianW / 2 + laneW / 2;
       appendOrientedBox(arterialLanes, cx, 0.08, cz, rotY, 0, 0, -off, len, 0.1, laneW, true);
       appendOrientedBox(arterialLanes, cx, 0.08, cz, rotY, 0, 0, off, len, 0.1, laneW, true);
-      
+
       // Elevated Median ending before intersections
       appendMedianBoxes(medians, seg, roads, laneW, medianW);
     } else {
@@ -329,7 +338,7 @@ function buildBatchedRoadGeometries(roads: RoadSegment[]): BatchedRoadMeshes {
     for (const h of horizontal) {
       const minHx = Math.min(h.x1, h.x2);
       const maxHx = Math.max(h.x1, h.x2);
-      
+
       if (
         v.x1 >= minHx - 0.1 &&
         v.x1 <= maxHx + 0.1 &&
@@ -340,10 +349,10 @@ function buildBatchedRoadGeometries(roads: RoadSegment[]): BatchedRoadMeshes {
         const cz = h.z1;
         const w = v.width;
         const d = h.width;
-        
+
         const cDist = 4.5;
         const cWidth = 4.0;
-        
+
         // North Crosswalk
         const ncz = cz - d / 2 - cDist;
         for (let sx = -w / 2 + 3; sx <= w / 2 - 3; sx += 3.5) {
@@ -426,17 +435,17 @@ export function BatchedGridRoads({
       geos.median.dispose();
       geos.marking.dispose();
       materials.sidewalk.dispose();
-      
+
       if (materials.localLane.map) {
         materials.localLane.map.dispose();
       }
       materials.localLane.dispose();
-      
+
       if (materials.arterialLane.map) {
         materials.arterialLane.map.dispose();
       }
       materials.arterialLane.dispose();
-      
+
       materials.median.dispose();
       materials.marking.dispose();
     };
@@ -474,9 +483,9 @@ export function RoadStrip({
   const totalW = isArterial ? seg.width : seg.width;
 
   return (
-    <group position={[cx, 0.02, cz]} rotation-y={-angle}>
+    <group position={[cx, isArterial ? 0.02 : 0.019, cz]} rotation-y={-angle}>
       <mesh receiveShadow>
-        <boxGeometry args={[len + 2, 0.12, totalW + 4]} />
+        <boxGeometry args={[len + 2, isArterial ? 0.12 : 0.118, totalW + 4]} />
         <meshStandardMaterial color={sidewalkColor} roughness={0.92} />
       </mesh>
       {isArterial && (

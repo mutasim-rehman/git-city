@@ -192,18 +192,13 @@ function placeSectorBuildings(
     return { x, z };
   };
 
-  // Resolve sector row/col to check adjacent arterials
-  const { row, col } = sectorGridCell(sectorId);
-  const extendNorth = row > 0;
-  const extendSouth = row < GRID_ROWS - 1;
-  const extendWest = col > 0;
-  const extendEast = col < GRID_COLS - 1;
-
-  // Extend road endpoints to reach surrounding arterial centerlines
-  const roadZ1 = extendNorth ? rect.minZ - ARTERIAL_ROAD_WIDTH / 2 : rect.minZ;
-  const roadZ2 = extendSouth ? rect.maxZ + ARTERIAL_ROAD_WIDTH / 2 : rect.maxZ;
-  const roadX1 = extendWest ? rect.minX - ARTERIAL_ROAD_WIDTH / 2 : rect.minX;
-  const roadX2 = extendEast ? rect.maxX + ARTERIAL_ROAD_WIDTH / 2 : rect.maxX;
+  // Extend local roads to the sector rect boundary so they visually meet the
+  // arterial road sidewalk (which itself overhangs by +1 unit past its endpoints).
+  // We do NOT extend into the arterial road zone — that caused severe GPU overdraw.
+  const zStart = rect.minZ;
+  const zEnd   = rect.maxZ;
+  const xStart = rect.minX;
+  const xEnd   = rect.maxX;
 
   // Internal local roads (grid template baseline; others add accent lines)
   for (let c = 0; c < cols - 1; c++) {
@@ -213,9 +208,9 @@ function placeSectorBuildings(
       id: `s${sectorId}-vx-${c}`,
       kind: "local",
       x1: x,
-      z1: roadZ1,
+      z1: zStart,
       x2: x,
-      z2: roadZ2,
+      z2: zEnd,
       width: LOCAL_ROAD_WIDTH,
     });
   }
@@ -225,9 +220,9 @@ function placeSectorBuildings(
     localRoads.push({
       id: `s${sectorId}-hz-${r}`,
       kind: "local",
-      x1: roadX1,
+      x1: xStart,
       z1: z,
-      x2: roadX2,
+      x2: xEnd,
       z2: z,
       width: LOCAL_ROAD_WIDTH,
     });
@@ -238,10 +233,10 @@ function placeSectorBuildings(
     localRoads.push({
       id: `s${sectorId}-diag`,
       kind: "local",
-      x1: roadX1,
-      z1: roadZ1,
-      x2: roadX2,
-      z2: roadZ2,
+      x1: originX,
+      z1: originZ,
+      x2: originX + gridW,
+      z2: originZ + gridD,
       width: LOCAL_ROAD_WIDTH * 0.65,
     });
   }
