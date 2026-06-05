@@ -60,6 +60,7 @@ export interface CityLayoutResult {
   mountainRing: { inner: LayoutRect; outer: LayoutRect };
   roads: RoadSegment[];
   greenBelts: LayoutRect[];
+  greenSpaces: LayoutRect[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -146,7 +147,7 @@ function placeSectorBuildings(
   buildings: Building[],
   sectorId: number,
   rect: LayoutRect,
-): { placed: PositionedBuilding[]; localRoads: RoadSegment[] } {
+): { placed: PositionedBuilding[]; localRoads: RoadSegment[]; greenSpaces: LayoutRect[] } {
   const sorted = [...buildings].sort(
     (a, b) =>
       b.lifetimeCommits - a.lifetimeCommits ||
@@ -155,8 +156,9 @@ function placeSectorBuildings(
   const n = sorted.length;
   const placed: PositionedBuilding[] = [];
   const localRoads: RoadSegment[] = [];
+  const greenSpaces: LayoutRect[] = [];
 
-  if (n === 0) return { placed, localRoads };
+  if (n === 0) return { placed, localRoads, greenSpaces: [rect] };
 
   const cols = Math.max(1, Math.ceil(Math.sqrt(n)));
   const rows = Math.max(1, Math.ceil(n / cols));
@@ -257,7 +259,33 @@ function placeSectorBuildings(
     });
   }
 
-  return { placed, localRoads };
+  // Margins outside the building grid are green spaces
+  greenSpaces.push({
+    minX: rect.minX,
+    maxX: originX,
+    minZ: rect.minZ,
+    maxZ: rect.maxZ,
+  });
+  greenSpaces.push({
+    minX: originX + gridW,
+    maxX: rect.maxX,
+    minZ: rect.minZ,
+    maxZ: rect.maxZ,
+  });
+  greenSpaces.push({
+    minX: originX,
+    maxX: originX + gridW,
+    minZ: rect.minZ,
+    maxZ: originZ,
+  });
+  greenSpaces.push({
+    minX: originX,
+    maxX: originX + gridW,
+    minZ: originZ + gridD,
+    maxZ: rect.maxZ,
+  });
+
+  return { placed, localRoads, greenSpaces };
 }
 
 function addArterialRoads(
@@ -335,6 +363,7 @@ export function computeCityLayout(buildings: Building[]): CityLayoutResult {
     mountainRing: { inner: emptyBounds, outer: emptyBounds },
     roads: [],
     greenBelts: [],
+    greenSpaces: [],
   };
 
   if (!buildings.length) return empty;
@@ -412,6 +441,7 @@ export function computeCityLayout(buildings: Building[]): CityLayoutResult {
 
   const sectors: SectorRect[] = [];
   const allPlaced: PositionedBuilding[] = [];
+  const greenSpaces: LayoutRect[] = [];
 
   for (let sid = 0; sid <= 10; sid++) {
     const { row, col } = sectorGridCell(sid);
@@ -425,13 +455,14 @@ export function computeCityLayout(buildings: Building[]): CityLayoutResult {
       centerX: (rect.minX + rect.maxX) / 2,
       centerZ: (rect.minZ + rect.maxZ) / 2,
     });
-    const { placed, localRoads } = placeSectorBuildings(
+    const { placed, localRoads, greenSpaces: sectorGreenSpaces } = placeSectorBuildings(
       bySector.get(sid) ?? [],
       sid,
       rect,
     );
     allPlaced.push(...placed);
     roads.push(...localRoads);
+    greenSpaces.push(...sectorGreenSpaces);
   }
 
   const park = cellRect(PARK_GRID_ROW, PARK_GRID_COL);
@@ -480,5 +511,6 @@ export function computeCityLayout(buildings: Building[]): CityLayoutResult {
     mountainRing,
     roads,
     greenBelts,
+    greenSpaces,
   };
 }

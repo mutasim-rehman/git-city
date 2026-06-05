@@ -2,7 +2,7 @@
 
 import type { CityLayoutResult } from "@/lib/city/layout";
 import { BatchedGridRoads } from "@/components/city/Roads";
-import { MedianTrees, InstancedForestTrees, MedianGrass, MedianFlowers } from "@/components/city/Trees";
+import { MedianTrees, InstancedForestTrees, MedianGrass, MedianFlowers, SectorGreenSpaces } from "@/components/city/Trees";
 import { CentralParkTerrain } from "@/components/city/CentralPark";
 import { CityLake } from "@/components/city/Lake";
 import { TrafficSignals } from "@/components/city/TrafficSignals";
@@ -35,6 +35,7 @@ export function SectorCityTerrain({
       <MedianTrees belts={layout.greenBelts} roads={layout.roads} />
       <MedianGrass belts={layout.greenBelts} roads={layout.roads} />
       <MedianFlowers belts={layout.greenBelts} roads={layout.roads} />
+      <SectorGreenSpaces spaces={layout.greenSpaces} roads={layout.roads} />
     </>
   );
 }

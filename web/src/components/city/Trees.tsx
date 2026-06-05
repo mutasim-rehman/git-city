@@ -1356,3 +1356,193 @@ export function MedianFlowers({ belts, roads = [] }: { belts: LayoutRect[]; road
   return <InstancedMedianFlowers belts={belts} roads={roads} />;
 }
 
+
+// --- Sector Green Spaces ------------------------------------------------------
+// Dense vegetation (grass, wildflowers, small green trees) placed in the margin
+// zones between each sector's building grid and the sector boundary walls.
+
+export function SectorGreenSpaces({
+  spaces,
+  roads = [],
+}: {
+  spaces: LayoutRect[];
+  roads?: any[];
+}) {
+  const grassPlacements = useMemo(() => {
+    const out: { x: number; z: number; scale: number; rotY: number }[] = [];
+    const STEP = 1.6;
+    for (const sp of spaces) {
+      for (let x = sp.minX; x < sp.maxX; x += STEP) {
+        for (let z = sp.minZ; z < sp.maxZ; z += STEP) {
+          const s = x * 0.19 + z * 0.11;
+          if (seededRng(s) > 0.95) continue;
+          const tx = x + (seededRng(s + 1) - 0.5) * STEP * 0.9;
+          const tz = z + (seededRng(s + 2) - 0.5) * STEP * 0.9;
+          if (isPointOnRoad(tx, tz, roads, 3.5)) continue;
+          out.push({ x: tx, z: tz, scale: 0.8 + seededRng(s + 3) * 0.55, rotY: seededRng(s + 4) * Math.PI * 2 });
+        }
+      }
+    }
+    return out.slice(0, 120000);
+  }, [spaces, roads]);
+
+  const flowerPlacements = useMemo(() => {
+    const out: { x: number; z: number; scale: number; rotY: number }[][] = [[], [], [], []];
+    const STEP = 3.2;
+    for (const sp of spaces) {
+      for (let x = sp.minX; x < sp.maxX; x += STEP) {
+        for (let z = sp.minZ; z < sp.maxZ; z += STEP) {
+          const s = x * 0.23 + z * 0.17;
+          if (seededRng(s) > 0.65) continue;
+          const tx = x + (seededRng(s + 1) - 0.5) * STEP * 0.85;
+          const tz = z + (seededRng(s + 2) - 0.5) * STEP * 0.85;
+          if (isPointOnRoad(tx, tz, roads, 3.5)) continue;
+          const typeIdx = Math.floor(seededRng(s + 5) * 4);
+          out[typeIdx]!.push({ x: tx, z: tz, scale: 0.7 + seededRng(s + 3) * 0.4, rotY: seededRng(s + 4) * Math.PI * 2 });
+        }
+      }
+    }
+    return out;
+  }, [spaces, roads]);
+
+  const treePlacements = useMemo(() => {
+    const groups: TreePlacement[][] = [[], [], [], []];
+    const STEP = 18;
+    for (const sp of spaces) {
+      for (let x = sp.minX; x < sp.maxX; x += STEP) {
+        for (let z = sp.minZ; z < sp.maxZ; z += STEP) {
+          const s = x * 0.31 + z * 0.23;
+          if (seededRng(s) > 0.42) continue;
+          const tx = x + (seededRng(s + 1) - 0.5) * STEP * 0.8;
+          const tz = z + (seededRng(s + 2) - 0.5) * STEP * 0.8;
+          if (isPointOnRoad(tx, tz, roads, 5.5)) continue;
+          const style = getTreeStyleIndex(tx, tz);
+          groups[style]!.push({ x: tx, z: tz, scale: 0.28 + seededRng(s + 3) * 0.22 });
+        }
+      }
+    }
+    return groups;
+  }, [spaces, roads]);
+
+  const grassGeoSG = useMemo(() => {
+    const p1 = new THREE.PlaneGeometry(2.4, 2.4);
+    p1.translate(0, 1.2, 0);
+    const p2 = p1.clone();
+    p2.rotateY(Math.PI / 2);
+    const merged = mergeGeometries([p1, p2], false);
+    p1.dispose(); p2.dispose();
+    return merged ?? new THREE.BufferGeometry();
+  }, []);
+
+  const grassMatSG = useMemo(() => {
+    const tex = createGrassTexture();
+    return new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, transparent: true, side: THREE.DoubleSide, roughness: 1.0, metalness: 0 });
+  }, []);
+
+  const grassRefSG = useRef<THREE.InstancedMesh>(null);
+  const grassTmpSG = useMemo(() => new THREE.Object3D(), []);
+
+  useLayoutEffect(() => {
+    const mesh = grassRefSG.current;
+    if (!mesh || !grassPlacements.length) return;
+    for (let i = 0; i < grassPlacements.length; i++) {
+      const g = grassPlacements[i]!;
+      grassTmpSG.position.set(g.x, 0.01, g.z);
+      grassTmpSG.rotation.set(0, g.rotY, 0);
+      grassTmpSG.scale.setScalar(g.scale);
+      grassTmpSG.updateMatrix();
+      mesh.setMatrixAt(i, grassTmpSG.matrix);
+    }
+    mesh.count = grassPlacements.length;
+    mesh.instanceMatrix.needsUpdate = true;
+  }, [grassPlacements, grassTmpSG]);
+
+  const flowerGeoSG = useMemo(() => {
+    const p1 = new THREE.PlaneGeometry(2.0, 2.0);
+    p1.translate(0, 1.0, 0);
+    const p2 = p1.clone();
+    p2.rotateY(Math.PI / 2);
+    const merged = mergeGeometries([p1, p2], false);
+    p1.dispose(); p2.dispose();
+    return merged ?? new THREE.BufferGeometry();
+  }, []);
+
+  const flowerTypesSG = ["daisy", "poppy", "orchid", "dandelion"] as const;
+  const flowerMatsSG = useMemo(() => flowerTypesSG.map((type) => {
+    const tex = createFlowerTexture(type);
+    return new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, transparent: true, side: THREE.DoubleSide, roughness: 1.0, metalness: 0 });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
+
+  const daisyRefSG  = useRef<THREE.InstancedMesh>(null);
+  const poppyRefSG  = useRef<THREE.InstancedMesh>(null);
+  const orchidRefSG = useRef<THREE.InstancedMesh>(null);
+  const dandyRefSG  = useRef<THREE.InstancedMesh>(null);
+  const flowerRefsSG = [daisyRefSG, poppyRefSG, orchidRefSG, dandyRefSG];
+  const flowerTmpSG = useMemo(() => new THREE.Object3D(), []);
+
+  useLayoutEffect(() => {
+    for (let fi = 0; fi < 4; fi++) {
+      const mesh = flowerRefsSG[fi]!.current;
+      const placements = flowerPlacements[fi]!;
+      if (!mesh || !placements.length) continue;
+      for (let i = 0; i < placements.length; i++) {
+        const g = placements[i]!;
+        flowerTmpSG.position.set(g.x, 0.01, g.z);
+        flowerTmpSG.rotation.set(0, g.rotY, 0);
+        flowerTmpSG.scale.setScalar(g.scale);
+        flowerTmpSG.updateMatrix();
+        mesh.setMatrixAt(i, flowerTmpSG.matrix);
+      }
+      mesh.count = placements.length;
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+  }, [flowerPlacements, flowerTmpSG]);
+
+  useEffect(() => {
+    return () => {
+      grassGeoSG.dispose();
+      if (grassMatSG.map) grassMatSG.map.dispose();
+      grassMatSG.dispose();
+      flowerGeoSG.dispose();
+      for (const mat of flowerMatsSG) {
+        if (mat.map) mat.map.dispose();
+        mat.dispose();
+      }
+    };
+  }, [grassGeoSG, grassMatSG, flowerGeoSG, flowerMatsSG]);
+
+  if (!spaces.length) return null;
+
+  return (
+    <group>
+      {spaces.map((sp, i) => {
+        const cx = (sp.minX + sp.maxX) / 2;
+        const cz = (sp.minZ + sp.maxZ) / 2;
+        const w  = sp.maxX - sp.minX;
+        const d  = sp.maxZ - sp.minZ;
+        return (
+          <mesh key={i} position={[cx, -0.02, cz]} rotation-x={-Math.PI / 2} receiveShadow>
+            <planeGeometry args={[w, d]} />
+            <meshStandardMaterial color="#3d6b25" roughness={1.0} metalness={0} />
+          </mesh>
+        );
+      })}
+      {grassPlacements.length > 0 && (
+        <instancedMesh ref={grassRefSG} args={[grassGeoSG, grassMatSG, grassPlacements.length]} castShadow receiveShadow />
+      )}
+      {flowerTypesSG.map((type, fi) => {
+        const placements = flowerPlacements[fi]!;
+        if (!placements.length) return null;
+        return (
+          <instancedMesh key={type} ref={flowerRefsSG[fi]} args={[flowerGeoSG, flowerMatsSG[fi]!, placements.length]} castShadow receiveShadow />
+        );
+      })}
+      {treePlacements.map((groupTrees, idx) =>
+        groupTrees.length > 0 ? (
+          <InstancedForestTreesGroup key={idx} styleIndex={idx} trees={groupTrees} />
+        ) : null
+      )}
+    </group>
+  );
+}
