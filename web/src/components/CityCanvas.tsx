@@ -24,7 +24,7 @@ import { NpcTraffic } from "@/game/ai/NpcTraffic";
 import { CAR_CONFIGS, DEFAULT_CAR_VARIANT, type CarVariant } from "@/game/content/cars";
 import { SkyDome, Stars, SunDisc } from "@/components/city/Sky";
 import { GroundPlane } from "@/components/city/Ground";
-import { Monument } from "@/components/city/Monument";
+
 import {
   EnableMoonLayerOnCamera,
   MoonOnlyAmbient,
@@ -748,7 +748,7 @@ export function CityCanvas({
           markingColor={theme.roadMarkingColor}
         />
 
-        <Monument position={parkCenter} />
+
 
         {/* Buildings */}
         <InstancedBuildings

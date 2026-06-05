@@ -904,7 +904,7 @@ export function ForestBelt({ forest, roads = [] }: { forest: LayoutRect; roads?:
 
 // ─── Instanced Median Grass (Minecraft Billboard Style) ──────────────────────
 
-function createGrassTexture() {
+export function createGrassTexture() {
   if (typeof window === "undefined") return null;
 
   const canvas = document.createElement("canvas");
@@ -1189,7 +1189,7 @@ function drawPixelFlower(ctx: CanvasRenderingContext2D, type: "daisy" | "poppy" 
   }
 }
 
-function createFlowerTexture(type: "daisy" | "poppy" | "orchid" | "dandelion") {
+export function createFlowerTexture(type: "daisy" | "poppy" | "orchid" | "dandelion") {
   if (typeof window === "undefined") return null;
 
   const canvas = document.createElement("canvas");
