@@ -73,35 +73,31 @@ function createAsphaltTexture(type: "arterial" | "local", roadWidth: number) {
     ctx.stroke();
     ctx.setLineDash([]);
   } else if (type === "local") {
-    // Outer edge lines (solid white)
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
-    ctx.lineWidth = 0.3 * pxPerUnit;
+    // Outer edge lines (soft, thin white)
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.38)";
+    ctx.lineWidth = 0.18 * pxPerUnit;
     
     // Left edge
     ctx.beginPath();
-    ctx.moveTo(0, 1.0 * pxPerUnit);
-    ctx.lineTo(512, 1.0 * pxPerUnit);
+    ctx.moveTo(0, 0.9 * pxPerUnit);
+    ctx.lineTo(512, 0.9 * pxPerUnit);
     ctx.stroke();
 
     // Right edge
     ctx.beginPath();
-    ctx.moveTo(0, 512 - 1.0 * pxPerUnit);
-    ctx.lineTo(512, 512 - 1.0 * pxPerUnit);
+    ctx.moveTo(0, 512 - 0.9 * pxPerUnit);
+    ctx.lineTo(512, 512 - 0.9 * pxPerUnit);
     ctx.stroke();
 
-    // Center double white line
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
-    ctx.lineWidth = 0.25 * pxPerUnit;
-
+    // Single dashed center line (very soft, thin, clean)
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+    ctx.lineWidth = 0.15 * pxPerUnit;
+    ctx.setLineDash([3 * pxPerUnit, 5 * pxPerUnit]);
     ctx.beginPath();
-    ctx.moveTo(0, 256 - 0.45 * pxPerUnit);
-    ctx.lineTo(512, 256 - 0.45 * pxPerUnit);
+    ctx.moveTo(0, 256);
+    ctx.lineTo(512, 256);
     ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(0, 256 + 0.45 * pxPerUnit);
-    ctx.lineTo(512, 256 + 0.45 * pxPerUnit);
-    ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   const texture = new THREE.CanvasTexture(canvas);
