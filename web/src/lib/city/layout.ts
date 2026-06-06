@@ -393,7 +393,7 @@ export function computeCityLayout(buildings: Building[]): CityLayoutResult {
   }
 
   // Park cell size
-  sectorSizes[PARK_GRID_ROW]![PARK_GRID_COL] = { w: 320, d: 280 };
+  sectorSizes[PARK_GRID_ROW]![PARK_GRID_COL] = { w: 180, d: 540 };
 
   const colWidths = Array.from({ length: GRID_COLS }, (_, c) =>
     Math.max(...sectorSizes.map((row) => row[c]!.w)),
