@@ -22,9 +22,16 @@ export const PARK_COLORS = {
   concrete: "#cbd5e1", // concrete railings and deck
   rails: "#f8fafc", // white metal railings
   water: "#0284c7", // sky blue reservoir water
+  rinkIce: "#bae6fd", // light blue ice rink surface
+  rinkBoards: "#1e293b", // dark dasher boards
   bench: "#854d0e", // wood bench slats
   lantern: "#fef08a", // glowing yellow lanterns
   baseballSand: "#fef08a", // sandy baseball diamonds
+  rock: "#475569", // dark slate gray for Belvedere Castle hill
+  stone: "#cbd5e1", // castle stone masonry
+  obelisk: "#d4a96a", // warm granite/sandstone for Cleopatra's Needle
+  carouselRoof: "#dc2626", // red carousel roof
+  carouselPole: "#fbbf24", // gold carousel center pole
 } as const;
 
 // Helper to check if a local coordinate (lx, lz) is inside the reservoir
@@ -88,15 +95,38 @@ function isPointOnPath(lx: number, lz: number, margin = 2) {
   // Central spine path crossing the bridge
   if (Math.abs(lx) <= halfW && Math.abs(lz) <= 115 + halfW) return true;
 
+  // Castle connector path
+  if (lz >= 15 && lz <= 21 && lx >= -136 && lx <= -70) return true;
+
   return false;
 }
 
-// Helper to check if a local coordinate is in the Sheep Meadow or Great Lawn
+// Helper to check if a local coordinate is in the Sheep Meadow, Great Lawn, or North Meadow
 function isPointInLawn(lx: number, lz: number) {
   // South Lawn (Sheep Meadow)
   if (lx >= -115 && lx <= -15 && lz >= 35 && lz <= 95) return true;
-  // North Lawn (Great Lawn)
+  // Great Lawn (North-East Lawn)
   if (lx >= 15 && lx <= 115 && lz >= -95 && lz <= -45) return true;
+  // North Meadow (North-West Lawn)
+  if (lx >= -115 && lx <= -15 && lz >= -95 && lz <= -45) return true;
+  return false;
+}
+
+// Helper to check if a point is in a designated woodland zone
+function isPointInWoodland(lx: number, lz: number) {
+  // 1. East Woods: border zone on the east
+  if (lx > 122) return true;
+  // 2. West Woods: border zone on the west
+  if (lx < -122) return true;
+  // 3. North Woods: far north zone
+  if (lz < -105) return true;
+  // 4. South Woods: far south zone (except near the central path Mall)
+  if (lz > 105) {
+    if (Math.abs(lx) > 18) return true;
+  }
+  // 5. The Ramble: dense woods around the north-west shore of the lake
+  if (lx >= -120 && lx <= -20 && lz >= -50 && lz <= 20) return true;
+
   return false;
 }
 
@@ -141,34 +171,34 @@ function InstancedDeciduousTreesGroup({
 
       const ry = seededRng(i * 7 + 1) * Math.PI * 2;
 
-      // Trunk
-      tmp.position.set(t.x, 0, t.z);
+      // Trunk — sits on ground, scaled taller than wide
+      tmp.position.set(t.x, s * 1.2, t.z);
       tmp.rotation.set(0, ry, 0);
-      tmp.scale.set(s, s * 1.5, s);
+      tmp.scale.set(s * 0.35, s * 2.4, s * 0.35);
       tmp.updateMatrix();
       trunk.setMatrixAt(i, tmp.matrix);
       trunk.setColorAt(i, getJitteredColor(colTrunk, i, 0.01, 0.08, 0.06));
 
-      // Bottom Layer
-      tmp.position.set(t.x, 0, t.z);
-      tmp.rotation.set(0, ry, 0);
-      tmp.scale.set(s, s * 1.5, s);
+      // Bottom canopy layer — wide, low skirt sitting just above trunk base
+      tmp.position.set(t.x, s * 2.2, t.z);
+      tmp.rotation.set(0, ry + 0.3, 0);
+      tmp.scale.set(s * 1.6, s * 1.0, s * 1.6);
       tmp.updateMatrix();
       bot.setMatrixAt(i, tmp.matrix);
       bot.setColorAt(i, getJitteredColor(colBot, i, 0.04, 0.12, 0.08));
 
-      // Mid Layer
-      tmp.position.set(t.x, 0, t.z);
-      tmp.rotation.set(0, ry, 0);
-      tmp.scale.set(s, s * 1.5, s);
+      // Mid canopy layer — narrower, sits above the bottom layer
+      tmp.position.set(t.x, s * 3.2, t.z);
+      tmp.rotation.set(0, ry + 0.9, 0);
+      tmp.scale.set(s * 1.2, s * 1.0, s * 1.2);
       tmp.updateMatrix();
       mid.setMatrixAt(i, tmp.matrix);
       mid.setColorAt(i, getJitteredColor(colMid, i, 0.04, 0.12, 0.08));
 
-      // Top Layer
-      tmp.position.set(t.x, 0, t.z);
-      tmp.rotation.set(0, ry, 0);
-      tmp.scale.set(s, s * 1.5, s);
+      // Top canopy layer — smallest, bright cap at crown
+      tmp.position.set(t.x, s * 4.1, t.z);
+      tmp.rotation.set(0, ry + 1.6, 0);
+      tmp.scale.set(s * 0.75, s * 0.9, s * 0.75);
       tmp.updateMatrix();
       top.setMatrixAt(i, tmp.matrix);
       top.setColorAt(i, getJitteredColor(colTop, i, 0.05, 0.14, 0.10));
@@ -271,7 +301,7 @@ export function CentralPark({ park }: { park: LayoutRect }) {
     return merged ?? new THREE.BufferGeometry();
   }, []);
 
-  // 4. Gravel / Stone Pathways
+  // 4. Gravel / Stone Pathways & Bethesda Plaza
   const pathGeo = useMemo(() => {
     const geometries: THREE.BufferGeometry[] = [];
     const pathW = 6;
@@ -302,20 +332,120 @@ export function CentralPark({ park }: { park: LayoutRect }) {
     pCentralN.translate(0, 0.02, -90);
     geometries.push(pCentralN);
 
-    // Central path segment (South of lake): lz = 45 to 115
-    const pCentralS = new THREE.BoxGeometry(pathW, pathH, 70);
-    pCentralS.translate(0, 0.02, 80);
-    geometries.push(pCentralS);
+    // The Mall Promenade: wide path (width 10) in the south from lz = 60 to 115
+    const pMall = new THREE.BoxGeometry(10, pathH, 55);
+    pMall.translate(0, 0.02, 87.5);
+    geometries.push(pMall);
+
+    // Bethesda Plaza connector: wide path (width 10) from lz = 45 to 60
+    const pConnector = new THREE.BoxGeometry(10, pathH, 15);
+    pConnector.translate(0, 0.02, 52.5);
+    geometries.push(pConnector);
+
+    // Bethesda stone circular plaza (radius 14, height 0.1) at lx = 0, lz = 48
+    const plaza = new THREE.CylinderGeometry(14, 14, 0.04, 16);
+    plaza.translate(0, 0.02, 48);
+    geometries.push(plaza);
+
+    // Belvedere Castle connector path: lx = -135 to -77
+    const pCastle = new THREE.BoxGeometry(58, pathH, 4);
+    pCastle.translate(-106, 0.02, 18);
+    geometries.push(pCastle);
 
     const merged = mergeGeometries(geometries, false);
     for (const g of geometries) g.dispose();
     return merged ?? new THREE.BufferGeometry();
   }, []);
 
-  // 5. Baseball Sand Fields
+  // 5. Bethesda Fountain (Tiered stone structure & water)
+  const fountainStoneGeo = useMemo(() => {
+    const geometries: THREE.BufferGeometry[] = [];
+
+    // Basin rim (outer radius 6, inner 5.4, height 0.4)
+    // We can simulate this simply in blocky style by drawing the solid basin cylinder
+    const basin = new THREE.CylinderGeometry(6, 6, 0.4, 12);
+    basin.translate(0, 0.225, 48); // Sitting on top of plaza y = 0.025
+    geometries.push(basin);
+
+    // Central pedestal column
+    const pedestal = new THREE.BoxGeometry(1.2, 1.5, 1.2);
+    pedestal.translate(0, 0.975, 48);
+    geometries.push(pedestal);
+
+    // Upper basin
+    const uBasin = new THREE.CylinderGeometry(3, 3, 0.2, 8);
+    uBasin.translate(0, 1.825, 48);
+    geometries.push(uBasin);
+
+    // Angel statue
+    const statue = new THREE.BoxGeometry(0.6, 0.8, 0.6);
+    statue.translate(0, 2.325, 48);
+    geometries.push(statue);
+
+    const merged = mergeGeometries(geometries, false);
+    for (const g of geometries) g.dispose();
+    return merged ?? new THREE.BufferGeometry();
+  }, []);
+
+  const fountainWaterGeo = useMemo(() => {
+    const geometries: THREE.BufferGeometry[] = [];
+
+    // Basin water level
+    const bWater = new THREE.CylinderGeometry(5.6, 5.6, 0.02, 12);
+    bWater.translate(0, 0.415, 48);
+    geometries.push(bWater);
+
+    // Upper basin water level
+    const uWater = new THREE.CylinderGeometry(2.8, 2.8, 0.02, 8);
+    uWater.translate(0, 1.915, 48);
+    geometries.push(uWater);
+
+    const merged = mergeGeometries(geometries, false);
+    for (const g of geometries) g.dispose();
+    return merged ?? new THREE.BufferGeometry();
+  }, []);
+
+  // 6. Belvedere Castle (Rocky Hill outcrop & Stone Tower / Walls / Stairs)
+  const castleRockGeo = useMemo(() => {
+    // Rocky hill outcrop (dark slate color)
+    const hill = new THREE.BoxGeometry(22, 4.5, 22);
+    hill.translate(-60, 2.25, 18);
+    return hill;
+  }, []);
+
+  const castleStoneGeo = useMemo(() => {
+    const geometries: THREE.BufferGeometry[] = [];
+
+    // Castle Keep / Wall house (sitting on rock at y = 4.5)
+    const keep = new THREE.BoxGeometry(14, 4, 8);
+    keep.translate(-57, 6.5, 20); // Center y = 4.5 + 4/2 = 6.5
+    geometries.push(keep);
+
+    // Main Tower
+    const tower = new THREE.BoxGeometry(6, 8, 6);
+    tower.translate(-67, 8.5, 13); // Center y = 4.5 + 8/2 = 8.5
+    geometries.push(tower);
+
+    // Crenellations (corners on top of tower at y = 12.5)
+    geometries.push(new THREE.BoxGeometry(0.8, 0.8, 0.8).translate(-69.5, 12.5, 10.5));
+    geometries.push(new THREE.BoxGeometry(0.8, 0.8, 0.8).translate(-64.5, 12.5, 10.5));
+    geometries.push(new THREE.BoxGeometry(0.8, 0.8, 0.8).translate(-69.5, 12.5, 15.5));
+    geometries.push(new THREE.BoxGeometry(0.8, 0.8, 0.8).translate(-64.5, 12.5, 15.5));
+
+    // Steps climbing up the side of the hill (from lx = -77 to -70)
+    geometries.push(new THREE.BoxGeometry(4, 1.1, 2).translate(-76, 0.55, 18));
+    geometries.push(new THREE.BoxGeometry(4, 2.2, 2).translate(-74, 1.1, 18));
+    geometries.push(new THREE.BoxGeometry(4, 3.3, 2).translate(-72, 1.65, 18));
+    geometries.push(new THREE.BoxGeometry(4, 4.4, 2).translate(-70, 2.2, 18));
+
+    const merged = mergeGeometries(geometries, false);
+    for (const g of geometries) g.dispose();
+    return merged ?? new THREE.BufferGeometry();
+  }, []);
+
+  // 7. Baseball Sand Fields
   const baseballFieldsGeo = useMemo(() => {
     const geometries: THREE.BufferGeometry[] = [];
-    // Flat cylinder representing the sandy playing field
     const f1 = new THREE.CylinderGeometry(14, 14, 0.01, 12);
     f1.translate(50, 0.015, -80);
     geometries.push(f1);
@@ -329,7 +459,116 @@ export function CentralPark({ park }: { park: LayoutRect }) {
     return merged ?? new THREE.BufferGeometry();
   }, []);
 
-  // 6. Tree Placement calculation (Sakura around lake, green deciduous elsewhere)
+  // 7b. Wollman Ice Rink — south-east area of the park (lx=90, lz=75)
+  const wollmanRinkGeo = useMemo(() => {
+    const geometries: THREE.BufferGeometry[] = [];
+    // Rink ice surface (oval approximated with a cylinder)
+    const ice = new THREE.CylinderGeometry(18, 18, 0.08, 20);
+    ice.scale(1, 1, 0.62); // squash into oval
+    ice.translate(90, 0.04, 75);
+    geometries.push(ice);
+    const merged = mergeGeometries(geometries, false);
+    for (const g of geometries) g.dispose();
+    return merged ?? new THREE.BufferGeometry();
+  }, []);
+
+  const wollmanBoardsGeo = useMemo(() => {
+    const geometries: THREE.BufferGeometry[] = [];
+    // Dasher boards — thin ring around the rink
+    const ring = new THREE.TorusGeometry(18, 0.5, 6, 20);
+    ring.scale(1, 0.4, 0.62);
+    ring.translate(90, 0.6, 75);
+    geometries.push(ring);
+    const merged = mergeGeometries(geometries, false);
+    for (const g of geometries) g.dispose();
+    return merged ?? new THREE.BufferGeometry();
+  }, []);
+
+  // 7c. Cleopatra's Needle (Egyptian Obelisk) — east side, lx=108, lz=-22
+  const obeliskGeo = useMemo(() => {
+    const geometries: THREE.BufferGeometry[] = [];
+    // Base plinth
+    const plinth = new THREE.BoxGeometry(3.5, 0.6, 3.5);
+    plinth.translate(108, 0.3, -22);
+    geometries.push(plinth);
+    // Shaft — tapers slightly using a frustum-like box stack
+    const shaft = new THREE.BoxGeometry(1.8, 10, 1.8);
+    shaft.translate(108, 5.6, -22);
+    geometries.push(shaft);
+    // Narrower upper shaft
+    const shaftTop = new THREE.BoxGeometry(1.2, 4, 1.2);
+    shaftTop.translate(108, 12.6, -22);
+    geometries.push(shaftTop);
+    // Pyramidion tip
+    const tip = new THREE.ConeGeometry(1.0, 2.5, 4);
+    tip.rotateY(Math.PI / 4);
+    tip.translate(108, 16.35, -22);
+    geometries.push(tip);
+    const merged = mergeGeometries(geometries, false);
+    for (const g of geometries) g.dispose();
+    return merged ?? new THREE.BufferGeometry();
+  }, []);
+
+  // 7d. Carousel — south, lx=-70, lz=80
+  const carouselRoofGeo = useMemo(() => {
+    const geometries: THREE.BufferGeometry[] = [];
+    // Octagonal pavilion roof
+    const roof = new THREE.ConeGeometry(8, 4, 8);
+    roof.translate(-70, 6, 80);
+    geometries.push(roof);
+    // Roof overhang ring
+    const overhang = new THREE.CylinderGeometry(9, 9, 0.3, 8);
+    overhang.translate(-70, 4.1, 80);
+    geometries.push(overhang);
+    const merged = mergeGeometries(geometries, false);
+    for (const g of geometries) g.dispose();
+    return merged ?? new THREE.BufferGeometry();
+  }, []);
+
+  const carouselBaseGeo = useMemo(() => {
+    const geometries: THREE.BufferGeometry[] = [];
+    // Platform base
+    const base = new THREE.CylinderGeometry(7.5, 7.5, 0.5, 8);
+    base.translate(-70, 0.25, 80);
+    geometries.push(base);
+    // Central golden pole
+    const pole = new THREE.CylinderGeometry(0.3, 0.3, 6.5, 8);
+    pole.translate(-70, 3.25, 80);
+    geometries.push(pole);
+    // Support columns around perimeter (8 columns)
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const col = new THREE.CylinderGeometry(0.18, 0.18, 4.2, 6);
+      col.translate(-70 + Math.cos(angle) * 7.2, 2.1, 80 + Math.sin(angle) * 7.2);
+      geometries.push(col);
+    }
+    const merged = mergeGeometries(geometries, false);
+    for (const g of geometries) g.dispose();
+    return merged ?? new THREE.BufferGeometry();
+  }, []);
+
+  // 7e. Reservoir loop path (Jackie Kennedy Onassis Reservoir — north half, lz = -60 to -115)
+  const reservoirPathGeo = useMemo(() => {
+    const geometries: THREE.BufferGeometry[] = [];
+    const pathH = 0.025;
+    // North cross-connector path: lz = -90 to -115, lx = -60 to 60
+    const pReservoirN = new THREE.BoxGeometry(120, pathH, 5);
+    pReservoirN.translate(0, 0.025, -103);
+    geometries.push(pReservoirN);
+    // East connector branch lz = -60 to -103, lx = 60
+    const pReservoirE = new THREE.BoxGeometry(5, pathH, 43);
+    pReservoirE.translate(60, 0.025, -81.5);
+    geometries.push(pReservoirE);
+    // West connector branch lz = -60 to -103, lx = -60
+    const pReservoirW = new THREE.BoxGeometry(5, pathH, 43);
+    pReservoirW.translate(-60, 0.025, -81.5);
+    geometries.push(pReservoirW);
+    const merged = mergeGeometries(geometries, false);
+    for (const g of geometries) g.dispose();
+    return merged ?? new THREE.BufferGeometry();
+  }, []);
+
+  // 8. Tree Placement calculation (Sakura around lake, green deciduous in woodlands and the Mall)
   const { sakuraTreesByStyle, deciduousTreesByStyle } = useMemo(() => {
     const sakura: { x: number; z: number; scale: number }[][] = [[], [], [], []];
     const deciduous: { x: number; z: number; scale: number }[][] = [[], [], [], []];
@@ -340,6 +579,20 @@ export function CentralPark({ park }: { park: LayoutRect }) {
     const minZ = -d / 2 + 8;
     const maxZ = d / 2 - 8;
 
+    // A. Generate Mall trees: parallel neat rows lining the Mall promenade path
+    for (const lz of [62, 77, 92, 107]) {
+      // Left row: lx = -8
+      const scaleL = 1.35;
+      const styleL = getTreeStyleIndex(cx - 8, cz + lz);
+      deciduous[styleL]!.push({ x: cx - 8, z: cz + lz, scale: scaleL });
+
+      // Right row: lx = 8
+      const scaleR = 1.35;
+      const styleR = getTreeStyleIndex(cx + 8, cz + lz);
+      deciduous[styleR]!.push({ x: cx + 8, z: cz + lz, scale: scaleR });
+    }
+
+    // B. Generate standard trees using the woodland/reservoir layout filters
     for (let lx = minX; lx < maxX; lx += STEP) {
       for (let lz = minZ; lz < maxZ; lz += STEP) {
         const s = lx * 0.17 + lz * 0.23;
@@ -352,15 +605,24 @@ export function CentralPark({ park }: { park: LayoutRect }) {
         if (isPointInLake(tx, tz, 6.0)) continue;
         if (isPointOnPath(tx, tz, 5.0)) continue;
 
-        // Leave open lawns clear of trees (except 5% scattered bushes/trees)
-        if (isPointInLawn(tx, tz) && seededRng(s + 2) > 0.05) continue;
+        // Skip castle hill area
+        if (tx >= -73 && tx <= -47 && tz >= 5 && tz <= 31) continue;
+
+        // Calculate distance to the reservoir shore
+        const distToLake = getDistanceToLake(tx, tz);
+        const isNearLake = distToLake < 22;
+
+        // Check if the point falls inside a designated woodland zone
+        const inWoodland = isPointInWoodland(tx, tz);
+
+        // If NOT near the lake shore and NOT inside a woodland zone, leave completely open!
+        if (!isNearLake && !inWoodland) {
+          // Allow a very tiny 1% chance for occasional scattered specimen trees in open meadows
+          if (seededRng(s + 2) > 0.01) continue;
+        }
 
         const style = getTreeStyleIndex(cx + tx, cz + tz);
         const scale = 1.1 + seededRng(s + 3) * 0.7;
-
-        // Sakura trees line the reservoir lake shoreline
-        const distToLake = getDistanceToLake(tx, tz);
-        const isNearLake = distToLake < 22;
 
         if (isNearLake) {
           sakura[style]!.push({ x: cx + tx, z: cz + tz, scale });
@@ -372,7 +634,7 @@ export function CentralPark({ park }: { park: LayoutRect }) {
     return { sakuraTreesByStyle: sakura, deciduousTreesByStyle: deciduous };
   }, [cx, cz, w, d]);
 
-  // 7. Grass & Wildflowers placements
+  // 9. Grass & Wildflowers placements
   const { grassPlacements, flowerPlacements } = useMemo(() => {
     const grass: { x: number; z: number; scale: number; rotY: number }[] = [];
     const flowers: { x: number; z: number; scale: number; rotY: number }[][] = [[], [], [], []];
@@ -394,6 +656,9 @@ export function CentralPark({ park }: { park: LayoutRect }) {
         if (isPointInLake(tx, tz, 2.5)) continue;
         if (isPointOnPath(tx, tz, 2.5)) continue;
 
+        // Skip castle hill area
+        if (tx >= -72 && tx <= -48 && tz >= 6 && tz <= 30) continue;
+
         // Grass
         const scaleG = 0.85 + seededRng(s + 3) * 0.6;
         const rotYG = seededRng(s + 4) * Math.PI * 2;
@@ -411,7 +676,7 @@ export function CentralPark({ park }: { park: LayoutRect }) {
     return { grassPlacements: grass, flowerPlacements: flowers };
   }, [cx, cz, w, d]);
 
-  // 8. Benches placements
+  // 10. Benches placements
   const benchPlacements = useMemo(() => {
     const out: { x: number; z: number; rotY: number }[] = [];
 
@@ -442,10 +707,35 @@ export function CentralPark({ park }: { park: LayoutRect }) {
       out.push({ x: cx + lx, z: cz + 111, rotY: 0 });
     }
 
+    // The Mall promenade — benches between the tree rows, alternating sides
+    for (const lz of [65, 80, 95, 110]) {
+      out.push({ x: cx - 13, z: cz + lz, rotY: Math.PI / 2 }); // Left side facing right
+      out.push({ x: cx + 13, z: cz + lz, rotY: -Math.PI / 2 }); // Right side facing left
+    }
+
+    // Wollman Rink spectator benches — north side of rink
+    for (const lx of [75, 85, 95, 105]) {
+      out.push({ x: cx + lx, z: cz + 54, rotY: Math.PI });
+    }
+
+    // Carousel waiting benches
+    out.push({ x: cx - 82, z: cz + 80, rotY: Math.PI / 2 });
+    out.push({ x: cx - 58, z: cz + 80, rotY: -Math.PI / 2 });
+
+    // Reservoir loop benches — north path
+    for (const lx of [-45, 0, 45]) {
+      out.push({ x: cx + lx, z: cz - 107, rotY: Math.PI });
+    }
+
+    // Bethesda Terrace benches around plaza
+    for (const lx of [-16, 16]) {
+      out.push({ x: cx + lx, z: cz + 44, rotY: lx < 0 ? -Math.PI / 2 : Math.PI / 2 });
+    }
+
     return out;
   }, [cx, cz]);
 
-  // 9. Streetlights placements
+  // 11. Streetlights placements
   const streetlightPlacements = useMemo(() => {
     const out: { x: number; z: number; rotY: number }[] = [];
 
@@ -467,10 +757,32 @@ export function CentralPark({ park }: { park: LayoutRect }) {
       out.push({ x: cx + lx, z: cz + 118, rotY: Math.PI });
     }
 
-    // Central spine path
-    for (const lz of [-90, -30, 30, 90]) {
+    // Central spine path (north section above lake)
+    for (const lz of [-90, -60, -30]) {
       out.push({ x: cx - 4, z: cz + lz, rotY: Math.PI / 2 });
     }
+
+    // Central spine path (south — The Mall promenade)
+    for (const lz of [30, 60, 90]) {
+      out.push({ x: cx - 4, z: cz + lz, rotY: Math.PI / 2 });
+    }
+
+    // The Mall tree-lined alley — paired lights between tree rows
+    for (const lz of [68, 84, 100]) {
+      out.push({ x: cx - 5, z: cz + lz, rotY: Math.PI / 2 });
+      out.push({ x: cx + 5, z: cz + lz, rotY: -Math.PI / 2 });
+    }
+
+    // Reservoir loop path lights
+    for (const lx of [-45, 0, 45]) {
+      out.push({ x: cx + lx, z: cz - 105, rotY: Math.PI });
+    }
+    out.push({ x: cx + 62, z: cz - 82, rotY: -Math.PI / 2 });
+    out.push({ x: cx - 62, z: cz - 82, rotY: Math.PI / 2 });
+
+    // Wollman Rink approach
+    out.push({ x: cx + 73, z: cz + 58, rotY: Math.PI });
+    out.push({ x: cx + 108, z: cz + 58, rotY: Math.PI });
 
     return out;
   }, [cx, cz]);
@@ -525,7 +837,7 @@ export function CentralPark({ park }: { park: LayoutRect }) {
     });
   }, []);
 
-  // ─── Bench & Streetlight geometries & materials ──────────────────────────────
+  // ─── Bench, Castle & Streetlight geometries & materials ──────────────────────
   const benchGeo = useMemo(() => {
     const geometries: THREE.BufferGeometry[] = [];
     geometries.push(new THREE.BoxGeometry(2.2, 0.2, 0.8).translate(0, 0.4, 0)); // Seat
@@ -565,6 +877,15 @@ export function CentralPark({ park }: { park: LayoutRect }) {
     emissiveIntensity: 3.5,
     roughness: 0.1,
   }), []);
+
+  const rockMat = useMemo(() => new THREE.MeshStandardMaterial({ color: PARK_COLORS.rock, roughness: 0.9, metalness: 0.2, flatShading: true }), []);
+  const castleStoneMat = useMemo(() => new THREE.MeshStandardMaterial({ color: PARK_COLORS.stone, roughness: 0.85, metalness: 0.1, flatShading: true }), []);
+  const rinkIceMat = useMemo(() => new THREE.MeshStandardMaterial({ color: PARK_COLORS.rinkIce, roughness: 0.05, metalness: 0.6, flatShading: true }), []);
+  const rinkBoardsMat = useMemo(() => new THREE.MeshStandardMaterial({ color: PARK_COLORS.rinkBoards, roughness: 0.7, metalness: 0.3, flatShading: true }), []);
+  const obeliskMat = useMemo(() => new THREE.MeshStandardMaterial({ color: PARK_COLORS.obelisk, roughness: 0.8, metalness: 0.1, flatShading: true }), []);
+  const carouselRoofMat = useMemo(() => new THREE.MeshStandardMaterial({ color: PARK_COLORS.carouselRoof, roughness: 0.6, metalness: 0.1, flatShading: true }), []);
+  const carouselBaseMat = useMemo(() => new THREE.MeshStandardMaterial({ color: PARK_COLORS.carouselPole, roughness: 0.4, metalness: 0.6, flatShading: true }), []);
+  const reservoirPathMat = useMemo(() => new THREE.MeshStandardMaterial({ color: PARK_COLORS.path, roughness: 0.96, metalness: 0, flatShading: true }), []);
 
   // Refs for instancing
   const grassRef = useRef<THREE.InstancedMesh>(null);
@@ -655,7 +976,17 @@ export function CentralPark({ park }: { park: LayoutRect }) {
       bridgeConcreteGeo.dispose();
       bridgeRailsGeo.dispose();
       pathGeo.dispose();
+      fountainStoneGeo.dispose();
+      fountainWaterGeo.dispose();
+      castleRockGeo.dispose();
+      castleStoneGeo.dispose();
       baseballFieldsGeo.dispose();
+      wollmanRinkGeo.dispose();
+      wollmanBoardsGeo.dispose();
+      obeliskGeo.dispose();
+      carouselRoofGeo.dispose();
+      carouselBaseGeo.dispose();
+      reservoirPathGeo.dispose();
       grassGeo.dispose();
       grassMat.dispose();
       if (grassMat.map) grassMat.map.dispose();
@@ -670,13 +1001,31 @@ export function CentralPark({ park }: { park: LayoutRect }) {
       slPostMat.dispose();
       streetlightLanternGeo.dispose();
       slLanternMat.dispose();
+      rockMat.dispose();
+      castleStoneMat.dispose();
+      rinkIceMat.dispose();
+      rinkBoardsMat.dispose();
+      obeliskMat.dispose();
+      carouselRoofMat.dispose();
+      carouselBaseMat.dispose();
+      reservoirPathMat.dispose();
     };
   }, [
     lakeGeo,
     bridgeConcreteGeo,
     bridgeRailsGeo,
     pathGeo,
+    fountainStoneGeo,
+    fountainWaterGeo,
+    castleRockGeo,
+    castleStoneGeo,
     baseballFieldsGeo,
+    wollmanRinkGeo,
+    wollmanBoardsGeo,
+    obeliskGeo,
+    carouselRoofGeo,
+    carouselBaseGeo,
+    reservoirPathGeo,
     grassGeo,
     grassMat,
     flowerGeo,
@@ -687,6 +1036,14 @@ export function CentralPark({ park }: { park: LayoutRect }) {
     slPostMat,
     streetlightLanternGeo,
     slLanternMat,
+    rockMat,
+    castleStoneMat,
+    rinkIceMat,
+    rinkBoardsMat,
+    obeliskMat,
+    carouselRoofMat,
+    carouselBaseMat,
+    reservoirPathMat,
   ]);
 
   return (
@@ -715,12 +1072,54 @@ export function CentralPark({ park }: { park: LayoutRect }) {
         <meshStandardMaterial color={PARK_COLORS.path} roughness={0.96} metalness={0} flatShading />
       </mesh>
 
-      {/* E. Great Lawn Baseball Sand Diamonds */}
+      {/* E. Bethesda Fountain */}
+      <mesh geometry={fountainStoneGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+        <meshStandardMaterial color={PARK_COLORS.concrete} roughness={0.8} metalness={0.1} flatShading />
+      </mesh>
+      <mesh geometry={fountainWaterGeo} position={[cx, 0, cz]} receiveShadow>
+        <meshStandardMaterial color={PARK_COLORS.water} roughness={0.15} metalness={0.8} flatShading />
+      </mesh>
+
+      {/* F. Belvedere Castle */}
+      <mesh geometry={castleRockGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+        <primitive object={rockMat} attach="material" />
+      </mesh>
+      <mesh geometry={castleStoneGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+        <primitive object={castleStoneMat} attach="material" />
+      </mesh>
+
+      {/* G. Great Lawn Baseball Sand Diamonds */}
       <mesh geometry={baseballFieldsGeo} position={[cx, 0, cz]} receiveShadow>
         <meshStandardMaterial color={PARK_COLORS.baseballSand} roughness={0.98} metalness={0} />
       </mesh>
 
-      {/* F. Instanced Grass & Wildflowers */}
+      {/* G2. Wollman Ice Rink */}
+      <mesh geometry={wollmanRinkGeo} position={[cx, 0, cz]} receiveShadow>
+        <primitive object={rinkIceMat} attach="material" />
+      </mesh>
+      <mesh geometry={wollmanBoardsGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+        <primitive object={rinkBoardsMat} attach="material" />
+      </mesh>
+
+      {/* G3. Cleopatra's Needle (Obelisk) */}
+      <mesh geometry={obeliskGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+        <primitive object={obeliskMat} attach="material" />
+      </mesh>
+
+      {/* G4. Carousel */}
+      <mesh geometry={carouselBaseGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+        <primitive object={carouselBaseMat} attach="material" />
+      </mesh>
+      <mesh geometry={carouselRoofGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+        <primitive object={carouselRoofMat} attach="material" />
+      </mesh>
+
+      {/* G5. Reservoir Loop Path */}
+      <mesh geometry={reservoirPathGeo} position={[cx, 0, cz]} receiveShadow>
+        <primitive object={reservoirPathMat} attach="material" />
+      </mesh>
+
+      {/* H. Instanced Grass & Wildflowers */}
       {grassPlacements.length > 0 && (
         <instancedMesh ref={grassRef} args={[grassGeo, grassMat, grassPlacements.length]} castShadow receiveShadow />
       )}
@@ -738,12 +1137,12 @@ export function CentralPark({ park }: { park: LayoutRect }) {
         );
       })}
 
-      {/* G. Instanced Park Benches */}
+      {/* I. Instanced Park Benches */}
       {benchPlacements.length > 0 && (
         <instancedMesh ref={benchRef} args={[benchGeo, benchMat, benchPlacements.length]} castShadow receiveShadow />
       )}
 
-      {/* H. Instanced Streetlights */}
+      {/* J. Instanced Streetlights */}
       {streetlightPlacements.length > 0 && (
         <group>
           <instancedMesh ref={streetlightPostRef} args={[streetlightPostGeo, slPostMat, streetlightPlacements.length]} castShadow receiveShadow />
@@ -751,7 +1150,7 @@ export function CentralPark({ park }: { park: LayoutRect }) {
         </group>
       )}
 
-      {/* I. Instanced Trees (Sakura groves around reservoir) */}
+      {/* K. Instanced Trees (Sakura groves around reservoir) */}
       {sakuraTreesByStyle.map((groupTrees, idx) => {
         if (groupTrees.length === 0) return null;
         return (
@@ -767,7 +1166,7 @@ export function CentralPark({ park }: { park: LayoutRect }) {
         );
       })}
 
-      {/* J. Instanced Trees (Green deciduous groves elsewhere) */}
+      {/* L. Instanced Trees (Green deciduous groves in woodlands) */}
       {deciduousTreesByStyle.map((groupTrees, idx) => {
         if (groupTrees.length === 0) return null;
         return (
