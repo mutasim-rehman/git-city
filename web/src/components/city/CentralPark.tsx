@@ -34,6 +34,102 @@ export const PARK_COLORS = {
   carouselPole: "#fbbf24", // gold carousel center pole
 } as const;
 
+// Helper to check if a local coordinate (lx, lz) is inside the reservoir
+function isPointInLake(lx: number, lz: number, margin = 0) {
+  const parts = [
+    { x: 0, z: -10, w: 170, d: 80 },
+    { x: -85, z: -20, w: 40, d: 50 },
+    { x: 85, z: -5, w: 45, d: 50 },
+    { x: 20, z: -55, w: 70, d: 35 },
+  ];
+  for (const p of parts) {
+    const minX = p.x - p.w / 2 - margin;
+    const maxX = p.x + p.w / 2 + margin;
+    const minZ = p.z - p.d / 2 - margin;
+    const maxZ = p.z + p.d / 2 + margin;
+    if (lx >= minX && lx <= maxX && lz >= minZ && lz <= maxZ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Helper to calculate exact distance to the lake shoreline
+function getDistanceToLake(lx: number, lz: number) {
+  const parts = [
+    { x: 0, z: -10, w: 170, d: 80 },
+    { x: -85, z: -20, w: 40, d: 50 },
+    { x: 85, z: -5, w: 45, d: 50 },
+    { x: 20, z: -55, w: 70, d: 35 },
+  ];
+  let minD = Infinity;
+  for (const p of parts) {
+    const minX = p.x - p.w / 2;
+    const maxX = p.x + p.w / 2;
+    const minZ = p.z - p.d / 2;
+    const maxZ = p.z + p.d / 2;
+
+    const dx = Math.max(minX - lx, 0, lx - maxX);
+    const dz = Math.max(minZ - lz, 0, lz - maxZ);
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist < minD) minD = dist;
+  }
+  return minD;
+}
+
+// Helper to check if a local coordinate (lx, lz) is on the gravel paths
+function isPointOnPath(lx: number, lz: number, margin = 2) {
+  const pathW = 6;
+  const halfW = pathW / 2 + margin;
+
+  // Outer loop boundaries (park width 320, depth 280)
+  // West path
+  if (Math.abs(lx - (-135)) <= halfW && Math.abs(lz) <= 115 + halfW) return true;
+  // East path
+  if (Math.abs(lx - 135) <= halfW && Math.abs(lz) <= 115 + halfW) return true;
+  // North path
+  if (Math.abs(lz - (-115)) <= halfW && Math.abs(lx) <= 135 + halfW) return true;
+  // South path
+  if (Math.abs(lz - 115) <= halfW && Math.abs(lx) <= 135 + halfW) return true;
+
+  // Central spine path crossing the bridge
+  if (Math.abs(lx) <= halfW && Math.abs(lz) <= 115 + halfW) return true;
+
+  // Castle connector path
+  if (lz >= 15 && lz <= 21 && lx >= -136 && lx <= -70) return true;
+
+  return false;
+}
+
+// Helper to check if a local coordinate is in the Sheep Meadow, Great Lawn, or North Meadow
+function isPointInLawn(lx: number, lz: number) {
+  // South Lawn (Sheep Meadow)
+  if (lx >= -115 && lx <= -15 && lz >= 35 && lz <= 95) return true;
+  // Great Lawn (North-East Lawn)
+  if (lx >= 15 && lx <= 115 && lz >= -95 && lz <= -45) return true;
+  // North Meadow (North-West Lawn)
+  if (lx >= -115 && lx <= -15 && lz >= -95 && lz <= -45) return true;
+  return false;
+}
+
+// Helper to check if a point is in a designated woodland zone
+function isPointInWoodland(lx: number, lz: number) {
+  // 1. East Woods: border zone on the east
+  if (lx > 122) return true;
+  // 2. West Woods: border zone on the west
+  if (lx < -122) return true;
+  // 3. North Woods: far north zone
+  if (lz < -105) return true;
+  // 4. South Woods: far south zone (except near the central path Mall)
+  if (lz > 105) {
+    if (Math.abs(lx) > 18) return true;
+  }
+  // 5. The Ramble: dense woods around the north-west shore of the lake
+  if (lx >= -120 && lx <= -20 && lz >= -50 && lz <= 20) return true;
+
+  return false;
+}
+
 /** Custom component to render green deciduous trees inside Central Park */
 function InstancedDeciduousTreesGroup({
   styleIndex,
@@ -131,127 +227,15 @@ function InstancedDeciduousTreesGroup({
 
 export function CentralPark({ park }: { park: LayoutRect }) {
   const { x: cx, z: cz, w, d } = rectCenter(park);
-  const halfW = w / 2;
-  const halfD = d / 2;
-
-  // Helper to check if a local coordinate (lx, lz) is inside the reservoir or central lake
-  const isPointInLake = (lx: number, lz: number, margin = 0) => {
-    // Reservoir bounds (northern section)
-    const resMinX = -halfW + 16 - margin;
-    const resMaxX = halfW - 16 + margin;
-    const resMinZ = -halfD + 40 - margin;
-    const resMaxZ = -halfD + 130 + margin;
-    if (lx >= resMinX && lx <= resMaxX && lz >= resMinZ && lz <= resMaxZ) {
-      return true;
-    }
-    // Lake bounds (central section around Bow Bridge)
-    const lakeMinX = -halfW + 12 - margin;
-    const lakeMaxX = halfW - 12 + margin;
-    const lakeMinZ = -45 - margin;
-    const lakeMaxZ = 25 + margin;
-    if (lx >= lakeMinX && lx <= lakeMaxX && lz >= lakeMinZ && lz <= lakeMaxZ) {
-      return true;
-    }
-    return false;
-  };
-
-  // Helper to calculate exact distance to the lake shoreline
-  const getDistanceToLake = (lx: number, lz: number) => {
-    const resMinX = -halfW + 16;
-    const resMaxX = halfW - 16;
-    const resMinZ = -halfD + 40;
-    const resMaxZ = -halfD + 130;
-
-    const lakeMinX = -halfW + 12;
-    const lakeMaxX = halfW - 12;
-    const lakeMinZ = -45;
-    const lakeMaxZ = 25;
-
-    const dx1 = Math.max(resMinX - lx, 0, lx - resMaxX);
-    const dz1 = Math.max(resMinZ - lz, 0, lz - resMaxZ);
-    const dist1 = Math.sqrt(dx1 * dx1 + dz1 * dz1);
-
-    const dx2 = Math.max(lakeMinX - lx, 0, lx - lakeMaxX);
-    const dz2 = Math.max(lakeMinZ - lz, 0, lz - lakeMaxZ);
-    const dist2 = Math.sqrt(dx2 * dx2 + dz2 * dz2);
-
-    return Math.min(dist1, dist2);
-  };
-
-  // Helper to check if a local coordinate (lx, lz) is on the gravel paths
-  const isPointOnPath = (lx: number, lz: number, margin = 2) => {
-    const pathW = 6;
-    const halfWPath = pathW / 2 + margin;
-
-    // Outer loop boundaries
-    // West path
-    if (Math.abs(lx - (-halfW + 8)) <= halfWPath && Math.abs(lz) <= halfD - 8 + margin) return true;
-    // East path
-    if (Math.abs(lx - (halfW - 8)) <= halfWPath && Math.abs(lz) <= halfD - 8 + margin) return true;
-    // North path
-    if (Math.abs(lz - (-halfD + 8)) <= halfWPath && Math.abs(lx) <= halfW - 8 + margin) return true;
-    // South path
-    if (Math.abs(lz - (halfD - 8)) <= halfWPath && Math.abs(lx) <= halfW - 8 + margin) return true;
-
-    // Central spine path crossing the bridge
-    if (Math.abs(lx) <= halfWPath && lz >= -halfD + 8 && lz <= 50) return true;
-
-    // Castle connector path (from west loop path to castle)
-    if (lz >= -43 && lz <= -37 && lx >= -halfW + 8 && lx <= -45) return true;
-
-    // Reservoir loop path
-    const resLoopMinX = -halfW + 12;
-    const resLoopMaxX = halfW - 12;
-    const resLoopMinZ = -halfD + 35;
-    const resLoopMaxZ = -halfD + 135;
-    if (Math.abs(lz - resLoopMinZ) <= halfWPath && lx >= resLoopMinX && lx <= resLoopMaxX) return true;
-    if (Math.abs(lz - resLoopMaxZ) <= halfWPath && lx >= resLoopMinX && lx <= resLoopMaxX) return true;
-    if (Math.abs(lx - resLoopMinX) <= halfWPath && lz >= resLoopMinZ && lz <= resLoopMaxZ) return true;
-    if (Math.abs(lx - resLoopMaxX) <= halfWPath && lz >= resLoopMinZ && lz <= resLoopMaxZ) return true;
-
-    // The Mall Promenade: wide path (width 10) in the south
-    if (Math.abs(lx) <= 5 + margin && lz >= 50 && lz <= halfD - 40) return true;
-
-    return false;
-  };
-
-  // Helper to check if a local coordinate is in Sheep Meadow, Great Lawn, or North Meadow
-  const isPointInLawn = (lx: number, lz: number) => {
-    // South Lawn (Sheep Meadow)
-    if (lx >= -halfW + 15 && lx <= -10 && lz >= 60 && lz <= halfD - 50) return true;
-    // Great Lawn (North-East Lawn)
-    if (lx >= 10 && lx <= halfW - 15 && lz >= -halfD + 145 && lz <= -60) return true;
-    // North Meadow (North-West Lawn)
-    if (lx >= -halfW + 15 && lx <= -10 && lz >= -halfD + 145 && lz <= -60) return true;
-    return false;
-  };
-
-  // Helper to check if a point is in a designated woodland zone (shrunk to expand open park area)
-  const isPointInWoodland = (lx: number, lz: number) => {
-    // 1. East Woods: border zone on the east (thinned to 12 units)
-    if (lx > halfW - 12) return true;
-    // 2. West Woods: border zone on the west (thinned to 12 units)
-    if (lx < -halfW + 12) return true;
-    // 3. North Woods: far north zone (thinned to 12 units)
-    if (lz < -halfD + 12) return true;
-    // 4. South Woods: far south zone (thinned to 12 units, except near Mall)
-    if (lz > halfD - 12) {
-      if (Math.abs(lx) > 15) return true;
-    }
-    // 5. The Ramble: dense woods around the north-west shore of the lake
-    if (lx >= -halfW + 15 && lx <= -15 && lz >= -45 && lz <= 10) return true;
-
-    return false;
-  };
 
   // 1. Lake / Reservoir Geometry
   const lakeGeo = useMemo(() => {
     const geometries: THREE.BufferGeometry[] = [];
     const parts = [
-      // Reservoir (large body of water in north half)
-      { x: 0, z: -halfD + 85, w: w - 32, d: 90 },
-      // Central Lake (around Bow Bridge)
-      { x: 0, z: -10, w: w - 24, d: 70 },
+      { x: 0, z: -10, w: 170, d: 80 },
+      { x: -85, z: -20, w: 40, d: 50 },
+      { x: 85, z: -5, w: 45, d: 50 },
+      { x: 20, z: -55, w: 70, d: 35 },
     ];
     for (const p of parts) {
       const g = new THREE.BoxGeometry(p.w, 0.1, p.d);
@@ -261,31 +245,31 @@ export function CentralPark({ park }: { park: LayoutRect }) {
     const merged = mergeGeometries(geometries, false);
     for (const g of geometries) g.dispose();
     return merged ?? new THREE.BufferGeometry();
-  }, [w, d, halfD]);
+  }, []);
 
   // 2. Bow Bridge Concrete Structure
   const bridgeConcreteGeo = useMemo(() => {
     const geometries: THREE.BufferGeometry[] = [];
 
     // Main bridge deck (at y = 1.2, height = 0.3)
-    const deck = new THREE.BoxGeometry(8, 0.3, 70);
+    const deck = new THREE.BoxGeometry(8, 0.3, 84);
     deck.translate(0, 1.05, -10); // Center relative to park: lx = 0, lz = -10
     geometries.push(deck);
 
     // Step ramps up to the deck
     // North ramp steps
-    geometries.push(new THREE.BoxGeometry(8, 0.3, 5).translate(0, 0.15, -47.5));
-    geometries.push(new THREE.BoxGeometry(8, 0.6, 4).translate(0, 0.3, -43));
-    geometries.push(new THREE.BoxGeometry(8, 0.9, 4).translate(0, 0.45, -39));
+    geometries.push(new THREE.BoxGeometry(8, 0.3, 5).translate(0, 0.15, -62.5));
+    geometries.push(new THREE.BoxGeometry(8, 0.6, 4).translate(0, 0.3, -58));
+    geometries.push(new THREE.BoxGeometry(8, 0.9, 4).translate(0, 0.45, -54));
 
     // South ramp steps
-    geometries.push(new THREE.BoxGeometry(8, 0.3, 5).translate(0, 0.15, 27.5));
-    geometries.push(new THREE.BoxGeometry(8, 0.6, 4).translate(0, 0.3, 23));
-    geometries.push(new THREE.BoxGeometry(8, 0.9, 4).translate(0, 0.45, 19));
+    geometries.push(new THREE.BoxGeometry(8, 0.3, 5).translate(0, 0.15, 42.5));
+    geometries.push(new THREE.BoxGeometry(8, 0.6, 4).translate(0, 0.3, 38));
+    geometries.push(new THREE.BoxGeometry(8, 0.9, 4).translate(0, 0.45, 34));
 
     // Piers / arch supports standing in the water
     const pier1 = new THREE.BoxGeometry(8, 1.2, 3);
-    pier1.translate(0, 0.6, -25);
+    pier1.translate(0, 0.6, -30);
     geometries.push(pier1);
 
     const pier2 = new THREE.BoxGeometry(8, 1.2, 3);
@@ -304,11 +288,11 @@ export function CentralPark({ park }: { park: LayoutRect }) {
   // 3. Bow Bridge Handrails (White)
   const bridgeRailsGeo = useMemo(() => {
     const geometries: THREE.BufferGeometry[] = [];
-    const railL = new THREE.BoxGeometry(0.2, 0.8, 70);
+    const railL = new THREE.BoxGeometry(0.2, 0.8, 84);
     railL.translate(-3.9, 1.6, -10);
     geometries.push(railL);
 
-    const railR = new THREE.BoxGeometry(0.2, 0.8, 70);
+    const railR = new THREE.BoxGeometry(0.2, 0.8, 84);
     railR.translate(3.9, 1.6, -10);
     geometries.push(railR);
 
@@ -323,75 +307,79 @@ export function CentralPark({ park }: { park: LayoutRect }) {
     const pathW = 6;
     const pathH = 0.02;
 
-    // West loop path: lx = -halfW + 8
-    const pWest = new THREE.BoxGeometry(pathW, pathH, d - 16);
-    pWest.translate(-halfW + 8, 0.02, 0);
+    // West loop path: lx = -135
+    const pWest = new THREE.BoxGeometry(pathW, pathH, 230);
+    pWest.translate(-135, 0.02, 0);
     geometries.push(pWest);
 
-    // East loop path: lx = halfW - 8
-    const pEast = new THREE.BoxGeometry(pathW, pathH, d - 16);
-    pEast.translate(halfW - 8, 0.02, 0);
+    // East loop path: lx = 135
+    const pEast = new THREE.BoxGeometry(pathW, pathH, 230);
+    pEast.translate(135, 0.02, 0);
     geometries.push(pEast);
 
-    // North loop path: lz = -halfD + 8
-    const pNorth = new THREE.BoxGeometry(w - 16, pathH, pathW);
-    pNorth.translate(0, 0.02, -halfD + 8);
+    // North loop path: lz = -115
+    const pNorth = new THREE.BoxGeometry(276, pathH, pathW);
+    pNorth.translate(0, 0.02, -115);
     geometries.push(pNorth);
 
-    // South loop path: lz = halfD - 8
-    const pSouth = new THREE.BoxGeometry(w - 16, pathH, pathW);
-    pSouth.translate(0, 0.02, halfD - 8);
+    // South loop path: lz = 115
+    const pSouth = new THREE.BoxGeometry(276, pathH, pathW);
+    pSouth.translate(0, 0.02, 115);
     geometries.push(pSouth);
 
-    // Central path segment (North of lake to reservoir loop)
-    const pCentralN = new THREE.BoxGeometry(pathW, pathH, -halfD + 135 - (-30));
-    pCentralN.translate(0, 0.02, (-halfD + 135 - 30) / 2);
+    // Central path segment (North of lake): lz = -115 to -65
+    const pCentralN = new THREE.BoxGeometry(pathW, pathH, 50);
+    pCentralN.translate(0, 0.02, -90);
     geometries.push(pCentralN);
 
-    // The Mall Promenade: wide path (width 10) in the south
-    const pMall = new THREE.BoxGeometry(10, pathH, (halfD - 40) - 50);
-    pMall.translate(0, 0.02, (halfD - 40 + 50) / 2);
+    // The Mall Promenade: wide path (width 10) in the south from lz = 60 to 115
+    const pMall = new THREE.BoxGeometry(10, pathH, 55);
+    pMall.translate(0, 0.02, 87.5);
     geometries.push(pMall);
 
-    // Bethesda Plaza connector: wide path (width 10)
-    const pConnector = new THREE.BoxGeometry(10, pathH, 20);
-    pConnector.translate(0, 0.02, 40);
+    // Bethesda Plaza connector: wide path (width 10) from lz = 45 to 60
+    const pConnector = new THREE.BoxGeometry(10, pathH, 15);
+    pConnector.translate(0, 0.02, 52.5);
     geometries.push(pConnector);
 
-    // Bethesda stone circular plaza at lx = 0, lz = 30
+    // Bethesda stone circular plaza (radius 14, height 0.1) at lx = 0, lz = 48
     const plaza = new THREE.CylinderGeometry(14, 14, 0.04, 16);
-    plaza.translate(0, 0.02, 30);
+    plaza.translate(0, 0.02, 48);
     geometries.push(plaza);
 
-    // Belvedere Castle connector path
-    const castleConnectorW = (-halfW + 8) - (-45);
-    const pCastle = new THREE.BoxGeometry(Math.abs(castleConnectorW), pathH, 4);
-    pCastle.translate((-halfW + 8 - 45) / 2, 0.02, -40);
+    // Belvedere Castle connector path: lx = -135 to -77
+    const pCastle = new THREE.BoxGeometry(58, pathH, 4);
+    pCastle.translate(-106, 0.02, 18);
     geometries.push(pCastle);
 
     const merged = mergeGeometries(geometries, false);
     for (const g of geometries) g.dispose();
     return merged ?? new THREE.BufferGeometry();
-  }, [w, d, halfW, halfD]);
+  }, []);
 
   // 5. Bethesda Fountain (Tiered stone structure & water)
   const fountainStoneGeo = useMemo(() => {
     const geometries: THREE.BufferGeometry[] = [];
 
+    // Basin rim (outer radius 6, inner 5.4, height 0.4)
+    // We can simulate this simply in blocky style by drawing the solid basin cylinder
     const basin = new THREE.CylinderGeometry(6, 6, 0.4, 12);
-    basin.translate(0, 0.225, 30); // Center at Bethesda Plaza lz = 30
+    basin.translate(0, 0.225, 48); // Sitting on top of plaza y = 0.025
     geometries.push(basin);
 
+    // Central pedestal column
     const pedestal = new THREE.BoxGeometry(1.2, 1.5, 1.2);
-    pedestal.translate(0, 0.975, 30);
+    pedestal.translate(0, 0.975, 48);
     geometries.push(pedestal);
 
+    // Upper basin
     const uBasin = new THREE.CylinderGeometry(3, 3, 0.2, 8);
-    uBasin.translate(0, 1.825, 30);
+    uBasin.translate(0, 1.825, 48);
     geometries.push(uBasin);
 
+    // Angel statue
     const statue = new THREE.BoxGeometry(0.6, 0.8, 0.6);
-    statue.translate(0, 2.325, 30);
+    statue.translate(0, 2.325, 48);
     geometries.push(statue);
 
     const merged = mergeGeometries(geometries, false);
@@ -402,12 +390,14 @@ export function CentralPark({ park }: { park: LayoutRect }) {
   const fountainWaterGeo = useMemo(() => {
     const geometries: THREE.BufferGeometry[] = [];
 
+    // Basin water level
     const bWater = new THREE.CylinderGeometry(5.6, 5.6, 0.02, 12);
-    bWater.translate(0, 0.415, 30);
+    bWater.translate(0, 0.415, 48);
     geometries.push(bWater);
 
+    // Upper basin water level
     const uWater = new THREE.CylinderGeometry(2.8, 2.8, 0.02, 8);
-    uWater.translate(0, 1.915, 30);
+    uWater.translate(0, 1.915, 48);
     geometries.push(uWater);
 
     const merged = mergeGeometries(geometries, false);
@@ -417,158 +407,166 @@ export function CentralPark({ park }: { park: LayoutRect }) {
 
   // 6. Belvedere Castle (Rocky Hill outcrop & Stone Tower / Walls / Stairs)
   const castleRockGeo = useMemo(() => {
+    // Rocky hill outcrop (dark slate color)
     const hill = new THREE.BoxGeometry(22, 4.5, 22);
-    hill.translate(-45, 2.25, -40); // Shifted near Lake
+    hill.translate(-60, 2.25, 18);
     return hill;
-  }, [halfW]);
+  }, []);
 
   const castleStoneGeo = useMemo(() => {
     const geometries: THREE.BufferGeometry[] = [];
 
+    // Castle Keep / Wall house (sitting on rock at y = 4.5)
     const keep = new THREE.BoxGeometry(14, 4, 8);
-    keep.translate(-42, 6.5, -38);
+    keep.translate(-57, 6.5, 20); // Center y = 4.5 + 4/2 = 6.5
     geometries.push(keep);
 
+    // Main Tower
     const tower = new THREE.BoxGeometry(6, 8, 6);
-    tower.translate(-52, 8.5, -45);
+    tower.translate(-67, 8.5, 13); // Center y = 4.5 + 8/2 = 8.5
     geometries.push(tower);
 
-    // Crenellations
-    geometries.push(new THREE.BoxGeometry(0.8, 0.8, 0.8).translate(-54.5, 12.5, -47.5));
-    geometries.push(new THREE.BoxGeometry(0.8, 0.8, 0.8).translate(-49.5, 12.5, -47.5));
-    geometries.push(new THREE.BoxGeometry(0.8, 0.8, 0.8).translate(-54.5, 12.5, -42.5));
-    geometries.push(new THREE.BoxGeometry(0.8, 0.8, 0.8).translate(-49.5, 12.5, -42.5));
+    // Crenellations (corners on top of tower at y = 12.5)
+    geometries.push(new THREE.BoxGeometry(0.8, 0.8, 0.8).translate(-69.5, 12.5, 10.5));
+    geometries.push(new THREE.BoxGeometry(0.8, 0.8, 0.8).translate(-64.5, 12.5, 10.5));
+    geometries.push(new THREE.BoxGeometry(0.8, 0.8, 0.8).translate(-69.5, 12.5, 15.5));
+    geometries.push(new THREE.BoxGeometry(0.8, 0.8, 0.8).translate(-64.5, 12.5, 15.5));
 
-    // Steps
-    geometries.push(new THREE.BoxGeometry(4, 1.1, 2).translate(-61, 0.55, -40));
-    geometries.push(new THREE.BoxGeometry(4, 2.2, 2).translate(-59, 1.1, -40));
-    geometries.push(new THREE.BoxGeometry(4, 3.3, 2).translate(-57, 1.65, -40));
-    geometries.push(new THREE.BoxGeometry(4, 4.4, 2).translate(-55, 2.2, -40));
+    // Steps climbing up the side of the hill (from lx = -77 to -70)
+    geometries.push(new THREE.BoxGeometry(4, 1.1, 2).translate(-76, 0.55, 18));
+    geometries.push(new THREE.BoxGeometry(4, 2.2, 2).translate(-74, 1.1, 18));
+    geometries.push(new THREE.BoxGeometry(4, 3.3, 2).translate(-72, 1.65, 18));
+    geometries.push(new THREE.BoxGeometry(4, 4.4, 2).translate(-70, 2.2, 18));
 
     const merged = mergeGeometries(geometries, false);
     for (const g of geometries) g.dispose();
     return merged ?? new THREE.BufferGeometry();
-  }, [halfW]);
+  }, []);
 
   // 7. Baseball Sand Fields
   const baseballFieldsGeo = useMemo(() => {
     const geometries: THREE.BufferGeometry[] = [];
     const f1 = new THREE.CylinderGeometry(14, 14, 0.01, 12);
-    f1.translate(35, 0.015, -100);
+    f1.translate(50, 0.015, -80);
     geometries.push(f1);
 
     const f2 = new THREE.CylinderGeometry(14, 14, 0.01, 12);
-    f2.translate(-35, 0.015, -75);
+    f2.translate(80, 0.015, -65);
     geometries.push(f2);
 
     const merged = mergeGeometries(geometries, false);
     for (const g of geometries) g.dispose();
     return merged ?? new THREE.BufferGeometry();
-  }, [halfW]);
+  }, []);
 
-  // 7b. Wollman Ice Rink — south-east area of the park
+  // 7b. Wollman Ice Rink — south-east area of the park (lx=90, lz=75)
   const wollmanRinkGeo = useMemo(() => {
     const geometries: THREE.BufferGeometry[] = [];
+    // Rink ice surface (oval approximated with a cylinder)
     const ice = new THREE.CylinderGeometry(18, 18, 0.08, 20);
-    ice.scale(1, 1, 0.62);
-    ice.translate(halfW - 35, 0.04, halfD - 70);
+    ice.scale(1, 1, 0.62); // squash into oval
+    ice.translate(90, 0.04, 75);
     geometries.push(ice);
     const merged = mergeGeometries(geometries, false);
     for (const g of geometries) g.dispose();
     return merged ?? new THREE.BufferGeometry();
-  }, [halfW, halfD]);
+  }, []);
 
   const wollmanBoardsGeo = useMemo(() => {
     const geometries: THREE.BufferGeometry[] = [];
+    // Dasher boards — thin ring around the rink
     const ring = new THREE.TorusGeometry(18, 0.5, 6, 20);
     ring.scale(1, 0.4, 0.62);
-    ring.translate(halfW - 35, 0.6, halfD - 70);
+    ring.translate(90, 0.6, 75);
     geometries.push(ring);
     const merged = mergeGeometries(geometries, false);
     for (const g of geometries) g.dispose();
     return merged ?? new THREE.BufferGeometry();
-  }, [halfW, halfD]);
+  }, []);
 
-  // 7c. Cleopatra's Needle (Egyptian Obelisk) — east side
+  // 7c. Cleopatra's Needle (Egyptian Obelisk) — east side, lx=108, lz=-22
   const obeliskGeo = useMemo(() => {
     const geometries: THREE.BufferGeometry[] = [];
-    const ox = halfW - 30;
-    const oz = -halfD + 150;
+    // Base plinth
     const plinth = new THREE.BoxGeometry(3.5, 0.6, 3.5);
-    plinth.translate(ox, 0.3, oz);
+    plinth.translate(108, 0.3, -22);
     geometries.push(plinth);
+    // Shaft — tapers slightly using a frustum-like box stack
     const shaft = new THREE.BoxGeometry(1.8, 10, 1.8);
-    shaft.translate(ox, 5.6, oz);
+    shaft.translate(108, 5.6, -22);
     geometries.push(shaft);
+    // Narrower upper shaft
     const shaftTop = new THREE.BoxGeometry(1.2, 4, 1.2);
-    shaftTop.translate(ox, 12.6, oz);
+    shaftTop.translate(108, 12.6, -22);
     geometries.push(shaftTop);
+    // Pyramidion tip
     const tip = new THREE.ConeGeometry(1.0, 2.5, 4);
     tip.rotateY(Math.PI / 4);
-    tip.translate(ox, 16.35, oz);
+    tip.translate(108, 16.35, -22);
     geometries.push(tip);
     const merged = mergeGeometries(geometries, false);
     for (const g of geometries) g.dispose();
     return merged ?? new THREE.BufferGeometry();
-  }, [halfW, halfD]);
+  }, []);
 
-  // 7d. Carousel — south-west corner
+  // 7d. Carousel — south, lx=-70, lz=80
   const carouselRoofGeo = useMemo(() => {
     const geometries: THREE.BufferGeometry[] = [];
-    const cx = -halfW + 35;
-    const cz = halfD - 70;
+    // Octagonal pavilion roof
     const roof = new THREE.ConeGeometry(8, 4, 8);
-    roof.translate(cx, 6, cz);
+    roof.translate(-70, 6, 80);
     geometries.push(roof);
+    // Roof overhang ring
     const overhang = new THREE.CylinderGeometry(9, 9, 0.3, 8);
-    overhang.translate(cx, 4.1, cz);
+    overhang.translate(-70, 4.1, 80);
     geometries.push(overhang);
     const merged = mergeGeometries(geometries, false);
     for (const g of geometries) g.dispose();
     return merged ?? new THREE.BufferGeometry();
-  }, [halfW, halfD]);
+  }, []);
 
   const carouselBaseGeo = useMemo(() => {
     const geometries: THREE.BufferGeometry[] = [];
-    const cx = -halfW + 35;
-    const cz = halfD - 70;
+    // Platform base
     const base = new THREE.CylinderGeometry(7.5, 7.5, 0.5, 8);
-    base.translate(cx, 0.25, cz);
+    base.translate(-70, 0.25, 80);
     geometries.push(base);
+    // Central golden pole
     const pole = new THREE.CylinderGeometry(0.3, 0.3, 6.5, 8);
-    pole.translate(cx, 3.25, cz);
+    pole.translate(-70, 3.25, 80);
     geometries.push(pole);
+    // Support columns around perimeter (8 columns)
     for (let i = 0; i < 8; i++) {
       const angle = (i / 8) * Math.PI * 2;
       const col = new THREE.CylinderGeometry(0.18, 0.18, 4.2, 6);
-      col.translate(cx + Math.cos(angle) * 7.2, 2.1, cz + Math.sin(angle) * 7.2);
+      col.translate(-70 + Math.cos(angle) * 7.2, 2.1, 80 + Math.sin(angle) * 7.2);
       geometries.push(col);
     }
     const merged = mergeGeometries(geometries, false);
     for (const g of geometries) g.dispose();
     return merged ?? new THREE.BufferGeometry();
-  }, [halfW, halfD]);
+  }, []);
 
-  // 7e. Reservoir loop path (Jackie Kennedy Onassis Reservoir)
+  // 7e. Reservoir loop path (Jackie Kennedy Onassis Reservoir — north half, lz = -60 to -115)
   const reservoirPathGeo = useMemo(() => {
     const geometries: THREE.BufferGeometry[] = [];
     const pathH = 0.025;
-    const resLoopMinX = -halfW + 12;
-    const resLoopMaxX = halfW - 12;
-    const resLoopMinZ = -halfD + 35;
-    const resLoopMaxZ = -halfD + 135;
-    const resW = resLoopMaxX - resLoopMinX;
-    const resD = resLoopMaxZ - resLoopMinZ;
-
-    geometries.push(new THREE.BoxGeometry(resW, pathH, 5).translate(0, 0.025, resLoopMinZ));
-    geometries.push(new THREE.BoxGeometry(resW, pathH, 5).translate(0, 0.025, resLoopMaxZ));
-    geometries.push(new THREE.BoxGeometry(5, pathH, resD).translate(resLoopMinX, 0.025, -halfD + 85));
-    geometries.push(new THREE.BoxGeometry(5, pathH, resD).translate(resLoopMaxX, 0.025, -halfD + 85));
-
+    // North cross-connector path: lz = -90 to -115, lx = -60 to 60
+    const pReservoirN = new THREE.BoxGeometry(120, pathH, 5);
+    pReservoirN.translate(0, 0.025, -103);
+    geometries.push(pReservoirN);
+    // East connector branch lz = -60 to -103, lx = 60
+    const pReservoirE = new THREE.BoxGeometry(5, pathH, 43);
+    pReservoirE.translate(60, 0.025, -81.5);
+    geometries.push(pReservoirE);
+    // West connector branch lz = -60 to -103, lx = -60
+    const pReservoirW = new THREE.BoxGeometry(5, pathH, 43);
+    pReservoirW.translate(-60, 0.025, -81.5);
+    geometries.push(pReservoirW);
     const merged = mergeGeometries(geometries, false);
     for (const g of geometries) g.dispose();
     return merged ?? new THREE.BufferGeometry();
-  }, [w, d, halfW, halfD]);
+  }, []);
 
   // 8. Tree Placement calculation (Sakura around lake, green deciduous in woodlands and the Mall)
   const { sakuraTreesByStyle, deciduousTreesByStyle } = useMemo(() => {
@@ -582,9 +580,7 @@ export function CentralPark({ park }: { park: LayoutRect }) {
     const maxZ = d / 2 - 8;
 
     // A. Generate Mall trees: parallel neat rows lining the Mall promenade path
-    const mallStart = 55;
-    const mallEnd = halfD - 45;
-    for (let lz = mallStart; lz <= mallEnd; lz += 15) {
+    for (const lz of [62, 77, 92, 107]) {
       // Left row: lx = -8
       const scaleL = 1.35;
       const styleL = getTreeStyleIndex(cx - 8, cz + lz);
@@ -610,7 +606,7 @@ export function CentralPark({ park }: { park: LayoutRect }) {
         if (isPointOnPath(tx, tz, 5.0)) continue;
 
         // Skip castle hill area
-        if (tx >= -56 && tx <= -34 && tz >= -51 && tz <= -29) continue;
+        if (tx >= -73 && tx <= -47 && tz >= 5 && tz <= 31) continue;
 
         // Calculate distance to the reservoir shore
         const distToLake = getDistanceToLake(tx, tz);
@@ -636,7 +632,7 @@ export function CentralPark({ park }: { park: LayoutRect }) {
       }
     }
     return { sakuraTreesByStyle: sakura, deciduousTreesByStyle: deciduous };
-  }, [cx, cz, w, d, halfD]);
+  }, [cx, cz, w, d]);
 
   // 9. Grass & Wildflowers placements
   const { grassPlacements, flowerPlacements } = useMemo(() => {
@@ -661,7 +657,7 @@ export function CentralPark({ park }: { park: LayoutRect }) {
         if (isPointOnPath(tx, tz, 2.5)) continue;
 
         // Skip castle hill area
-        if (tx >= -56 && tx <= -34 && tz >= -51 && tz <= -29) continue;
+        if (tx >= -72 && tx <= -48 && tz >= 6 && tz <= 30) continue;
 
         // Grass
         const scaleG = 0.85 + seededRng(s + 3) * 0.6;
@@ -685,107 +681,111 @@ export function CentralPark({ park }: { park: LayoutRect }) {
     const out: { x: number; z: number; rotY: number }[] = [];
 
     // South lakefront facing North
-    for (const lx of [-40, 0, 40]) {
-      out.push({ x: cx + lx, z: cz - 50, rotY: 0 });
+    for (const lx of [-80, -40, 40, 80]) {
+      out.push({ x: cx + lx, z: cz + 37, rotY: 0 });
     }
     // North lakefront facing South
-    for (const lx of [-40, 0, 40]) {
-      out.push({ x: cx + lx, z: cz - 50, rotY: Math.PI });
+    for (const lx of [-60, -20, 20, 60]) {
+      out.push({ x: cx + lx, z: cz - 57, rotY: Math.PI });
     }
 
     // West loop path facing East
-    for (let lz = -halfD + 30; lz <= halfD - 30; lz += 40) {
-      out.push({ x: cx + (-halfW + 12), z: cz + lz, rotY: Math.PI / 2 });
+    for (const lz of [-90, -50, -10, 30, 70, 90]) {
+      out.push({ x: cx - 131, z: cz + lz, rotY: Math.PI / 2 });
     }
     // East loop path facing West
-    for (let lz = -halfD + 30; lz <= halfD - 30; lz += 40) {
-      out.push({ x: cx + (halfW - 12), z: cz + lz, rotY: -Math.PI / 2 });
+    for (const lz of [-90, -50, -10, 30, 70, 90]) {
+      out.push({ x: cx + 131, z: cz + lz, rotY: -Math.PI / 2 });
     }
 
     // North loop path facing South
-    for (let lx = -halfW + 30; lx <= halfW - 30; lx += 40) {
-      out.push({ x: cx + lx, z: cz + (-halfD + 12), rotY: Math.PI });
+    for (const lx of [-100, -50, 50, 100]) {
+      out.push({ x: cx + lx, z: cz - 111, rotY: Math.PI });
     }
     // South loop path facing North
-    for (let lx = -halfW + 30; lx <= halfW - 30; lx += 40) {
-      out.push({ x: cx + lx, z: cz + (halfD - 12), rotY: 0 });
+    for (const lx of [-100, -50, 50, 100]) {
+      out.push({ x: cx + lx, z: cz + 111, rotY: 0 });
     }
 
     // The Mall promenade — benches between the tree rows, alternating sides
-    const mallStart = 60;
-    const mallEnd = halfD - 50;
-    for (let lz = mallStart; lz <= mallEnd; lz += 25) {
+    for (const lz of [65, 80, 95, 110]) {
       out.push({ x: cx - 13, z: cz + lz, rotY: Math.PI / 2 }); // Left side facing right
       out.push({ x: cx + 13, z: cz + lz, rotY: -Math.PI / 2 }); // Right side facing left
     }
 
-    // Wollman Rink spectator benches
-    const rx = halfW - 35;
-    const rz = halfD - 70;
-    out.push({ x: cx + rx - 10, z: cz + rz - 22, rotY: Math.PI });
-    out.push({ x: cx + rx, z: cz + rz - 22, rotY: Math.PI });
-    out.push({ x: cx + rx + 10, z: cz + rz - 22, rotY: Math.PI });
+    // Wollman Rink spectator benches — north side of rink
+    for (const lx of [75, 85, 95, 105]) {
+      out.push({ x: cx + lx, z: cz + 54, rotY: Math.PI });
+    }
 
     // Carousel waiting benches
-    const carX = -halfW + 35;
-    const carZ = halfD - 70;
-    out.push({ x: cx + carX - 12, z: cz + carZ, rotY: Math.PI / 2 });
-    out.push({ x: cx + carX + 12, z: cz + carZ, rotY: -Math.PI / 2 });
+    out.push({ x: cx - 82, z: cz + 80, rotY: Math.PI / 2 });
+    out.push({ x: cx - 58, z: cz + 80, rotY: -Math.PI / 2 });
 
     // Reservoir loop benches — north path
-    for (let lx = -halfW + 30; lx <= halfW - 30; lx += 40) {
-      out.push({ x: cx + lx, z: cz + (-halfD + 38), rotY: Math.PI });
+    for (const lx of [-45, 0, 45]) {
+      out.push({ x: cx + lx, z: cz - 107, rotY: Math.PI });
     }
 
     // Bethesda Terrace benches around plaza
-    out.push({ x: cx - 16, z: cz + 30, rotY: -Math.PI / 2 });
-    out.push({ x: cx + 16, z: cz + 30, rotY: Math.PI / 2 });
+    for (const lx of [-16, 16]) {
+      out.push({ x: cx + lx, z: cz + 44, rotY: lx < 0 ? -Math.PI / 2 : Math.PI / 2 });
+    }
 
     return out;
-  }, [cx, cz, halfW, halfD]);
+  }, [cx, cz]);
 
   // 11. Streetlights placements
   const streetlightPlacements = useMemo(() => {
     const out: { x: number; z: number; rotY: number }[] = [];
 
     // West loop path
-    for (let lz = -halfD + 20; lz <= halfD - 20; lz += 35) {
-      out.push({ x: cx + (-halfW + 5), z: cz + lz, rotY: Math.PI / 2 });
+    for (const lz of [-105, -75, -45, -15, 15, 45, 75, 105]) {
+      out.push({ x: cx - 138, z: cz + lz, rotY: Math.PI / 2 });
     }
     // East loop path
-    for (let lz = -halfD + 20; lz <= halfD - 20; lz += 35) {
-      out.push({ x: cx + (halfW - 5), z: cz + lz, rotY: -Math.PI / 2 });
+    for (const lz of [-105, -75, -45, -15, 15, 45, 75, 105]) {
+      out.push({ x: cx + 138, z: cz + lz, rotY: -Math.PI / 2 });
     }
 
     // North loop path
-    for (let lx = -halfW + 20; lx <= halfW - 20; lx += 35) {
-      out.push({ x: cx + lx, z: cz + (-halfD + 5), rotY: 0 });
+    for (const lx of [-120, -90, -60, -30, 30, 60, 90, 120]) {
+      out.push({ x: cx + lx, z: cz - 118, rotY: 0 });
     }
     // South loop path
-    for (let lx = -halfW + 20; lx <= halfW - 20; lx += 35) {
-      out.push({ x: cx + lx, z: cz + (halfD - 5), rotY: Math.PI });
+    for (const lx of [-120, -90, -60, -30, 30, 60, 90, 120]) {
+      out.push({ x: cx + lx, z: cz + 118, rotY: Math.PI });
     }
 
     // Central spine path (north section above lake)
-    for (let lz = -30; lz <= 10; lz += 20) {
+    for (const lz of [-90, -60, -30]) {
+      out.push({ x: cx - 4, z: cz + lz, rotY: Math.PI / 2 });
+    }
+
+    // Central spine path (south — The Mall promenade)
+    for (const lz of [30, 60, 90]) {
       out.push({ x: cx - 4, z: cz + lz, rotY: Math.PI / 2 });
     }
 
     // The Mall tree-lined alley — paired lights between tree rows
-    const mallStart = 65;
-    const mallEnd = halfD - 45;
-    for (let lz = mallStart; lz <= mallEnd; lz += 30) {
+    for (const lz of [68, 84, 100]) {
       out.push({ x: cx - 5, z: cz + lz, rotY: Math.PI / 2 });
       out.push({ x: cx + 5, z: cz + lz, rotY: -Math.PI / 2 });
     }
 
     // Reservoir loop path lights
-    for (let lx = -halfW + 20; lx <= halfW - 20; lx += 40) {
-      out.push({ x: cx + lx, z: cz + (-halfD + 37), rotY: Math.PI });
+    for (const lx of [-45, 0, 45]) {
+      out.push({ x: cx + lx, z: cz - 105, rotY: Math.PI });
     }
+    out.push({ x: cx + 62, z: cz - 82, rotY: -Math.PI / 2 });
+    out.push({ x: cx - 62, z: cz - 82, rotY: Math.PI / 2 });
+
+    // Wollman Rink approach
+    out.push({ x: cx + 73, z: cz + 58, rotY: Math.PI });
+    out.push({ x: cx + 108, z: cz + 58, rotY: Math.PI });
 
     return out;
-  }, [cx, cz, halfW, halfD]);
+  }, [cx, cz]);
 
   // ─── Billboard geometries & materials ──────────────────────────────────────
   const grassGeo = useMemo(() => {

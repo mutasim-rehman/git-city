@@ -198,9 +198,9 @@ function placeSectorBuildings(
   // arterial road sidewalk (which itself overhangs by +1 unit past its endpoints).
   // We do NOT extend into the arterial road zone — that caused severe GPU overdraw.
   const zStart = rect.minZ;
-  const zEnd   = rect.maxZ;
+  const zEnd = rect.maxZ;
   const xStart = rect.minX;
-  const xEnd   = rect.maxX;
+  const xEnd = rect.maxX;
 
   // Internal local roads (grid template baseline; others add accent lines)
   for (let c = 0; c < cols - 1; c++) {
@@ -393,7 +393,7 @@ export function computeCityLayout(buildings: Building[]): CityLayoutResult {
   }
 
   // Park cell size
-  sectorSizes[PARK_GRID_ROW]![PARK_GRID_COL] = { w: 180, d: 540 };
+  sectorSizes[PARK_GRID_ROW]![PARK_GRID_COL] = { w: 320, d: 280 };
 
   const colWidths = Array.from({ length: GRID_COLS }, (_, c) =>
     Math.max(...sectorSizes.map((row) => row[c]!.w)),
