@@ -32,13 +32,6 @@ function scaleLog(
   return minDst + t * (maxDst - minDst);
 }
 
-function parseSectorId(row: CsvUser): number {
-  const raw = row.sector_id;
-  if (raw === undefined || raw === "") return 0;
-  const n = Number(raw);
-  return Number.isFinite(n) ? clamp(Math.round(n), 0, 10) : 0;
-}
-
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export function mapCsvToBuildings(city: CityId, rows: CsvUser[]): Building[] {
@@ -50,9 +43,7 @@ export function mapCsvToBuildings(city: CityId, rows: CsvUser[]): Building[] {
       const rawCommits = Number(row.Lifetime_Commits ?? "0");
       const repos      = Number.isFinite(rawRepos) ? rawRepos : 0;
       const commits    = Number.isFinite(rawCommits) ? rawCommits : 0;
-      const sectorId   = parseSectorId(row);
-      const sectorLabel = row.sector_label?.trim() || `Sector ${sectorId}`;
-      return { row, repos, commits, sectorId, sectorLabel };
+      return { row, repos, commits };
     })
     .filter((e) => e.repos > 5 && e.commits > 10);
 
@@ -61,8 +52,7 @@ export function mapCsvToBuildings(city: CityId, rows: CsvUser[]): Building[] {
   parsed.sort(
     (a, b) =>
       b.commits - a.commits ||
-      b.repos - a.repos ||
-      a.sectorId - b.sectorId,
+      b.repos - a.repos,
   );
 
   const capped = parsed.slice(0, MAX_USERS_PER_CITY);
@@ -72,7 +62,7 @@ export function mapCsvToBuildings(city: CityId, rows: CsvUser[]): Building[] {
   const maxCommits    = Math.max(...commitsValues, 1);
 
   return capped.map((entry, index) => {
-    const { row, repos, commits, sectorId, sectorLabel } = entry;
+    const { row, repos, commits } = entry;
 
     let floors = Math.round(
       scaleLog(commits, minCommits, maxCommits, MIN_FLOORS, MAX_FLOORS),
@@ -103,8 +93,8 @@ export function mapCsvToBuildings(city: CityId, rows: CsvUser[]): Building[] {
       profileUrl: row["Profile URL"],
       githubId: Number(row["GitHub ID"] || 0),
       yearGroup: row.Year_Group,
-      sectorId,
-      sectorLabel,
+      sectorId: 0,
+      sectorLabel: "",
       publicRepos: repos,
       lifetimeCommits: commits,
       width,

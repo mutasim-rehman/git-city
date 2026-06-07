@@ -120,6 +120,31 @@ function centerOutOrder(cols: number, rows: number): { col: number; row: number 
   return cells.map(({ col, row }) => ({ col, row }));
 }
 
+const SECTOR_COUNT = 11;
+
+/** Even split across sectors 0–10 (±1 building); sorted list round-robins so tiers mix evenly. */
+function distributeBuildingsEvenly(buildings: Building[]): Map<number, Building[]> {
+  const sorted = [...buildings].sort(
+    (a, b) =>
+      b.lifetimeCommits - a.lifetimeCommits ||
+      b.publicRepos - a.publicRepos,
+  );
+
+  const bySector = new Map<number, Building[]>();
+  for (let sid = 0; sid < SECTOR_COUNT; sid++) bySector.set(sid, []);
+
+  for (let i = 0; i < sorted.length; i++) {
+    const sid = i % SECTOR_COUNT;
+    bySector.get(sid)!.push(sorted[i]!);
+  }
+
+  return bySector;
+}
+
+function sectorLabelForId(sectorId: number): string {
+  return `Sector ${sectorId}`;
+}
+
 function estimateSectorSize(count: number, avgFootprint: number): { w: number; d: number } {
   if (count <= 0) return { w: 200, d: 200 };
   const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
@@ -251,6 +276,8 @@ function placeSectorBuildings(
 
     placed.push({
       ...b,
+      sectorId,
+      sectorLabel: sectorLabelForId(sectorId),
       width: fp.w,
       depth: fp.d,
       x,
@@ -368,13 +395,7 @@ export function computeCityLayout(buildings: Building[]): CityLayoutResult {
 
   if (!buildings.length) return empty;
 
-  const bySector = new Map<number, Building[]>();
-  for (const b of buildings) {
-    const sid = clamp(b.sectorId, 0, 10);
-    const list = bySector.get(sid) ?? [];
-    list.push(b);
-    bySector.set(sid, list);
-  }
+  const bySector = distributeBuildingsEvenly(buildings);
 
   const sectorSizes: { w: number; d: number }[][] = Array.from(
     { length: GRID_ROWS },
@@ -446,8 +467,7 @@ export function computeCityLayout(buildings: Building[]): CityLayoutResult {
   for (let sid = 0; sid <= 10; sid++) {
     const { row, col } = sectorGridCell(sid);
     const rect = cellRect(row, col);
-    const label =
-      bySector.get(sid)?.[0]?.sectorLabel ?? `Sector ${sid}`;
+    const label = sectorLabelForId(sid);
     sectors.push({
       id: sid,
       label,

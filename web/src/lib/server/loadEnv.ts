@@ -1,11 +1,9 @@
-import type { NextConfig } from "next";
 import fs from "fs";
 import path from "path";
 
-function loadParentEnv() {
-  const envPath = path.join(__dirname, "..", ".env");
-  if (!fs.existsSync(envPath)) return;
-  const content = fs.readFileSync(envPath, "utf8");
+function loadEnvFile(filePath: string) {
+  if (!fs.existsSync(filePath)) return;
+  const content = fs.readFileSync(filePath, "utf8");
   for (const line of content.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) continue;
@@ -22,10 +20,15 @@ function loadParentEnv() {
   }
 }
 
-loadParentEnv();
+let loaded = false;
 
-const nextConfig: NextConfig = {
-  reactCompiler: true,
-};
-
-export default nextConfig;
+/** Load web/.env.local, web/.env, then repo-root .env (first wins). */
+export function ensureEnvLoaded() {
+  if (loaded) return;
+  const webRoot = path.join(process.cwd());
+  const repoRoot = path.resolve(webRoot, "..");
+  loadEnvFile(path.join(webRoot, ".env.local"));
+  loadEnvFile(path.join(webRoot, ".env"));
+  loadEnvFile(path.join(repoRoot, ".env"));
+  loaded = true;
+}

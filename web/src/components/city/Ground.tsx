@@ -3,7 +3,7 @@
 /** Base ground plane under the city — edit color via props from theme. */
 export function GroundPlane({ color }: { color: string }) {
   return (
-    <mesh rotation-x={-Math.PI / 2} position={[0, -1, 0]} receiveShadow>
+    <mesh rotation-x={-Math.PI / 2} position={[0, -3, 0]} receiveShadow renderOrder={-10}>
       <planeGeometry args={[20000, 20000]} />
       <meshStandardMaterial
         color={color}

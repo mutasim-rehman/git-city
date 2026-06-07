@@ -1,5 +1,7 @@
 "use client";
 
+import { LoadingCityVoxel } from "./LoadingCityVoxel";
+
 interface Props {
   message?: string;
   progress?: number; // 0..100
@@ -8,58 +10,158 @@ interface Props {
   onStartAudio?: () => void;
 }
 
-export function LoadingScreen({ message, progress, title, audioStarted = false, onStartAudio }: Props) {
-  const pct = typeof progress === "number" ? Math.max(0, Math.min(100, progress)) : null;
+function BlockProgress({ pct }: { pct: number | null }) {
+  const segments = 20;
+  const filled =
+    pct == null
+      ? Math.floor((Date.now() / 400) % segments) // indeterminate shimmer index set via CSS
+      : Math.round((pct / 100) * segments);
+
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-gradient-to-br from-black via-purple-950/60 to-pink-950/50">
-      <div className="relative flex flex-col items-center gap-6 px-8 py-10">
-        <div className="relative h-28 w-28">
-          <div className="absolute inset-3 rounded-md bg-pink-400 shadow-[0_0_35px_rgba(236,72,153,0.8)]" />
-          <div className="absolute inset-1.5 grid grid-cols-3 grid-rows-3 gap-1.5">
-            <span className="animate-pulse-slow rounded-sm bg-pink-200/80" />
-            <span className="animate-pulse-fast rounded-sm bg-purple-400/90" />
-            <span className="animate-pulse-slow rounded-sm bg-sky-200/80" />
-            <span className="animate-pulse-fast rounded-sm bg-pink-500/90" />
-            <span className="animate-pulse-slow rounded-sm bg-purple-300/80" />
-            <span className="animate-pulse-fast rounded-sm bg-sky-400/90" />
-            <span className="animate-pulse-slow rounded-sm bg-pink-200/80" />
-            <span className="animate-pulse-fast rounded-sm bg-purple-400/90" />
-            <span className="animate-pulse-slow rounded-sm bg-sky-200/80" />
-          </div>
-          <div className="absolute inset-x-6 -bottom-3 h-1.5 overflow-hidden rounded-full bg-purple-900/80">
+    <div className="w-full max-w-xs">
+      <div className="flex gap-[3px]">
+        {Array.from({ length: segments }).map((_, i) => {
+          const active = pct != null ? i < filled : false;
+          return (
             <div
-              className={`h-full rounded-full bg-gradient-to-r from-pink-400 to-sky-400 ${pct == null ? "animate-loader-bar w-1/2" : ""}`}
-              style={pct == null ? undefined : { width: `${pct}%`, transition: "width 180ms ease-out" }}
+              key={i}
+              className={`h-3 flex-1 border border-[#1f2937] ${
+                pct == null ? "animate-block-shimmer" : ""
+              }`}
+              style={{
+                animationDelay: pct == null ? `${i * 0.07}s` : undefined,
+                background: active ? "#22c55e" : "#21262d",
+                boxShadow: active
+                  ? "inset 1px 1px 0 #4ade80, inset -1px -1px 0 #14532d"
+                  : "inset 1px 1px 0 #30363d, inset -1px -1px 0 #0d1117",
+              }}
             />
-          </div>
-        </div>
-        <div className="text-center">
-          <p className="text-xs font-mono uppercase tracking-[0.35em] text-pink-300/90">
-            {title ?? "Loading"}
-          </p>
-          <p className="mt-2 text-sm text-slate-100/90">
-            {message ?? "Fetching developers and assembling buildings..."}
-          </p>
-          {pct != null && (
-            <p className="mt-2 text-[10px] font-mono uppercase tracking-[0.3em] text-purple-300/70">
-              {Math.round(pct)}%
-            </p>
-          )}
-          {onStartAudio && (
-            <div className="mt-4 flex justify-center">
-              <button
-                type="button"
-                onClick={onStartAudio}
-                disabled={audioStarted}
-                className="pointer-events-auto rounded-full border border-pink-500/45 bg-black/55 px-4 py-2 text-[10px] font-mono uppercase tracking-[0.28em] text-pink-100 shadow-[0_0_22px_rgba(236,72,153,0.28)] transition hover:bg-pink-500/15 disabled:cursor-default disabled:border-emerald-400/40 disabled:text-emerald-200"
-              >
-                {audioStarted ? "Music On" : "Start Music"}
-              </button>
-            </div>
-          )}
-        </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
+export function LoadingScreen({
+  message,
+  progress,
+  title,
+  audioStarted = false,
+  onStartAudio,
+}: Props) {
+  const pct = typeof progress === "number" ? Math.max(0, Math.min(100, progress)) : null;
+
+  return (
+    <div className="fixed inset-0 z-40 flex flex-col items-center justify-center overflow-hidden bg-[#0d1117]">
+      {/* Night sky */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#0a0f14] via-[#0d1117] to-[#161b22]" />
+      <div className="pointer-events-none absolute inset-0 opacity-40">
+        {Array.from({ length: 48 }).map((_, i) => (
+          <span
+            key={i}
+            className="absolute block h-[2px] w-[2px] animate-star-twinkle bg-[#7ee787]"
+            style={{
+              left: `${(i * 37 + 11) % 100}%`,
+              top: `${(i * 19 + 5) % 55}%`,
+              animationDelay: `${(i % 7) * 0.35}s`,
+              opacity: i % 3 === 0 ? 0.9 : 0.35,
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Horizon glow */}
+      <div
+        className="pointer-events-none absolute bottom-0 left-0 right-0 h-48"
+        style={{
+          background:
+            "linear-gradient(to top, rgba(34,197,94,0.08) 0%, rgba(22,163,74,0.04) 30%, transparent 100%)",
+        }}
+      />
+
+      <div className="relative z-10 flex flex-col items-center gap-8 px-6 py-10">
+        {/* Logo */}
+        <div className="text-center">
+          <div className="inline-flex items-end gap-1">
+            {["G", "I", "T"].map((ch, i) => (
+              <span
+                key={ch}
+                className="inline-flex h-9 w-8 items-center justify-center border-2 border-[#238636] bg-[#161b22] font-mono text-lg font-bold text-[#7ee787]"
+                style={{
+                  boxShadow: "inset 2px 2px 0 #30363d, 3px 3px 0 #0d1117",
+                  marginBottom: i === 1 ? 4 : 0,
+                }}
+              >
+                {ch}
+              </span>
+            ))}
+            <span className="mx-1 font-mono text-[10px] uppercase tracking-[0.5em] text-[#484f58]">
+              ·
+            </span>
+            {["C", "I", "T", "Y"].map((ch) => (
+              <span
+                key={ch}
+                className="inline-flex h-9 w-8 items-center justify-center border-2 border-[#30363d] bg-[#21262d] font-mono text-lg font-bold text-[#e6edf3]"
+                style={{ boxShadow: "inset 2px 2px 0 #484f58, 3px 3px 0 #0d1117" }}
+              >
+                {ch}
+              </span>
+            ))}
+          </div>
+          <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.42em] text-[#7ee787]/80">
+            {title ?? "Generating world"}
+          </p>
+        </div>
+
+        {/* Voxel skyline */}
+        <div className="relative rounded-none border-4 border-[#21262d] bg-[#0a0f14] p-4 shadow-[8px_8px_0_#010409]">
+          <div
+            className="pointer-events-none absolute inset-0 opacity-[0.04]"
+            style={{
+              backgroundImage:
+                "linear-gradient(#7ee787 1px, transparent 1px), linear-gradient(90deg, #7ee787 1px, transparent 1px)",
+              backgroundSize: "8px 8px",
+            }}
+          />
+          <LoadingCityVoxel progress={pct} />
+        </div>
+
+        {/* Status */}
+        <div className="flex w-full max-w-md flex-col items-center gap-4 text-center">
+          <p className="font-mono text-sm leading-relaxed text-[#c9d1d9]">
+            {message ?? "Fetching developers and stacking blocks…"}
+          </p>
+
+          <BlockProgress pct={pct} />
+
+          {pct != null && (
+            <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-[#484f58]">
+              {Math.round(pct)}% chunks loaded
+            </p>
+          )}
+
+          {onStartAudio && (
+            <button
+              type="button"
+              onClick={onStartAudio}
+              disabled={audioStarted}
+              className="pointer-events-auto border-2 border-[#238636] bg-[#161b22] px-5 py-2.5 font-mono text-[10px] uppercase tracking-[0.24em] text-[#7ee787] transition hover:bg-[#21262d] disabled:border-[#30363d] disabled:text-[#484f58]"
+              style={{ boxShadow: "3px 3px 0 #010409" }}
+            >
+              {audioStarted ? "♪ Audio on" : "♪ Start audio"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Corner HUD ticks */}
+      <div className="pointer-events-none absolute bottom-4 left-4 font-mono text-[9px] uppercase tracking-widest text-[#30363d]">
+        seed: git-city
+      </div>
+      <div className="pointer-events-none absolute bottom-4 right-4 font-mono text-[9px] uppercase tracking-widest text-[#30363d]">
+        v0.1 · building
+      </div>
+    </div>
+  );
+}

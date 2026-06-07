@@ -18,47 +18,68 @@ body {
   color: var(--foreground);
 }
 
-@keyframes pulse-slow {
+@keyframes block-place {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.85);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(1px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes crane-bob {
   0%,
   100% {
-    opacity: 0.35;
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes star-twinkle {
+  0%,
+  100% {
+    opacity: 0.2;
   }
   50% {
     opacity: 1;
   }
 }
 
-@keyframes pulse-fast {
+@keyframes block-shimmer {
   0%,
   100% {
-    opacity: 0.2;
+    background-color: #21262d;
   }
   50% {
-    opacity: 0.9;
+    background-color: #30363d;
   }
 }
 
-@keyframes loader-bar {
-  0% {
-    transform: translateX(-80%);
-  }
-  50% {
-    transform: translateX(20%);
-  }
-  100% {
-    transform: translateX(120%);
-  }
+.voxel-block {
+  image-rendering: pixelated;
 }
 
-.animate-pulse-slow {
-  animation: pulse-slow 2.2s ease-in-out infinite;
+.animate-block-place {
+  animation: block-place 0.35s cubic-bezier(0.2, 0.9, 0.2, 1.2) both;
 }
 
-.animate-pulse-fast {
-  animation: pulse-fast 1.4s ease-in-out infinite;
+.animate-crane-bob {
+  animation: crane-bob 1.6s ease-in-out infinite;
 }
 
-.animate-loader-bar {
-  animation: loader-bar 1.8s ease-in-out infinite;
+.animate-star-twinkle {
+  animation: star-twinkle 2.4s ease-in-out infinite;
+}
+
+.animate-block-shimmer {
+  animation: block-shimmer 1.2s ease-in-out infinite;
 }
 

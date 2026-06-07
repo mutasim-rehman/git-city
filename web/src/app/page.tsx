@@ -123,7 +123,7 @@ export default function Home() {
       {/* Phase: boot */}
       {phase === "boot" && (
         <>
-          <div className="min-h-screen bg-black" />
+          <div className="min-h-screen bg-[#0d1117]" />
           <LoadingScreen
             title="Booting Git City"
             message={error ?? bootMessage}
@@ -217,7 +217,7 @@ export default function Home() {
         <div
           className="pointer-events-none fixed inset-0 z-50"
           style={{
-            background: "radial-gradient(circle at 50% 45%, rgba(236,72,153,0.15), rgba(168,85,247,0.08) 40%, rgba(0,0,0,0.95) 70%, rgba(0,0,0,1) 100%)",
+            background: "radial-gradient(circle at 50% 45%, rgba(34,197,94,0.12), rgba(13,17,23,0.6) 45%, rgba(0,0,0,0.95) 70%, rgba(0,0,0,1) 100%)",
             opacity: fade === "out" ? 1 : 0,
             transition: "opacity 650ms cubic-bezier(0.2, 0.9, 0.2, 1)",
           }}
