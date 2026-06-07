@@ -24,7 +24,7 @@ import { NpcTraffic } from "@/game/ai/NpcTraffic";
 import { CAR_CONFIGS, DEFAULT_CAR_VARIANT, type CarVariant } from "@/game/content/cars";
 import { SkyDome, Stars, SunDisc } from "@/components/city/Sky";
 import { GroundPlane } from "@/components/city/Ground";
-import { Monument } from "@/components/city/Monument";
+
 import {
   EnableMoonLayerOnCamera,
   MoonOnlyAmbient,
@@ -385,10 +385,6 @@ export function CityCanvas({
 
   const atlasTexture = useMemo(() => createWindowAtlas(theme.building), [theme.building]);
 
-  const parkCenter = useMemo((): [number, number, number] => {
-    const p = layoutResult.park;
-    return [(p.minX + p.maxX) / 2, 0, (p.minZ + p.maxZ) / 2];
-  }, [layoutResult.park]);
 
   const defaultSpawn = useMemo(() => {
     const cx = (layoutResult.cityBounds.minX + layoutResult.cityBounds.maxX) / 2;
@@ -748,7 +744,7 @@ export function CityCanvas({
           markingColor={theme.roadMarkingColor}
         />
 
-        <Monument position={parkCenter} />
+
 
         {/* Buildings */}
         <InstancedBuildings
