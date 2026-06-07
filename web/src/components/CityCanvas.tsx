@@ -867,7 +867,7 @@ export function CityCanvas({
       <CityAmbientAudio />
       <Canvas
         shadows
-        camera={{ position: [800, 700, 1000], fov: 55, near: 1, far: qualityConfig.cameraFar }}
+        camera={{ position: [800, 700, 1000], fov: 55, near: 8, far: qualityConfig.cameraFar }}
       >
         <color attach="background" args={["#020c1b"]} />
         <fog attach="fog" args={[theme.fogColor, theme.fogNear, theme.fogFar]} />

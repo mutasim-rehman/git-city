@@ -392,12 +392,12 @@ export function CentralPark({ park }: { park: LayoutRect }) {
 
     // Basin water level
     const bWater = new THREE.CylinderGeometry(5.6, 5.6, 0.02, 12);
-    bWater.translate(0, 0.415, 48);
+    bWater.translate(0, 0.38, 48);
     geometries.push(bWater);
 
     // Upper basin water level
     const uWater = new THREE.CylinderGeometry(2.8, 2.8, 0.02, 8);
-    uWater.translate(0, 1.915, 48);
+    uWater.translate(0, 1.88, 48);
     geometries.push(uWater);
 
     const merged = mergeGeometries(geometries, false);
@@ -908,7 +908,7 @@ export function CentralPark({ park }: { park: LayoutRect }) {
     if (gMesh && grassPlacements.length > 0) {
       for (let i = 0; i < grassPlacements.length; i++) {
         const gp = grassPlacements[i]!;
-        tmpObj.position.set(gp.x, 0.02, gp.z);
+        tmpObj.position.set(gp.x, 0.03, gp.z);
         tmpObj.rotation.set(0, gp.rotY, 0);
         tmpObj.scale.setScalar(gp.scale);
         tmpObj.updateMatrix();
@@ -925,7 +925,7 @@ export function CentralPark({ park }: { park: LayoutRect }) {
       if (fMesh && placements.length > 0) {
         for (let i = 0; i < placements.length; i++) {
           const fp = placements[i]!;
-          tmpObj.position.set(fp.x, 0.02, fp.z);
+          tmpObj.position.set(fp.x, 0.03, fp.z);
           tmpObj.rotation.set(0, fp.rotY, 0);
           tmpObj.scale.setScalar(fp.scale);
           tmpObj.updateMatrix();
@@ -941,7 +941,7 @@ export function CentralPark({ park }: { park: LayoutRect }) {
     if (bMesh && benchPlacements.length > 0) {
       for (let i = 0; i < benchPlacements.length; i++) {
         const bp = benchPlacements[i]!;
-        tmpObj.position.set(bp.x, 0.02, bp.z);
+        tmpObj.position.set(bp.x, 0.07, bp.z);
         tmpObj.rotation.set(0, bp.rotY, 0);
         tmpObj.scale.set(1, 1, 1);
         tmpObj.updateMatrix();
@@ -957,7 +957,7 @@ export function CentralPark({ park }: { park: LayoutRect }) {
     if (slPostMesh && slLanternMesh && streetlightPlacements.length > 0) {
       for (let i = 0; i < streetlightPlacements.length; i++) {
         const sl = streetlightPlacements[i]!;
-        tmpObj.position.set(sl.x, 0.02, sl.z);
+        tmpObj.position.set(sl.x, 0.07, sl.z);
         tmpObj.rotation.set(0, sl.rotY, 0);
         tmpObj.scale.set(1, 1, 1);
         tmpObj.updateMatrix();
@@ -1055,67 +1055,67 @@ export function CentralPark({ park }: { park: LayoutRect }) {
       </mesh>
 
       {/* B. Central Reservoir / Lake */}
-      <mesh geometry={lakeGeo} position={[cx, 0.015, cz]} receiveShadow>
+      <mesh geometry={lakeGeo} position={[cx, 0.04, cz]} receiveShadow>
         <meshStandardMaterial color={PARK_COLORS.water} roughness={0.12} metalness={0.7} flatShading />
       </mesh>
 
       {/* C. Walkable Bow Bridge */}
-      <mesh geometry={bridgeConcreteGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+      <mesh geometry={bridgeConcreteGeo} position={[cx, 0.04, cz]} castShadow receiveShadow>
         <meshStandardMaterial color={PARK_COLORS.concrete} roughness={0.8} metalness={0.1} flatShading />
       </mesh>
-      <mesh geometry={bridgeRailsGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+      <mesh geometry={bridgeRailsGeo} position={[cx, 0.04, cz]} castShadow receiveShadow>
         <meshStandardMaterial color={PARK_COLORS.rails} roughness={0.8} metalness={0.1} flatShading />
       </mesh>
 
       {/* D. Gravel / Stone Pathways */}
-      <mesh geometry={pathGeo} position={[cx, 0, cz]} receiveShadow>
+      <mesh geometry={pathGeo} position={[cx, 0.04, cz]} receiveShadow>
         <meshStandardMaterial color={PARK_COLORS.path} roughness={0.96} metalness={0} flatShading />
       </mesh>
 
       {/* E. Bethesda Fountain */}
-      <mesh geometry={fountainStoneGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+      <mesh geometry={fountainStoneGeo} position={[cx, 0.04, cz]} castShadow receiveShadow>
         <meshStandardMaterial color={PARK_COLORS.concrete} roughness={0.8} metalness={0.1} flatShading />
       </mesh>
-      <mesh geometry={fountainWaterGeo} position={[cx, 0, cz]} receiveShadow>
+      <mesh geometry={fountainWaterGeo} position={[cx, 0.04, cz]} receiveShadow>
         <meshStandardMaterial color={PARK_COLORS.water} roughness={0.15} metalness={0.8} flatShading />
       </mesh>
 
       {/* F. Belvedere Castle */}
-      <mesh geometry={castleRockGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+      <mesh geometry={castleRockGeo} position={[cx, 0.04, cz]} castShadow receiveShadow>
         <primitive object={rockMat} attach="material" />
       </mesh>
-      <mesh geometry={castleStoneGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+      <mesh geometry={castleStoneGeo} position={[cx, 0.04, cz]} castShadow receiveShadow>
         <primitive object={castleStoneMat} attach="material" />
       </mesh>
 
       {/* G. Great Lawn Baseball Sand Diamonds */}
-      <mesh geometry={baseballFieldsGeo} position={[cx, 0, cz]} receiveShadow>
+      <mesh geometry={baseballFieldsGeo} position={[cx, 0.04, cz]} receiveShadow>
         <meshStandardMaterial color={PARK_COLORS.baseballSand} roughness={0.98} metalness={0} />
       </mesh>
 
       {/* G2. Wollman Ice Rink */}
-      <mesh geometry={wollmanRinkGeo} position={[cx, 0, cz]} receiveShadow>
+      <mesh geometry={wollmanRinkGeo} position={[cx, 0.04, cz]} receiveShadow>
         <primitive object={rinkIceMat} attach="material" />
       </mesh>
-      <mesh geometry={wollmanBoardsGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+      <mesh geometry={wollmanBoardsGeo} position={[cx, 0.04, cz]} castShadow receiveShadow>
         <primitive object={rinkBoardsMat} attach="material" />
       </mesh>
 
       {/* G3. Cleopatra's Needle (Obelisk) */}
-      <mesh geometry={obeliskGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+      <mesh geometry={obeliskGeo} position={[cx, 0.04, cz]} castShadow receiveShadow>
         <primitive object={obeliskMat} attach="material" />
       </mesh>
 
       {/* G4. Carousel */}
-      <mesh geometry={carouselBaseGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+      <mesh geometry={carouselBaseGeo} position={[cx, 0.04, cz]} castShadow receiveShadow>
         <primitive object={carouselBaseMat} attach="material" />
       </mesh>
-      <mesh geometry={carouselRoofGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+      <mesh geometry={carouselRoofGeo} position={[cx, 0.04, cz]} castShadow receiveShadow>
         <primitive object={carouselRoofMat} attach="material" />
       </mesh>
 
       {/* G5. Reservoir Loop Path */}
-      <mesh geometry={reservoirPathGeo} position={[cx, 0, cz]} receiveShadow>
+      <mesh geometry={reservoirPathGeo} position={[cx, 0.04, cz]} receiveShadow>
         <primitive object={reservoirPathMat} attach="material" />
       </mesh>
 
