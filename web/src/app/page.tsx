@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CityId, PositionedBuilding } from "@/lib/types";
 import type { CityLayoutResult } from "@/lib/city/layout";
-import { loadCityCsv } from "@/lib/data/csvClient";
+import { loadCityData } from "@/lib/data/csvClient";
 import { mapCsvToBuildings } from "@/lib/city/scaling";
 import { computeCityLayout } from "@/lib/city/layout";
 import { loadAllAssets } from "@/lib/loadAssets";
@@ -74,7 +74,7 @@ export default function Home() {
         setBootMessage("Downloading city data…");
         setBootProgress(5);
 
-        const csv = await loadCityCsv(selectedCity);
+        const csv = await loadCityData(selectedCity);
         if (canceled) return;
         setBootMessage("Generating skyline and roads…");
         setBootProgress(15);

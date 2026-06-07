@@ -37,6 +37,26 @@ import { Clouds } from "@/components/city/Clouds";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { OrbitCityCamera } from "@/components/city/CameraView";
 import { StreetView, type NetPlayerState } from "@/components/city/StreetView";
+import { supabase } from "@/lib/supabaseClient";
+
+const PLAYER_COLORS = [
+  "#f43f5e",
+  "#22d3ee",
+  "#facc15",
+  "#a78bfa",
+  "#34d399",
+  "#fb7185",
+  "#60a5fa",
+  "#f59e0b",
+  "#2dd4bf",
+  "#e879f9",
+];
+
+function pickColor(existingPlayers: { color: string }[]) {
+  const used = new Set(existingPlayers.map((p) => p.color));
+  const free = PLAYER_COLORS.find((c) => !used.has(c));
+  return free ?? PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
+}
 
 export type { CarVariant };
 
@@ -460,11 +480,15 @@ export function CityCanvas({
   // Lightweight performance sampling for debug overlay (toggled with F3)
   const [perfSample, setPerfSample] = useState<PerfSample | null>(null);
   const [showPerf, setShowPerf] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
   const [selfId, setSelfId] = useState<string | null>(null);
   const [allPlayers, setAllPlayers] = useState<NetPlayerState[]>([]);
   const [localPlayerColor, setLocalPlayerColor] = useState<string>("#ec4899");
   const lastPoseSentAtRef = useRef(0);
+  const posesRef = useRef<Record<string, { x: number; z: number; yaw: number; speed: number }>>({});
+  const channelRef = useRef<any>(null);
+
+  // Generate a unique persistent ID for this local session
+  const myId = useMemo(() => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`, []);
 
   const sessionPlayers = useMemo(
     () => allPlayers.filter((p) => p.city === city),
@@ -476,73 +500,217 @@ export function CityCanvas({
   );
 
   useEffect(() => {
-    const envWsUrl = process.env.NEXT_PUBLIC_MULTIPLAYER_WS_URL?.trim();
-    const isLocalHost =
-      window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1";
-    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const wsUrl = envWsUrl || (isLocalHost ? `${protocol}://${window.location.hostname}:8787` : null);
+    setSelfId(myId);
 
-    if (!wsUrl) {
-      // Do not attempt insecure/unknown multiplayer endpoints in hosted deployments.
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.log("Supabase credentials not configured. Multiplayer disabled.");
       return;
     }
 
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket(wsUrl);
-    } catch {
-      window.setTimeout(() => {
-        setToast("Multiplayer unavailable: invalid websocket endpoint");
-        window.setTimeout(() => setToast(null), 2600);
-      }, 0);
-      return;
-    }
-    wsRef.current = ws;
-    ws.onopen = () => {
-      ws.send(
-        JSON.stringify({
-          type: "join",
+    const channelName = `city-room-${city}`;
+    const channel = supabase.channel(channelName, {
+      config: {
+        presence: {
+          key: myId,
+        },
+      },
+    });
+
+    channelRef.current = channel;
+
+    // Listen to pose broadcasts from other players
+    channel.on("broadcast", { event: "pose" }, ({ payload }) => {
+      if (payload && payload.id && payload.id !== myId) {
+        posesRef.current[payload.id] = {
+          x: payload.x,
+          z: payload.z,
+          yaw: payload.yaw,
+          speed: payload.speed,
+        };
+      }
+    });
+
+    // Sync active players in the channel using Realtime Presence
+    channel.on("presence", { event: "sync" }, () => {
+      const presenceState = channel.presenceState();
+      const playersList: NetPlayerState[] = [];
+      let colorSelected = "#ec4899";
+
+      Object.keys(presenceState).forEach((key) => {
+        const presences = presenceState[key] as any[];
+        if (presences && presences.length > 0) {
+          const state = presences[0];
+          playersList.push({
+            id: key,
+            name: state.name,
+            city: state.city,
+            carVariant: state.carVariant,
+            color: state.color,
+            x: state.x ?? 0,
+            z: state.z ?? 0,
+            yaw: state.yaw ?? 0,
+            speed: state.speed ?? 0,
+            isNpc: false,
+          });
+
+          if (key === myId) {
+            colorSelected = state.color;
+          }
+        }
+      });
+
+      setLocalPlayerColor(colorSelected);
+
+      // Sync React state and blend in any known pose history
+      setAllPlayers((prev) => {
+        return playersList.map((p) => {
+          const pose = posesRef.current[p.id];
+          return pose ? { ...p, ...pose } : p;
+        });
+      });
+    });
+
+    // Subscribe to the channel
+    channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        const presenceState = channel.presenceState();
+        const existingPlayers: any[] = [];
+        Object.keys(presenceState).forEach((key) => {
+          const presences = presenceState[key] as any[];
+          if (presences && presences.length > 0) {
+            existingPlayers.push(presences[0]);
+          }
+        });
+
+        const myColor = pickColor(existingPlayers);
+
+        // Track our presence in the room
+        await channel.track({
           name: playerName,
           city,
           carVariant,
-        }),
-      );
-    };
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(String(event.data)) as
-          | { type: "welcome"; selfId: string; players: NetPlayerState[] }
-          | { type: "state"; players: NetPlayerState[] }
-          | { type: "error"; message: string };
-        if (msg.type === "welcome") {
-          setSelfId(msg.selfId);
-          setAllPlayers(msg.players);
-          const me = msg.players.find((p) => p.id === msg.selfId);
-          if (me?.color) setLocalPlayerColor(me.color);
-          return;
-        }
-        if (msg.type === "state") {
-          setAllPlayers(msg.players);
-          return;
-        }
-        if (msg.type === "error") {
-          setToast(msg.message);
-          window.setTimeout(() => setToast(null), 2400);
-        }
-      } catch {
-        // ignore malformed payloads
+          color: myColor,
+          x: playerPoseRef.current.x,
+          z: playerPoseRef.current.z,
+          yaw: playerPoseRef.current.yaw,
+          speed: playerPoseRef.current.speed,
+        });
+
+        // Backup player registry in database
+        supabase
+          .from("players")
+          .upsert({
+            id: myId,
+            username: playerName,
+            x: playerPoseRef.current.x,
+            y: 1.5,
+            z: playerPoseRef.current.z,
+            rotation: playerPoseRef.current.yaw,
+            city_id: city,
+            last_seen: new Date().toISOString(),
+          })
+          .then(({ error }) => {
+            if (error) console.error("[SUPABASE] Failed to upsert player position:", error.message);
+          });
       }
-    };
-    ws.onerror = () => {
-      setToast("Multiplayer server offline (start npm run multiplayer:server)");
-      window.setTimeout(() => setToast(null), 2600);
-    };
+    });
+
     return () => {
-      ws.close();
-      if (wsRef.current === ws) wsRef.current = null;
+      channel.unsubscribe();
+      channelRef.current = null;
+      supabase
+        .from("players")
+        .delete()
+        .eq("id", myId)
+        .then(({ error }) => {
+          if (error) console.error("[SUPABASE] Failed to delete player record:", error.message);
+        });
     };
-  }, [carVariant, city, playerName]);
+  }, [carVariant, city, playerName, myId]);
+
+  // Sync NPC state locally and batch coordinate state flushes to reduce React layout overhead
+  useEffect(() => {
+    let tickCount = 0;
+    const intervalId = window.setInterval(() => {
+      tickCount++;
+      const currentPoses = posesRef.current;
+
+      // Deterministic synced circular movement for "mutasim" NPC
+      const npcTime = Date.now() / 1000;
+      const npcAngle = npcTime * 0.0944;
+      const npcRadius = 280;
+      const npcX = Math.cos(npcAngle) * npcRadius;
+      const npcZ = Math.sin(npcAngle) * npcRadius;
+      const npcYaw = npcAngle + Math.PI / 2;
+
+      const npcPlayer: NetPlayerState = {
+        id: `npc-${city}`,
+        name: "mutasim",
+        city,
+        carVariant: "batmobile",
+        color: "#f97316",
+        x: npcX,
+        z: npcZ,
+        yaw: npcYaw,
+        speed: 26,
+        isNpc: true,
+      };
+
+      setAllPlayers((prev) => {
+        let changed = false;
+
+        const next = prev.map((p) => {
+          if (p.isNpc) return p;
+
+          const pose = currentPoses[p.id];
+          if (pose) {
+            if (p.x !== pose.x || p.z !== pose.z || p.yaw !== pose.yaw || p.speed !== pose.speed) {
+              changed = true;
+              return { ...p, ...pose };
+            }
+          }
+          return p;
+        });
+
+        const npcIndex = next.findIndex((p) => p.isNpc);
+        if (npcIndex === -1) {
+          next.push(npcPlayer);
+          changed = true;
+        } else {
+          next[npcIndex] = npcPlayer;
+          changed = true;
+        }
+
+        return changed ? next : prev;
+      });
+
+      // Update player position tracking/heartbeat in database every ~5 seconds
+      if (tickCount % 50 === 0 && channelRef.current && selfId) {
+        supabase
+          .from("players")
+          .upsert({
+            id: selfId,
+            username: playerName,
+            x: playerPoseRef.current.x,
+            y: 1.5,
+            z: playerPoseRef.current.z,
+            rotation: playerPoseRef.current.yaw,
+            city_id: city,
+            last_seen: new Date().toISOString(),
+          })
+          .then(({ error }) => {
+            if (error) console.error("[SUPABASE] Active player heartbeat update failed:", error.message);
+          });
+      }
+    }, 100);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [city, playerName, selfId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -789,17 +957,19 @@ export function CityCanvas({
                 const now = performance.now();
                 if (now - lastPoseSentAtRef.current < 45) return;
                 lastPoseSentAtRef.current = now;
-                const ws = wsRef.current;
-                if (!ws || ws.readyState !== WebSocket.OPEN || !selfId) return;
-                ws.send(
-                  JSON.stringify({
-                    type: "pose",
+                const channel = channelRef.current;
+                if (!channel || !selfId) return;
+                channel.send({
+                  type: "broadcast",
+                  event: "pose",
+                  payload: {
+                    id: selfId,
                     x: pose.x,
                     z: pose.z,
                     yaw: pose.yaw,
                     speed: pose.speed,
-                  }),
-                );
+                  },
+                });
               }}
               roadGraph={roadGraph}
               defaultSpawn={defaultSpawn}

@@ -1,5 +1,16 @@
 .idea/
 .env
+.env.local
+.env.*.local
+web/node_modules
+web/.env
+web/.env.local
+
+# Supabase — local CLI state and secrets (schema/scripts in web/ stay tracked)
+supabase/.temp/
+supabase/.branches/
+supabase/.env
+supabase/.env.local
 
 #huggging face space
 gitcity/

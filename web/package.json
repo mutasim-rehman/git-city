@@ -7,11 +7,14 @@
     "multiplayer:server": "node server/multiplayer-server.mjs",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "migrate:supabase": "node scripts/migrate-to-supabase.mjs",
+    "backfill:sectors": "node scripts/backfill-sectors.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
+    "@supabase/supabase-js": "^2.107.0",
     "d3-dsv": "^3.0.1",
     "next": "16.1.6",
     "react": "19.2.3",
