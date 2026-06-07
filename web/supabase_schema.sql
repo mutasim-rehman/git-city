@@ -12,6 +12,7 @@
 --   Total_Stars         -> total_stars
 --   Repo_Names          -> repo_names
 --   Repo_Metadata       -> repo_metadata
+--   Field               -> field
 create table if not exists github_users (
   id bigint generated always as identity primary key,
   username text not null,
@@ -24,6 +25,7 @@ create table if not exists github_users (
   total_stars integer not null default 0,
   repo_names text not null default '',
   repo_metadata jsonb not null default '[]'::jsonb,
+  field text,
   sector_id text,
   sector_label text,
   city_id text not null, -- 'lahore', 'karachi', 'islamabad'
@@ -35,6 +37,7 @@ alter table github_users add column if not exists followers integer not null def
 alter table github_users add column if not exists total_stars integer not null default 0;
 alter table github_users add column if not exists repo_names text not null default '';
 alter table github_users add column if not exists repo_metadata jsonb not null default '[]'::jsonb;
+alter table github_users add column if not exists field text;
 
 -- Unique index to prevent duplicate entries for a user in a specific city
 create unique index if not exists idx_github_users_city_username on github_users(city_id, username);

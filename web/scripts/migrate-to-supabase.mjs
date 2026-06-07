@@ -124,6 +124,7 @@ async function runMigration() {
         total_stars: parseIntField(row.Total_Stars, 0),
         repo_names: row.Repo_Names || "",
         repo_metadata,
+        field: row.Field?.trim() || null,
         sector_id: row.sector_id?.trim() || sector.sector_id,
         sector_label: row.sector_label?.trim() || sector.sector_label,
         city_id: city,
