@@ -16,7 +16,7 @@ interface Props {
 
 export function CitySelector({ selected, onSelect, disabled }: Props) {
   return (
-    <div className="flex flex-wrap items-center justify-center gap-4">
+    <div className="flex flex-wrap items-center justify-center gap-3">
       {(Object.keys(LABELS) as CityId[]).map((city) => {
         const active = city === selected;
         return (
@@ -25,11 +25,11 @@ export function CitySelector({ selected, onSelect, disabled }: Props) {
             type="button"
             disabled={disabled}
             onClick={() => onSelect(city)}
-            className={`px-6 py-3 rounded-xl border text-sm font-semibold tracking-wide transition-all
+            className={`px-5 py-2.5 border-2 text-sm font-semibold tracking-wide font-mono uppercase
               ${
                 active
-                  ? "bg-pink-400 text-black border-pink-300 shadow-[0_0_30px_rgba(236,72,153,0.8)]"
-                  : "bg-slate-900/70 text-pink-100 border-purple-500/50 hover:bg-slate-900 hover:border-pink-200/80"
+                  ? "gc-btn-active"
+                  : "gc-btn text-[#484f58] border-[#30363d] hover:text-[#7ee787]"
               }
               ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}
             `}
@@ -41,4 +41,3 @@ export function CitySelector({ selected, onSelect, disabled }: Props) {
     </div>
   );
 }
-

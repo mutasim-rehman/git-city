@@ -12,10 +12,15 @@ export function SkyDome({ stops }: { stops: [number, string][] }) {
     canvas.width = 4;
     canvas.height = 1024;
     const ctx = canvas.getContext("2d")!;
-    const gradient = ctx.createLinearGradient(0, 0, 0, 1024);
-    for (const [stop, color] of stops) gradient.addColorStop(stop, color);
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 4, 1024);
+    // Blocky sky bands — hard color steps, no smooth gradient
+    for (let i = 0; i < stops.length; i++) {
+      const [stop, color] = stops[i];
+      const nextStop = i < stops.length - 1 ? stops[i + 1][0] : 1;
+      const yStart = Math.floor(stop * 1024);
+      const yEnd = Math.ceil(nextStop * 1024);
+      ctx.fillStyle = color;
+      ctx.fillRect(0, yStart, 4, yEnd - yStart);
+    }
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
     return new THREE.MeshBasicMaterial({
@@ -58,7 +63,7 @@ export function Stars() {
 
   return (
     <points geometry={geo}>
-      <pointsMaterial color="#cce8ff" size={3.5} sizeAttenuation fog={false} transparent opacity={0.7} />
+      <pointsMaterial color="#7ee787" size={3.5} sizeAttenuation fog={false} transparent opacity={0.55} />
     </points>
   );
 }
@@ -69,14 +74,14 @@ export function SunDisc({ position }: { position: [number, number, number] }) {
     <>
       <mesh position={position}>
         <sphereGeometry args={[65, 24, 24]} />
-        <meshBasicMaterial color="#ffe5b0" fog={false} />
+        <meshBasicMaterial color="#7ee787" fog={false} />
       </mesh>
       <mesh position={position}>
         <sphereGeometry args={[120, 18, 18]} />
         <meshBasicMaterial
-          color="#ffad42"
+          color="#22c55e"
           transparent
-          opacity={0.18}
+          opacity={0.12}
           fog={false}
           depthWrite={false}
           blending={THREE.AdditiveBlending}

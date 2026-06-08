@@ -16,17 +16,7 @@ const PLAYER_COLORS = [
   "#e879f9",
 ];
 const CITIES = ["lahore", "karachi", "islamabad"];
-const CAR_VARIANTS = [
-  "mr-bean",
-  "batmobile",
-  "harry-potter",
-  "mc-queen",
-  "Stradale 67",
-  "ZIS 101A",
-  "Beetle",
-  "Ferrai SF23",
-  "Wagon",
-];
+const CAR_VARIANTS = ["cm1", "cm2", "cm3", "cm4", "cm5", "cm6", "cm7"];
 
 /**
  * @typedef {Object} PlayerState
@@ -106,7 +96,7 @@ wss.on("connection", (ws) => {
       if (msg.type === "join") {
         const city = CITIES.includes(msg.city) ? msg.city : "islamabad";
         const name = String(msg.name || "guest").trim().slice(0, 24) || "guest";
-        const carVariant = CAR_VARIANTS.includes(msg.carVariant) ? msg.carVariant : "mr-bean";
+        const carVariant = CAR_VARIANTS.includes(msg.carVariant) ? msg.carVariant : "cm1";
         const players = ensureSession(city);
         const humanCount = Array.from(players.values()).filter((p) => !p.isNpc).length;
         if (humanCount >= MAX_HUMAN_PLAYERS) {

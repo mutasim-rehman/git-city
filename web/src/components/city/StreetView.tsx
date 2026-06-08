@@ -9,8 +9,9 @@ import { Game } from "@/game/Game";
 import type { RoadGraph } from "@/game/world/RoadGraph";
 import { NpcTraffic } from "@/game/ai/NpcTraffic";
 import {
-  CAR_CONFIGS,
   DEFAULT_CAR_VARIANT,
+  getGameCarConfig,
+  vehicleTuningFromModel,
   type CarVariant,
 } from "@/game/content/cars";
 
@@ -68,7 +69,7 @@ function StreetCar({
   carGroupRef: React.MutableRefObject<THREE.Group | null>;
   variant: CarVariant;
 }) {
-  const cfg  = CAR_CONFIGS[variant] ?? CAR_CONFIGS[DEFAULT_CAR_VARIANT];
+  const cfg = getGameCarConfig(variant);
   const gltf = useGLTF(cfg.modelPath);
   return (
     <group ref={carGroupRef}>
@@ -100,7 +101,7 @@ function VehicleLabel({
 
 function RemoteStreetCar({ player }: { player: NetPlayerState }) {
   const groupRef = useRef<THREE.Group | null>(null);
-  const cfg = CAR_CONFIGS[player.carVariant] ?? CAR_CONFIGS[DEFAULT_CAR_VARIANT];
+  const cfg = getGameCarConfig(player.carVariant);
   useFrame(() => {
     if (!groupRef.current) return;
     groupRef.current.position.set(player.x, 1.5 - cfg.downOffset, player.z);
@@ -122,7 +123,6 @@ export function StreetView({
   carVariant,
   onVehiclePose,
   roadGraph,
-  playerTuning,
   npcMaxCars,
   viewRadius,
   moonPosition,
@@ -137,7 +137,6 @@ export function StreetView({
   onVehiclePose: (pose: { x: number; z: number; yaw: number; speed: number }) => void;
   roadGraph: RoadGraph;
   defaultSpawn: { x: number; z: number };
-  playerTuning: { maxSpeed: number; accel: number; grip: number };
   npcMaxCars: number;
   viewRadius: number;
   moonPosition: [number, number, number];
@@ -178,20 +177,21 @@ export function StreetView({
   // Separate ref for the car group — positioned and rotated every frame
   const carRef = useRef<THREE.Group | null>(null);
 
-  // Pull all tuning values from the per-variant config
-  const cfg = CAR_CONFIGS[carVariant] ?? CAR_CONFIGS[DEFAULT_CAR_VARIANT];
+  const cfg = getGameCarConfig(carVariant);
+  const driveTuning = useMemo(() => vehicleTuningFromModel(cfg), [cfg]);
 
   const game = useMemo(() => {
     return new Game({
       initialPosition: spawnConfig.pos,
       initialYaw: spawnConfig.yaw,
-      vehicleTuning: {
-        // Keep per-variant top speed feel, but drive with acceleration/brake curves.
-        maxSpeed: Math.max(40, cfg.speed),
-      },
+      vehicleTuning: driveTuning,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spawnConfig.pos.x, spawnConfig.pos.z, spawnConfig.yaw, carVariant]);
+  }, [spawnConfig.pos.x, spawnConfig.pos.z, spawnConfig.yaw, driveTuning.maxSpeed, driveTuning.accel, driveTuning.maxSteerAngle]);
+
+  useEffect(() => {
+    game.setVehicleTuning(driveTuning);
+  }, [game, driveTuning]);
 
   const npcTraffic = useMemo(() => new NpcTraffic(roadGraph, npcMaxCars), [roadGraph, npcMaxCars]);
   const npcMeshRef = useRef<THREE.InstancedMesh | null>(null);
@@ -212,14 +212,6 @@ export function StreetView({
     const detach = game.input.attach();
     return detach;
   }, [game]);
-
-  useEffect(() => {
-    game.setVehicleTuning({
-      maxSpeed: playerTuning.maxSpeed,
-      accel: playerTuning.accel,
-      grip: playerTuning.grip,
-    });
-  }, [game, playerTuning.maxSpeed, playerTuning.accel, playerTuning.grip]);
 
   // Camera spring state (world space)
   const camPos = useRef(new THREE.Vector3(spawnConfig.pos.x, spawnConfig.pos.y + cfg.eyeOffset + 10, spawnConfig.pos.z + 30));
@@ -379,9 +371,10 @@ export function StreetView({
     const v = game.state.player.vehicle;
     onVehiclePose({ x: v.position.x, z: v.position.z, yaw: v.yaw, speed: v.speed });
 
-    // Place car mesh at vehicle state
     if (carRef.current) {
-      carRef.current.position.set(v.position.x, v.position.y - cfg.downOffset, v.position.z);
+      const sideX = Math.cos(v.yaw) * cfg.sideOffset;
+      const sideZ = -Math.sin(v.yaw) * cfg.sideOffset;
+      carRef.current.position.set(v.position.x + sideX, v.position.y - cfg.downOffset, v.position.z + sideZ);
       carRef.current.rotation.set(0, v.yaw, 0);
     }
     if (localLabelRef.current) {
@@ -436,7 +429,7 @@ export function StreetView({
     const cam = camera as THREE.PerspectiveCamera;
     if ("fov" in cam) {
       const baseFov = 55;
-      const speed01 = Math.min(1, Math.abs(v.speed) / Math.max(1, playerTuning.maxSpeed));
+      const speed01 = Math.min(1, Math.abs(v.speed) / Math.max(1, driveTuning.maxSpeed));
       const targetFov = baseFov + speed01 * 9;
       cam.fov = THREE.MathUtils.lerp(cam.fov, targetFov, Math.min(1, delta * 4));
       cam.updateProjectionMatrix();

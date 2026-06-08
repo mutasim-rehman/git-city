@@ -5,8 +5,9 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Html, Environment, useGLTF, useProgress } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
-import type { CarVariant } from "@/game/content/cars";
+import type { CarVariant, CarModelTuning } from "@/game/content/cars";
 import { CAR_CONFIGS, CAR_VARIANTS, DEFAULT_CAR_VARIANT, getCarStats } from "@/game/content/cars";
+import { CarModelTuner, useCarModelTuning } from "@/components/city/CarModelTuner";
 
 function seededRng(seed: number): number {
   return Math.abs((Math.sin(seed * 127.1 + 311.7) * 43758.5453) % 1);
@@ -26,13 +27,16 @@ function updateTriple(
   return next;
 }
 
-function CarModel({ variant, scaleMul = 1 }: { variant: CarVariant; scaleMul?: number }) {
+function CarModel({ variant, scaleMul = 1, modelTuning }: { variant: CarVariant; scaleMul?: number; modelTuning?: Partial<CarModelTuning> }) {
   const cfg = CAR_CONFIGS[variant] ?? CAR_CONFIGS[DEFAULT_CAR_VARIANT];
   const gltf = useGLTF(cfg.modelPath);
+  const yaw = modelTuning?.modelYaw ?? cfg.modelYaw;
+  const tilt = modelTuning?.modelTilt ?? cfg.modelTilt;
+  const scale = (modelTuning?.scale ?? cfg.scale) * scaleMul;
   return (
     <group>
-      <group rotation-y={cfg.modelYaw} rotation-x={cfg.modelTilt}>
-        <primitive object={gltf.scene} scale={cfg.scale * scaleMul} />
+      <group rotation-y={yaw} rotation-x={tilt}>
+        <primitive object={gltf.scene} scale={scale} />
       </group>
     </group>
   );
@@ -61,15 +65,13 @@ const CAR_SHOWROOM_PRESETS: Record<
   CarVariant,
   { scaleMul: number; position: [number, number, number]; pivot: [number, number, number] }
 > = {
-  "mr-bean": { scaleMul: 2, position: [5.7, 1.85, 0], pivot: [0, 0.75, 0] },
-  batmobile: { scaleMul: 0.82, position: [-0.4, 0.6, 3.45], pivot: [0, 0.75, 0] },
-  "harry-potter": { scaleMul: 2.46, position: [-1.65, 0, 1], pivot: [0, 0.75, 0] },
-  "mc-queen": { scaleMul: 2.09, position: [-0.4, 0, 0.4], pivot: [0, 0.75, 0] },
-  "Stradale 67": { scaleMul: 2.09, position: [-0.4, 0, 0.4], pivot: [0, 0.75, 0] },
-  "ZIS 101A": { scaleMul: 1.68, position: [-0.4, 0, 0.4], pivot: [0, 0.75, 0] },
-  Beetle: { scaleMul: 2.5, position: [-0.4, 0.65, 0.5], pivot: [0, 0.75, 0] },
-  "Ferrai SF23": { scaleMul: 1.97, position: [-0.4, 0.65, 0.5], pivot: [0, 0.75, 0] },
-  Wagon: { scaleMul: 2.13, position: [3.9, 0, -2.0], pivot: [0, 0.75, 0] },
+  cm1: { scaleMul: 2, position: [-0.4, 0, 0.4], pivot: [0, 0.75, 0] },
+  cm2: { scaleMul: 2, position: [-0.4, 0, 0.4], pivot: [0, 0.75, 0] },
+  cm3: { scaleMul: 2, position: [-0.4, 0, 0.4], pivot: [0, 0.75, 0] },
+  cm4: { scaleMul: 2, position: [-0.4, 0, 0.4], pivot: [0, 0.75, 0] },
+  cm5: { scaleMul: 2, position: [-0.4, 0, 0.4], pivot: [0, 0.75, 0] },
+  cm6: { scaleMul: 2, position: [-0.4, 0, 0.4], pivot: [0, 0.75, 0] },
+  cm7: { scaleMul: 2, position: [-0.4, 0, 0.4], pivot: [0, 0.75, 0] },
 };
 
 function GarageModel({
@@ -147,6 +149,7 @@ function ShowroomScene({
   garage,
   carPlacement,
   carScaleMul,
+  modelTuning,
   camera,
   debug,
 }: {
@@ -158,6 +161,7 @@ function ShowroomScene({
     turntableSpeed: number;
   };
   carScaleMul: number;
+  modelTuning?: Partial<CarModelTuning>;
   camera: {
     target: [number, number, number];
     posLimits: { x: [number, number]; y: [number, number]; z: [number, number] };
@@ -248,7 +252,7 @@ function ShowroomScene({
             ]}
             castShadow
           >
-            <CarModel variant={variant} scaleMul={carScaleMul} />
+            <CarModel variant={variant} scaleMul={carScaleMul} modelTuning={modelTuning} />
           </group>
         </Turntable>
       </group>
@@ -275,18 +279,28 @@ function ShowroomScene({
 }
 
 function StatBar({ label, value }: { label: string; value: number }) {
+  const segments = 10;
+  const filled = Math.round((clamp(value, 0, 100) / 100) * segments);
   return (
     <div className="flex items-center gap-3">
-      <div className="w-16 text-[10px] font-mono uppercase tracking-[0.28em] text-pink-300/80">
+      <div className="w-16 text-[10px] font-mono uppercase tracking-[0.28em] text-[#484f58]">
         {label}
       </div>
-      <div className="h-2 flex-1 overflow-hidden rounded-full bg-purple-950/70">
-        <div
-          className="h-full rounded-full bg-gradient-to-r from-pink-500 to-sky-400"
-          style={{ width: `${clamp(value, 0, 100)}%`, transition: "width 200ms ease-out" }}
-        />
+      <div className="flex h-3 flex-1 gap-[2px]">
+        {Array.from({ length: segments }).map((_, i) => (
+          <div
+            key={i}
+            className="flex-1 border border-[#30363d]"
+            style={{
+              background: i < filled ? "#22c55e" : "#21262d",
+              boxShadow: i < filled
+                ? "inset 1px 1px 0 #4ade80, inset -1px -1px 0 #14532d"
+                : "inset 1px 1px 0 #30363d, inset -1px -1px 0 #0d1117",
+            }}
+          />
+        ))}
       </div>
-      <div className="w-10 text-right text-[10px] font-mono text-slate-100/90">
+      <div className="w-10 text-right text-[10px] font-mono text-[#7ee787]">
         {Math.round(value)}
       </div>
     </div>
@@ -321,6 +335,7 @@ export function CarShowroom({
   const [turntableSpeed, setTurntableSpeed] = React.useState(0.35);
   const [carScaleMul, setCarScaleMul] = React.useState(CAR_SHOWROOM_PRESETS[variant]?.scaleMul ?? 1.0);
   const [debugEnabled, setDebugEnabled] = React.useState(false);
+  const { tuning: modelTuning, setTuning: setModelTuning, reset: resetModelTuning } = useCarModelTuning(variant);
   const [garageBounds, setGarageBounds] = React.useState<{ size: THREE.Vector3; center: THREE.Vector3 } | null>(null);
   const [cameraPos, setCameraPos] = React.useState<[number, number, number]>([15, 8.15, 16]);
   const [cameraFov, setCameraFov] = React.useState(40);
@@ -357,6 +372,7 @@ export function CarShowroom({
       if (e.code === "ArrowRight") setIdx((i) => (i + 1) % CAR_VARIANTS.length);
       if (e.code === "ArrowLeft") setIdx((i) => (i - 1 + CAR_VARIANTS.length) % CAR_VARIANTS.length);
       if (e.code === "Enter") onStart(variant, selectedBiome);
+      if (e.key === "F4") setDebugEnabled((v) => !v);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => {
@@ -376,7 +392,7 @@ export function CarShowroom({
         <React.Suspense
           fallback={
             <Html center>
-              <div className="rounded-xl border border-pink-500/30 bg-black/60 px-4 py-3 text-xs text-pink-100">
+              <div className="gc-panel px-4 py-3 text-xs text-[#7ee787]">
                 Loading car…
               </div>
             </Html>
@@ -387,6 +403,7 @@ export function CarShowroom({
             garage={{ scale: garageScale, position: garagePos, rotationY: garageRotY }}
             carPlacement={{ position: carPos, pivot, turntableSpeed }}
             carScaleMul={carScaleMul}
+            modelTuning={modelTuning}
             camera={{
               target: cameraTarget,
               posLimits: cameraPosLimits,
@@ -400,30 +417,31 @@ export function CarShowroom({
         </React.Suspense>
       </Canvas>
 
-      {/* Neon noise overlay */}
+      {/* Block grid overlay */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0"
+        className="pointer-events-none absolute inset-0 opacity-[0.03]"
         style={{
           backgroundImage:
-            "radial-gradient(circle at 30% 20%, rgba(236,72,153,0.12), transparent 55%), radial-gradient(circle at 70% 35%, rgba(125,211,252,0.08), transparent 50%)",
+            "linear-gradient(#7ee787 1px, transparent 1px), linear-gradient(90deg, #7ee787 1px, transparent 1px)",
+          backgroundSize: "32px 32px",
         }}
       />
 
       {/* Left panel */}
       <div className="absolute left-6 top-6 z-20 w-[320px]">
-        <div className="rounded-2xl border border-purple-500/30 bg-black/55 p-4 backdrop-blur-md shadow-[0_0_30px_rgba(168,85,247,0.2)]">
-          <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-pink-300/80">
+        <div className="gc-panel p-4">
+          <p className="gc-label">
             Select your ride
           </p>
           <div className="mt-2 flex items-end justify-between gap-3">
             <div className="min-w-0">
-              <p className="truncate text-xl font-semibold text-slate-100">{cfg.label}</p>
-              <p className="mt-1 text-[11px] text-purple-200/80">
+              <p className="truncate text-xl font-semibold text-[#e6edf3]">{cfg.label}</p>
+              <p className="mt-1 text-[11px] text-[#484f58]">
                 {cityLabel ? `Map: ${cityLabel}` : "Map loading…"}
               </p>
             </div>
-            <div className="rounded-full border border-purple-500/30 bg-purple-500/10 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.25em] text-slate-100/90">
+            <div className="border-2 border-[#30363d] bg-[#161b22] px-3 py-1 text-[10px] font-mono uppercase tracking-[0.25em] text-[#7ee787] shadow-[2px_2px_0_#010409]">
               {idx + 1}/{CAR_VARIANTS.length}
             </div>
           </div>
@@ -435,8 +453,8 @@ export function CarShowroom({
           </div>
 
           {/* Biome Preset selection */}
-          <div className="mt-4 border-t border-purple-500/20 pt-3">
-            <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-pink-300/80 mb-2">
+          <div className="mt-4 border-t-2 border-[#30363d] pt-3">
+            <p className="gc-label mb-2">
               Select Biome Preset
             </p>
             <div className="grid grid-cols-2 gap-1 font-mono text-[9px]">
@@ -445,11 +463,10 @@ export function CarShowroom({
                   key={t}
                   type="button"
                   onClick={() => setSelectedBiome(t)}
-                  className={`rounded-lg py-1 px-1.5 text-center border transition ${
-                    selectedBiome === t
-                      ? "border-pink-500/50 bg-pink-500/20 text-white font-semibold shadow-[0_0_8px_rgba(236,72,153,0.25)]"
-                      : "border-purple-500/20 bg-purple-500/5 text-purple-300/80 hover:bg-purple-500/10"
-                  }`}
+                  className={`py-1 px-1.5 text-center border-2 shadow-[2px_2px_0_#010409] ${selectedBiome === t
+                      ? "gc-btn-active font-semibold"
+                      : "border-[#30363d] bg-[#161b22] text-[#484f58] hover:bg-[#21262d]"
+                    }`}
                 >
                   {t}
                 </button>
@@ -460,155 +477,245 @@ export function CarShowroom({
           <div className="mt-4 flex items-center gap-2">
             <button
               type="button"
-              className="inline-flex h-10 flex-1 items-center justify-center rounded-xl border border-pink-400/60 bg-pink-500/15 px-4 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-50 shadow-[0_0_20px_rgba(236,72,153,0.35)] transition hover:bg-pink-500/25"
+              className="gc-btn-active inline-flex h-10 flex-1 items-center justify-center px-4 text-[11px] font-semibold uppercase tracking-[0.3em]"
               onClick={() => onStart(variant, selectedBiome)}
             >
               Drive
             </button>
-            <div className="hidden sm:block rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-mono uppercase tracking-[0.25em] text-white/30">
+            <button
+              type="button"
+              className="gc-btn px-3 py-2 text-[10px] font-mono uppercase tracking-[0.2em]"
+              onClick={() => setDebugEnabled((v) => !v)}
+              title="F4"
+            >
+              {debugEnabled ? "Hide tuner" : "Tuner"}
+            </button>
+            <div className="hidden sm:block gc-panel-muted px-3 py-2 text-[10px] font-mono uppercase tracking-[0.25em] text-[#484f58]">
               ← →
             </div>
           </div>
 
-          {/* Garage tuning controls (debug) */}
+          {!debugEnabled && (
+            <p className="mt-2 text-center text-[9px] font-mono uppercase tracking-[0.2em] text-white/25">
+              F4 or Tuner for model debug
+            </p>
+          )}
+
+          {/* Garage + model tuning controls (debug) */}
           {debugEnabled && (
-            <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-sky-200/70">Garage debug</p>
-                <button
-                  type="button"
-                  className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-mono uppercase tracking-[0.25em] text-white/60 hover:bg-white/10"
-                  onClick={() => setDebugEnabled((v) => !v)}
-                >
-                  Hide
-                </button>
-              </div>
+            <div className="mt-4 space-y-3">
+              <CarModelTuner
+                variant={variant}
+                tuning={modelTuning}
+                onChange={setModelTuning}
+                onReset={resetModelTuning}
+                onVariantChange={(v) => {
+                  const i = CAR_VARIANTS.indexOf(v);
+                  if (i >= 0) setIdx(i);
+                }}
+              />
 
-            {garageBounds && (
-              <div className="mt-2 text-[10px] font-mono uppercase tracking-[0.18em] text-white/35">
-                Bounds: {garageBounds.size.x.toFixed(2)} × {garageBounds.size.y.toFixed(2)} × {garageBounds.size.z.toFixed(2)}
-              </div>
-            )}
-
-            <div className="mt-3 space-y-3">
-              <div>
-                <div className="mb-1 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">
-                  <span>Garage scale</span>
-                  <span className="text-white/30">{garageScale.toFixed(2)}</span>
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-sky-200/70">Showroom placement</p>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-mono uppercase tracking-[0.25em] text-white/60 hover:bg-white/10"
+                    onClick={() => setDebugEnabled(false)}
+                  >
+                    Hide
+                  </button>
                 </div>
-                <input
-                  className="w-full accent-sky-400"
-                  type="range"
-                  min={0.1}
-                  max={20}
-                  step={0.01}
-                  value={garageScale}
-                  onChange={(e) => setGarageScale(parseFloat(e.target.value))}
-                />
-              </div>
 
-              <div className="grid grid-cols-3 gap-2">
-                {(["x", "y", "z"] as const).map((axis, axisIdx) => (
-                  <label key={`garage-pos-${axis}`} className="block">
-                    <div className="mb-1 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">
-                      <span>G {axis}</span>
-                      <span className="text-white/30">{garagePos[axisIdx].toFixed(2)}</span>
-                    </div>
-                    <input
-                      className="w-full accent-sky-400"
-                      type="range"
-                      min={-20}
-                      max={100}
-                      step={0.05}
-                      value={garagePos[axisIdx]}
-                      onChange={(e) => {
-                        const v = parseFloat(e.target.value);
-                        setGaragePos((p) => updateTriple(p, axisIdx, v));
-                      }}
-                    />
-                  </label>
-                ))}
-              </div>
-
-              <div>
-                <div className="mb-1 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">
-                  <span>Car scale</span>
-                  <span className="text-white/30">{carScaleMul.toFixed(2)}</span>
-                </div>
-                <input
-                  className="w-full accent-pink-400"
-                  type="range"
-                  min={0.05}
-                  max={10}
-                  step={0.01}
-                  value={carScaleMul}
-                  onChange={(e) => setCarScaleMul(parseFloat(e.target.value))}
-                />
-              </div>
-
-              <div className="rounded-xl border border-white/10 bg-black/20 p-2">
-                <div className="text-[10px] font-mono uppercase tracking-[0.25em] text-sky-200/60">Camera</div>
-                <div className="mt-2 space-y-3">
-                  <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-2 text-[10px] font-mono uppercase tracking-[0.18em] text-white/45">
-                    <div className="flex items-center justify-between">
-                      <span>Live pos</span>
-                      <span className="text-white/30">
-                        {liveCameraPos[0].toFixed(2)}, {liveCameraPos[1].toFixed(2)}, {liveCameraPos[2].toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex items-center justify-between">
-                      <span>Live tgt</span>
-                      <span className="text-white/30">
-                        {liveCameraTarget[0].toFixed(2)}, {liveCameraTarget[1].toFixed(2)}, {liveCameraTarget[2].toFixed(2)}
-                      </span>
-                    </div>
+                {garageBounds && (
+                  <div className="mt-2 text-[10px] font-mono uppercase tracking-[0.18em] text-white/35">
+                    Bounds: {garageBounds.size.x.toFixed(2)} × {garageBounds.size.y.toFixed(2)} × {garageBounds.size.z.toFixed(2)}
                   </div>
+                )}
 
+                <div className="mt-3 space-y-3">
                   <div>
                     <div className="mb-1 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">
-                      <span>FOV</span>
-                      <span className="text-white/30">{cameraFov.toFixed(0)}</span>
+                      <span>Garage scale</span>
+                      <span className="text-white/30">{garageScale.toFixed(2)}</span>
                     </div>
                     <input
                       className="w-full accent-sky-400"
                       type="range"
-                      min={10}
-                      max={90}
-                      step={1}
-                      value={cameraFov}
-                      onChange={(e) => setCameraFov(parseFloat(e.target.value))}
+                      min={0.1}
+                      max={20}
+                      step={0.01}
+                      value={garageScale}
+                      onChange={(e) => setGarageScale(parseFloat(e.target.value))}
                     />
                   </div>
 
                   <div className="grid grid-cols-3 gap-2">
                     {(["x", "y", "z"] as const).map((axis, axisIdx) => (
-                      <label key={`cam-pos-${axis}`} className="block">
+                      <label key={`garage-pos-${axis}`} className="block">
                         <div className="mb-1 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">
-                          <span>Cam {axis}</span>
-                          <span className="text-white/30">{cameraPos[axisIdx].toFixed(2)}</span>
+                          <span>G {axis}</span>
+                          <span className="text-white/30">{garagePos[axisIdx].toFixed(2)}</span>
                         </div>
                         <input
                           className="w-full accent-sky-400"
                           type="range"
-                          min={
-                            axis === "x"
-                              ? cameraPosLimits.x[0]
-                              : axis === "y"
-                                ? cameraPosLimits.y[0]
-                                : cameraPosLimits.z[0]
-                          }
-                          max={
-                            axis === "x"
-                              ? cameraPosLimits.x[1]
-                              : axis === "y"
-                                ? cameraPosLimits.y[1]
-                                : cameraPosLimits.z[1]
-                          }
-                          step={0.1}
-                          value={cameraPos[axisIdx]}
+                          min={-20}
+                          max={100}
+                          step={0.05}
+                          value={garagePos[axisIdx]}
                           onChange={(e) => {
                             const v = parseFloat(e.target.value);
-                            setCameraPos((p) => updateTriple(p, axisIdx, v));
+                            setGaragePos((p) => updateTriple(p, axisIdx, v));
+                          }}
+                        />
+                      </label>
+                    ))}
+                  </div>
+
+                  <div>
+                    <div className="mb-1 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">
+                      <span>Car scale</span>
+                      <span className="text-white/30">{carScaleMul.toFixed(2)}</span>
+                    </div>
+                    <input
+                      className="w-full accent-[#22c55e]"
+                      type="range"
+                      min={0.05}
+                      max={10}
+                      step={0.01}
+                      value={carScaleMul}
+                      onChange={(e) => setCarScaleMul(parseFloat(e.target.value))}
+                    />
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-2">
+                    <div className="text-[10px] font-mono uppercase tracking-[0.25em] text-sky-200/60">Camera</div>
+                    <div className="mt-2 space-y-3">
+                      <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-2 text-[10px] font-mono uppercase tracking-[0.18em] text-white/45">
+                        <div className="flex items-center justify-between">
+                          <span>Live pos</span>
+                          <span className="text-white/30">
+                            {liveCameraPos[0].toFixed(2)}, {liveCameraPos[1].toFixed(2)}, {liveCameraPos[2].toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between">
+                          <span>Live tgt</span>
+                          <span className="text-white/30">
+                            {liveCameraTarget[0].toFixed(2)}, {liveCameraTarget[1].toFixed(2)}, {liveCameraTarget[2].toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="mb-1 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">
+                          <span>FOV</span>
+                          <span className="text-white/30">{cameraFov.toFixed(0)}</span>
+                        </div>
+                        <input
+                          className="w-full accent-sky-400"
+                          type="range"
+                          min={10}
+                          max={90}
+                          step={1}
+                          value={cameraFov}
+                          onChange={(e) => setCameraFov(parseFloat(e.target.value))}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        {(["x", "y", "z"] as const).map((axis, axisIdx) => (
+                          <label key={`cam-pos-${axis}`} className="block">
+                            <div className="mb-1 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">
+                              <span>Cam {axis}</span>
+                              <span className="text-white/30">{cameraPos[axisIdx].toFixed(2)}</span>
+                            </div>
+                            <input
+                              className="w-full accent-sky-400"
+                              type="range"
+                              min={
+                                axis === "x"
+                                  ? cameraPosLimits.x[0]
+                                  : axis === "y"
+                                    ? cameraPosLimits.y[0]
+                                    : cameraPosLimits.z[0]
+                              }
+                              max={
+                                axis === "x"
+                                  ? cameraPosLimits.x[1]
+                                  : axis === "y"
+                                    ? cameraPosLimits.y[1]
+                                    : cameraPosLimits.z[1]
+                              }
+                              step={0.1}
+                              value={cameraPos[axisIdx]}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                setCameraPos((p) => updateTriple(p, axisIdx, v));
+                              }}
+                            />
+                          </label>
+                        ))}
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        {(["x", "y", "z"] as const).map((axis, axisIdx) => (
+                          <label key={`cam-target-${axis}`} className="block">
+                            <div className="mb-1 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">
+                              <span>Tgt {axis}</span>
+                              <span className="text-white/30">{cameraTarget[axisIdx].toFixed(2)}</span>
+                            </div>
+                            <input
+                              className="w-full accent-emerald-400"
+                              type="range"
+                              min={-20}
+                              max={20}
+                              step={0.05}
+                              value={cameraTarget[axisIdx]}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                setCameraTarget((p) => updateTriple(p, axisIdx, v));
+                              }}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="mb-1 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">
+                      <span>Garage yaw</span>
+                      <span className="text-white/30">{garageRotY.toFixed(2)}</span>
+                    </div>
+                    <input
+                      className="w-full accent-sky-400"
+                      type="range"
+                      min={-Math.PI}
+                      max={Math.PI}
+                      step={0.01}
+                      value={garageRotY}
+                      onChange={(e) => setGarageRotY(parseFloat(e.target.value))}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    {(["x", "y", "z"] as const).map((axis, axisIdx) => (
+                      <label key={`car-pos-${axis}`} className="block">
+                        <div className="mb-1 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">
+                          <span>Car {axis}</span>
+                          <span className="text-white/30">{carPos[axisIdx].toFixed(2)}</span>
+                        </div>
+                        <input
+                          className="w-full accent-[#22c55e]"
+                          type="range"
+                          min={-20}
+                          max={20}
+                          step={0.05}
+                          value={carPos[axisIdx]}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value);
+                            setCarPos((p) => updateTriple(p, axisIdx, v));
                           }}
                         />
                       </label>
@@ -617,10 +724,10 @@ export function CarShowroom({
 
                   <div className="grid grid-cols-3 gap-2">
                     {(["x", "y", "z"] as const).map((axis, axisIdx) => (
-                      <label key={`cam-target-${axis}`} className="block">
+                      <label key={`pivot-${axis}`} className="block">
                         <div className="mb-1 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">
-                          <span>Tgt {axis}</span>
-                          <span className="text-white/30">{cameraTarget[axisIdx].toFixed(2)}</span>
+                          <span>Pivot {axis}</span>
+                          <span className="text-white/30">{pivot[axisIdx].toFixed(2)}</span>
                         </div>
                         <input
                           className="w-full accent-emerald-400"
@@ -628,101 +735,38 @@ export function CarShowroom({
                           min={-20}
                           max={20}
                           step={0.05}
-                          value={cameraTarget[axisIdx]}
+                          value={pivot[axisIdx]}
                           onChange={(e) => {
                             const v = parseFloat(e.target.value);
-                            setCameraTarget((p) => updateTriple(p, axisIdx, v));
+                            setPivot((p) => updateTriple(p, axisIdx, v));
                           }}
                         />
                       </label>
                     ))}
                   </div>
-                </div>
-              </div>
 
-              <div>
-                <div className="mb-1 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">
-                  <span>Garage yaw</span>
-                  <span className="text-white/30">{garageRotY.toFixed(2)}</span>
-                </div>
-                <input
-                  className="w-full accent-sky-400"
-                  type="range"
-                  min={-Math.PI}
-                  max={Math.PI}
-                  step={0.01}
-                  value={garageRotY}
-                  onChange={(e) => setGarageRotY(parseFloat(e.target.value))}
-                />
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                {(["x", "y", "z"] as const).map((axis, axisIdx) => (
-                  <label key={`car-pos-${axis}`} className="block">
+                  <div>
                     <div className="mb-1 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">
-                      <span>Car {axis}</span>
-                      <span className="text-white/30">{carPos[axisIdx].toFixed(2)}</span>
-                    </div>
-                    <input
-                      className="w-full accent-pink-400"
-                      type="range"
-                      min={-20}
-                      max={20}
-                      step={0.05}
-                      value={carPos[axisIdx]}
-                      onChange={(e) => {
-                        const v = parseFloat(e.target.value);
-                        setCarPos((p) => updateTriple(p, axisIdx, v));
-                      }}
-                    />
-                  </label>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                {(["x", "y", "z"] as const).map((axis, axisIdx) => (
-                  <label key={`pivot-${axis}`} className="block">
-                    <div className="mb-1 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">
-                      <span>Pivot {axis}</span>
-                      <span className="text-white/30">{pivot[axisIdx].toFixed(2)}</span>
+                      <span>Turntable speed</span>
+                      <span className="text-white/30">{turntableSpeed.toFixed(2)}</span>
                     </div>
                     <input
                       className="w-full accent-emerald-400"
                       type="range"
-                      min={-20}
-                      max={20}
-                      step={0.05}
-                      value={pivot[axisIdx]}
-                      onChange={(e) => {
-                        const v = parseFloat(e.target.value);
-                        setPivot((p) => updateTriple(p, axisIdx, v));
-                      }}
+                      min={0}
+                      max={2.0}
+                      step={0.01}
+                      value={turntableSpeed}
+                      onChange={(e) => setTurntableSpeed(parseFloat(e.target.value))}
                     />
-                  </label>
-                ))}
-              </div>
-
-              <div>
-                <div className="mb-1 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.22em] text-white/45">
-                  <span>Turntable speed</span>
-                  <span className="text-white/30">{turntableSpeed.toFixed(2)}</span>
+                  </div>
                 </div>
-                <input
-                  className="w-full accent-emerald-400"
-                  type="range"
-                  min={0}
-                  max={2.0}
-                  step={0.01}
-                  value={turntableSpeed}
-                  onChange={(e) => setTurntableSpeed(parseFloat(e.target.value))}
-                />
               </div>
-            </div>
             </div>
           )}
 
           {active && (
-            <div className="mt-3 text-[10px] font-mono uppercase tracking-[0.25em] text-purple-300/70">
+            <div className="mt-3 text-[10px] font-mono uppercase tracking-[0.25em] text-[#484f58]">
               Streaming assets… {Math.round(progress)}%
             </div>
           )}
@@ -732,14 +776,14 @@ export function CarShowroom({
       {/* Title */}
       <div className="pointer-events-none absolute inset-x-6 bottom-6 z-20 flex items-end justify-between gap-6">
         <div className="max-w-xl">
-          <p className="text-[10px] font-mono uppercase tracking-[0.45em] text-pink-400/80">
+          <p className="gc-label">
             Git City
           </p>
-          <p className="mt-2 text-sm text-slate-100/80">
+          <p className="mt-2 text-sm text-[#c9d1d9]">
             Choose a car, then drop straight into the city. No menus. No breaks.
           </p>
         </div>
-        <div className="text-right text-[10px] font-mono uppercase tracking-[0.35em] text-white/25">
+        <div className="text-right text-[10px] font-mono uppercase tracking-[0.35em] text-[#484f58]">
           Press Enter to start
         </div>
       </div>

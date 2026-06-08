@@ -21,7 +21,7 @@ import type { RoadNodeId } from "@/game/world/RoadGraph";
 import { aStar } from "@/game/routing/aStar";
 import { Minimap } from "@/game/ui/Minimap";
 import { NpcTraffic } from "@/game/ai/NpcTraffic";
-import { CAR_CONFIGS, DEFAULT_CAR_VARIANT, type CarVariant } from "@/game/content/cars";
+import { DEFAULT_CAR_VARIANT, type CarVariant } from "@/game/content/cars";
 import { SkyDome, Stars, SunDisc } from "@/components/city/Sky";
 import { GroundPlane } from "@/components/city/Ground";
 
@@ -82,46 +82,45 @@ function sameRoute(a: RoadNodeId[], b: RoadNodeId[]) {
 }
 
 function tryPlayAudio(audio: HTMLAudioElement) {
-  void audio.play().catch(() => {});
+  void audio.play().catch(() => { });
 }
 
 const EMERALD_THEME: CityTheme = {
-  // Sunset / dusk palette (still keeping your neon/pink vibe)
   sky: [
-    [0, "#05010f"],
-    [0.12, "#120523"],
-    [0.28, "#2a0a3d"],
-    [0.45, "#5b146a"],
-    [0.62, "#a21caf"],
-    [0.78, "#ff7a18"],
-    [0.9, "#fbbf24"],
-    [1, "#ffe4b5"],
+    [0, "#000000"],
+    [0.55, "#000000"],
+    [0.55, "#050805"],
+    [0.78, "#050805"],
+    [0.78, "#0a140a"],
+    [0.92, "#0a140a"],
+    [0.92, "#0d1a0d"],
+    [1, "#14532d"],
   ],
-  fogColor: "#2a0f3a",
+  fogColor: "#0a0f0a",
   fogNear: 520,
   fogFar: 4200,
-  ambientColor: "#ffb4c8",
-  ambientIntensity: 0.5,
-  sunColor: "#ffd08a",
-  sunIntensity: 1.45,
+  ambientColor: "#1a3d22",
+  ambientIntensity: 0.45,
+  sunColor: "#7ee787",
+  sunIntensity: 1.35,
   sunPos: [1200, 1600, -900],
-  fillColor: "#7dd3fc",
-  fillIntensity: 0.28,
+  fillColor: "#14532d",
+  fillIntensity: 0.32,
   fillPos: [-300, 120, 280],
-  hemiSky: "#ff77b7",
-  hemiGround: "#2a0f2f",
-  hemiIntensity: 0.6,
-  groundColor: "#0b1b2a",
-  grid1: "#120c1a",
-  grid2: "#facc15",
-  roadMarkingColor: "#e5e7eb",
-  sidewalkColor: "#6b6f7a",
+  hemiSky: "#7ee787",
+  hemiGround: "#000000",
+  hemiIntensity: 0.55,
+  groundColor: "#0a0f0a",
+  grid1: "#050805",
+  grid2: "#22c55e",
+  roadMarkingColor: "#30363d",
+  sidewalkColor: "#484f58",
   building: {
-    windowLit: ["#ff7a18", "#ec4899", "#a855f7", "#7dd3fc", "#ffe4b5"],
-    windowOff: "#111827",
-    face: "#4b5563",
-    roof: "#374151",
-    accent: "#ec4899",
+    windowLit: ["#22c55e", "#7ee787", "#4ade80", "#238636", "#bbf7d0"],
+    windowOff: "#0d1117",
+    face: "#30363d",
+    roof: "#21262d",
+    accent: "#22c55e",
   },
 };
 // ─── Performance sampler ──────────────────────────────────────────────────────
@@ -347,23 +346,23 @@ const BIOME_ENV_THEMES = {
   },
   cyberpunk: {
     sky: [
-      [0, "#05010f"],
-      [0.12, "#120523"],
-      [0.28, "#2a0a3d"],
-      [0.45, "#5b146a"],
-      [0.62, "#a21caf"],
-      [0.78, "#ff7a18"],
-      [0.9, "#fbbf24"],
-      [1, "#ffe4b5"],
+      [0, "#000000"],
+      [0.55, "#000000"],
+      [0.55, "#050805"],
+      [0.78, "#050805"],
+      [0.78, "#0a140a"],
+      [0.92, "#0a140a"],
+      [0.92, "#0d1a0d"],
+      [1, "#14532d"],
     ] as [number, string][],
-    fogColor: "#2a0f3a",
-    sunColor: "#ffd08a",
-    sunIntensity: 1.45,
-    ambientColor: "#ffb4c8",
-    ambientIntensity: 0.5,
-    hemiSky: "#ff77b7",
-    hemiGround: "#2a0f2f",
-    hemiIntensity: 0.6,
+    fogColor: "#0a0f0a",
+    sunColor: "#7ee787",
+    sunIntensity: 1.35,
+    ambientColor: "#1a3d22",
+    ambientIntensity: 0.45,
+    hemiSky: "#7ee787",
+    hemiGround: "#000000",
+    hemiIntensity: 0.55,
   },
 };
 
@@ -439,12 +438,6 @@ export function CityCanvas({
   const [navTarget, setNavTarget] = useState<PositionedBuilding | null>(null);
   const [navRoute, setNavRoute] = useState<RoadNodeId[]>([]);
   const [toast, setToast] = useState<string | null>(null);
-  const [showTuning, setShowTuning] = useState(false);
-  const [playerTuning, setPlayerTuning] = useState<{ maxSpeed: number; accel: number; grip: number }>({
-    maxSpeed: Math.max(40, (CAR_CONFIGS[carVariant] ?? CAR_CONFIGS[DEFAULT_CAR_VARIANT]).speed),
-    accel: 65,
-    grip: 0.78,
-  });
   const arrivalLatchRef = useRef<string | null>(null);
 
   type QualityLevel = "low" | "medium" | "high";
@@ -480,6 +473,7 @@ export function CityCanvas({
   // Lightweight performance sampling for debug overlay (toggled with F3)
   const [perfSample, setPerfSample] = useState<PerfSample | null>(null);
   const [showPerf, setShowPerf] = useState(false);
+  const [selfId, setSelfId] = useState<string | null>(null);
   const [allPlayers, setAllPlayers] = useState<NetPlayerState[]>([]);
   const [localPlayerColor, setLocalPlayerColor] = useState<string>("#ec4899");
   const lastPoseSentAtRef = useRef(0);
@@ -494,11 +488,13 @@ export function CityCanvas({
     [allPlayers, city],
   );
   const otherPlayers = useMemo(
-    () => sessionPlayers.filter((p) => p.id !== myId),
-    [sessionPlayers, myId],
+    () => sessionPlayers.filter((p) => p.id !== selfId),
+    [sessionPlayers, selfId],
   );
 
   useEffect(() => {
+    setSelfId(myId);
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -628,17 +624,40 @@ export function CityCanvas({
     };
   }, [carVariant, city, playerName, myId]);
 
-  // Sync other players' poses locally and batch coordinate state flushes to reduce React layout overhead
+  // Sync NPC state locally and batch coordinate state flushes to reduce React layout overhead
   useEffect(() => {
     let tickCount = 0;
     const intervalId = window.setInterval(() => {
       tickCount++;
       const currentPoses = posesRef.current;
 
+      // Deterministic synced circular movement for "mutasim" NPC
+      const npcTime = Date.now() / 1000;
+      const npcAngle = npcTime * 0.0944;
+      const npcRadius = 280;
+      const npcX = Math.cos(npcAngle) * npcRadius;
+      const npcZ = Math.sin(npcAngle) * npcRadius;
+      const npcYaw = npcAngle + Math.PI / 2;
+
+      const npcPlayer: NetPlayerState = {
+        id: `npc-${city}`,
+        name: "mutasim",
+        city,
+        carVariant: "cm2",
+        color: "#f97316",
+        x: npcX,
+        z: npcZ,
+        yaw: npcYaw,
+        speed: 26,
+        isNpc: true,
+      };
+
       setAllPlayers((prev) => {
         let changed = false;
 
         const next = prev.map((p) => {
+          if (p.isNpc) return p;
+
           const pose = currentPoses[p.id];
           if (pose) {
             if (p.x !== pose.x || p.z !== pose.z || p.yaw !== pose.yaw || p.speed !== pose.speed) {
@@ -649,15 +668,24 @@ export function CityCanvas({
           return p;
         });
 
+        const npcIndex = next.findIndex((p) => p.isNpc);
+        if (npcIndex === -1) {
+          next.push(npcPlayer);
+          changed = true;
+        } else {
+          next[npcIndex] = npcPlayer;
+          changed = true;
+        }
+
         return changed ? next : prev;
       });
 
       // Update player position tracking/heartbeat in database every ~5 seconds
-      if (tickCount % 50 === 0 && channelRef.current && myId) {
+      if (tickCount % 50 === 0 && channelRef.current && selfId) {
         supabase
           .from("players")
           .upsert({
-            id: myId,
+            id: selfId,
             username: playerName,
             x: playerPoseRef.current.x,
             y: 1.5,
@@ -675,7 +703,7 @@ export function CityCanvas({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [city, playerName, myId]);
+  }, [city, playerName, selfId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -827,14 +855,14 @@ export function CityCanvas({
 
   return (
     <div
-      className={`relative w-full overflow-hidden border border-purple-500/40 bg-gradient-to-br from-slate-900 via-purple-950/30 to-pink-950/40 shadow-[0_0_60px_rgba(15,23,42,0.9)] ${fullHeight ? "min-h-0 flex-1 rounded-none" : "h-[560px] rounded-3xl"}`}
+      className={`relative w-full overflow-hidden border-2 border-[#238636] bg-[#0d1117] shadow-[4px_4px_0_#010409] ${fullHeight ? "min-h-0 flex-1 rounded-none" : "h-[560px] rounded-none"}`}
     >
       <CityAmbientAudio />
       <Canvas
         shadows
         camera={{ position: [800, 700, 1000], fov: 55, near: 8, far: qualityConfig.cameraFar }}
       >
-        <color attach="background" args={["#020c1b"]} />
+        <color attach="background" args={["#0d1117"]} />
         <fog attach="fog" args={[theme.fogColor, theme.fogNear, theme.fogFar]} />
 
         {/* Lights */}
@@ -923,12 +951,12 @@ export function CityCanvas({
                 if (now - lastPoseSentAtRef.current < 45) return;
                 lastPoseSentAtRef.current = now;
                 const channel = channelRef.current;
-                if (!channel) return;
+                if (!channel || !selfId) return;
                 channel.send({
                   type: "broadcast",
                   event: "pose",
                   payload: {
-                    id: myId,
+                    id: selfId,
                     x: pose.x,
                     z: pose.z,
                     yaw: pose.yaw,
@@ -938,7 +966,6 @@ export function CityCanvas({
               }}
               roadGraph={roadGraph}
               defaultSpawn={defaultSpawn}
-              playerTuning={playerTuning}
               npcMaxCars={qualityConfig.npcMaxCars}
               viewRadius={qualityConfig.npcViewRadius}
               moonPosition={moonPosition}
@@ -959,12 +986,12 @@ export function CityCanvas({
       </Canvas>
 
       {showPerf && perfSample && (
-        <div className="pointer-events-none absolute left-4 top-4 z-40 rounded-xl border border-emerald-400/40 bg-black/80 px-3 py-2 text-[10px] font-mono text-emerald-100 shadow-[0_0_24px_rgba(16,185,129,0.45)] backdrop-blur">
+        <div className="pointer-events-none absolute left-4 top-4 z-40 border-2 border-[#238636] bg-[#0d1117] px-3 py-2 text-[10px] font-mono text-[#7ee787] shadow-[3px_3px_0_#010409]">
           <div className="flex items-baseline gap-2">
-            <span className="text-[9px] uppercase tracking-[0.25em] text-emerald-300/80">
+            <span className="text-[9px] uppercase tracking-[0.25em] text-[#484f58]">
               Perf
             </span>
-            <span className="text-xs font-semibold text-emerald-100">
+            <span className="text-xs font-semibold text-[#7ee787]">
               {perfSample.fps} fps
             </span>
           </div>
@@ -972,7 +999,7 @@ export function CityCanvas({
             <span>draws {perfSample.drawCalls}</span>
             <span>tris {Math.round(perfSample.triangles / 1000)}k</span>
           </div>
-          <div className="mt-1 text-[9px] text-emerald-300/70">
+          <div className="mt-1 text-[9px] text-[#484f58]">
             Toggle with F3
           </div>
         </div>
@@ -980,7 +1007,7 @@ export function CityCanvas({
 
       {/* HUD */}
       <div className="pointer-events-none absolute inset-x-4 bottom-4 flex justify-center">
-        <div className="w-full max-w-md rounded-2xl border border-purple-500/40 bg-black/70 px-4 py-3 text-xs text-slate-100 shadow-[0_0_30px_rgba(168,85,247,0.3)] backdrop-blur-md">
+        <div className="w-full max-w-md border-2 border-[#238636] bg-[#0d1117] px-4 py-3 text-xs text-[#e6edf3] shadow-[4px_4px_0_#010409]">
           <div className="flex justify-between gap-3 items-center">
             <div className="min-w-0">
               {/*
@@ -993,10 +1020,10 @@ export function CityCanvas({
                 if (active) {
                   return (
                     <>
-                      <p className="font-semibold text-pink-200 truncate">
+                      <p className="font-semibold text-[#7ee787] truncate">
                         {active.username}
                       </p>
-                      <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-purple-300/80 truncate">
+                      <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-[#484f58] truncate">
                         Repos: {active.publicRepos.toLocaleString()} · Commits:{" "}
                         {active.lifetimeCommits.toLocaleString()}
                       </p>
@@ -1005,10 +1032,10 @@ export function CityCanvas({
                 }
                 return (
                   <>
-                    <p className="font-semibold text-pink-200">
+                    <p className="font-semibold text-[#7ee787]">
                       {`${city.toUpperCase()} · Git City`}
                     </p>
-                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-purple-300/80">
+                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-[#484f58]">
                       {`${buildings.length.toLocaleString()} developers rendered as towers`}
                     </p>
                   </>
@@ -1020,18 +1047,17 @@ export function CityCanvas({
               <button
                 type="button"
                 onClick={() => setStreetMode((prev) => !prev)}
-                className="rounded-xl border border-pink-500/40 bg-pink-500/10 px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider text-pink-300 transition hover:bg-pink-500/20"
+                className="gc-btn px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider"
               >
                 {streetMode ? "✈ Fly" : "🚗 Drive"}
               </button>
               <button
                 type="button"
                 onClick={() => setShowGeoGen((prev) => !prev)}
-                className={`rounded-xl border px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider transition ${
-                  showGeoGen
-                    ? "border-purple-400 bg-purple-500/20 text-purple-200"
-                    : "border-purple-500/40 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20"
-                }`}
+                className={`border-2 px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider shadow-[3px_3px_0_#010409] ${showGeoGen
+                    ? "gc-btn-active"
+                    : "gc-btn"
+                  }`}
               >
                 ▲ Terrain
               </button>
@@ -1041,26 +1067,26 @@ export function CityCanvas({
       </div>
 
       {showGeoGen && (
-        <div className="pointer-events-auto absolute right-4 bottom-24 z-40 w-56 rounded-2xl border border-purple-500/30 bg-black/85 p-4 text-slate-100 shadow-[0_0_40px_rgba(168,85,247,0.35)] backdrop-blur-md">
+        <div className="pointer-events-auto absolute right-4 bottom-24 z-40 w-56 border-2 border-[#238636] bg-[#0d1117] p-4 text-[#e6edf3] shadow-[4px_4px_0_#010409]">
           <div className="flex items-center justify-between mb-2">
-            <span className="font-mono text-xs font-bold tracking-[0.2em] text-pink-300">
+            <span className="font-mono text-xs font-bold tracking-[0.2em] text-[#7ee787]">
               ▲ GEOGEN ULTRA
             </span>
             <button
               onClick={() => setShowGeoGen(false)}
-              className="text-purple-400 hover:text-purple-200 font-mono text-[10px]"
+              className="text-[#484f58] hover:text-[#7ee787] font-mono text-[10px]"
             >
               ✕
             </button>
           </div>
-          <p className="text-[9px] leading-relaxed text-purple-300/60 font-mono mb-4">
+          <p className="text-[9px] leading-relaxed text-[#484f58] font-mono mb-4">
             Domain-warped ridges, erosion, 5-layer biome splatting
           </p>
 
           <div className="space-y-3 text-[11px] font-mono">
             {/* Biome Presets */}
             <div>
-              <span className="text-[9px] uppercase tracking-wider text-purple-400/80 block mb-1.5">
+              <span className="text-[9px] uppercase tracking-wider text-[#484f58] block mb-1.5">
                 Biome Preset
               </span>
               <div className="grid grid-cols-2 gap-1">
@@ -1070,11 +1096,10 @@ export function CityCanvas({
                     onClick={() =>
                       setGeoGenSettings((prev) => ({ ...prev, theme: t }))
                     }
-                    className={`rounded-lg py-1 px-1.5 text-center text-[9px] border transition ${
-                      geoGenSettings.theme === t
-                        ? "border-pink-500/50 bg-pink-500/20 text-white font-semibold"
-                        : "border-purple-500/20 bg-purple-500/5 text-purple-300/80 hover:bg-purple-500/10"
-                    }`}
+                    className={`py-1 px-1.5 text-center text-[9px] border-2 shadow-[2px_2px_0_#010409] ${geoGenSettings.theme === t
+                        ? "gc-btn-active font-semibold"
+                        : "border-[#30363d] bg-[#161b22] text-[#484f58] hover:bg-[#21262d]"
+                      }`}
                   >
                     {t}
                   </button>
@@ -1088,7 +1113,7 @@ export function CityCanvas({
       {/* Navigation + minimap (street mode) */}
       {streetMode && (
         <div className="absolute bottom-4 left-4 z-30 flex flex-col-reverse items-start gap-3">
-          <div className="rounded-3xl border border-purple-500/35 bg-black/40 p-2 shadow-[0_0_35px_rgba(168,85,247,0.2)] backdrop-blur-md">
+          <div className="border-2 border-[#30363d] bg-[#161b22] p-2 shadow-[3px_3px_0_#010409]">
             <Minimap
               graph={roadGraph}
               playerXZ={uiPose ? { x: uiPose.x, z: uiPose.z } : null}
@@ -1104,8 +1129,8 @@ export function CityCanvas({
             />
           </div>
 
-          <div className="pointer-events-auto w-[280px] rounded-2xl border border-purple-500/35 bg-black/70 px-3 py-3 backdrop-blur-md shadow-[0_0_30px_rgba(168,85,247,0.25)]">
-            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-pink-300/90">
+          <div className="pointer-events-auto w-[280px] border-2 border-[#238636] bg-[#0d1117] px-3 py-3 shadow-[4px_4px_0_#010409]">
+            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[#7ee787]">
               Navigation
             </p>
             <div className="flex items-center gap-2">
@@ -1120,11 +1145,11 @@ export function CityCanvas({
                   if (target) computeRouteTo(target);
                 }}
                 placeholder="Type @username and press Enter"
-                className="h-9 flex-1 rounded-xl border border-purple-500/30 bg-black/40 px-3 text-xs text-slate-100 placeholder:text-purple-300/50 focus:outline-none focus:ring-2 focus:ring-pink-500/40"
+                className="gc-input h-9 flex-1 px-3 text-xs placeholder:text-[#484f58]"
               />
               <button
                 type="button"
-                className="h-9 rounded-xl border border-pink-500/40 bg-pink-500/15 px-3 text-[11px] font-medium text-slate-100 hover:bg-pink-500/25"
+                className="gc-btn h-9 px-3 text-[11px] font-medium"
                 onClick={() => {
                   const needle = navQuery.trim().replace(/^@/, "").toLowerCase();
                   if (!needle) return;
@@ -1139,7 +1164,7 @@ export function CityCanvas({
             <div className="mt-2 flex items-center justify-between gap-2">
               <button
                 type="button"
-                className="rounded-xl border border-purple-500/30 bg-black/30 px-2 py-1 text-[10px] font-mono uppercase tracking-[0.22em] text-pink-200/90 hover:bg-pink-500/15"
+                className="gc-btn px-2 py-1 text-[10px] font-mono uppercase tracking-[0.22em]"
                 onClick={() => {
                   if (!buildings.length) return;
                   const idx = Math.floor((Math.abs(Math.sin(Date.now())) % 1) * buildings.length);
@@ -1152,17 +1177,10 @@ export function CityCanvas({
               >
                 Random job
               </button>
-              <button
-                type="button"
-                className="rounded-xl border border-purple-500/30 bg-black/30 px-2 py-1 text-[10px] font-mono uppercase tracking-[0.22em] text-pink-200/90 hover:bg-pink-500/15"
-                onClick={() => setShowTuning((v) => !v)}
-              >
-                {showTuning ? "Hide tuning" : "Tuning"}
-              </button>
               <select
                 value={quality}
                 onChange={(e) => setQuality(e.target.value as typeof quality)}
-                className="h-8 rounded-xl border border-purple-500/40 bg-black/40 px-2 text-[10px] font-mono uppercase tracking-[0.18em] text-purple-200/90"
+                className="gc-input h-8 px-2 text-[10px] font-mono uppercase tracking-[0.18em]"
               >
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
@@ -1171,37 +1189,37 @@ export function CityCanvas({
             </div>
 
             {uiPose && (
-              <div className="mt-2 space-y-1 text-[11px] text-purple-200/80">
+              <div className="mt-2 space-y-1 text-[11px] text-[#484f58]">
                 <div>
-                  Speed: <span className="font-semibold text-sky-100">{Math.round(Math.abs(uiPose.speed))}</span>
+                  Speed: <span className="font-semibold text-[#7ee787]">{Math.round(Math.abs(uiPose.speed))}</span>
                 </div>
                 <div>
                   Position:{" "}
-                  <span className="font-semibold text-sky-100">
+                  <span className="font-semibold text-[#7ee787]">
                     {Math.round(uiPose.x)}, {Math.round(uiPose.z)}
                   </span>
                 </div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-purple-300/70">
+                <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#484f58]">
                   W forward · S reverse
                 </div>
               </div>
             )}
 
             {navTarget && (
-              <div className="mt-2 text-[11px] text-purple-200/90">
-                Destination: <span className="font-semibold text-pink-100">@{navTarget.username}</span>
+              <div className="mt-2 text-[11px] text-[#484f58]">
+                Destination: <span className="font-semibold text-[#7ee787]">@{navTarget.username}</span>
                 {navRoute.length > 0 && (
-                  <span className="ml-2 text-sky-300/80">
+                  <span className="ml-2 text-[#238636]">
                     ({navRoute.length - 1} hops)
                   </span>
                 )}
                 {navHint && (
-                  <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-pink-300/80">
+                  <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-[#7ee787]">
                     {navHint.turn} · {Math.round(navHint.dist)}m
                   </div>
                 )}
                 {navMetrics && (
-                  <div className="mt-1 space-y-1 text-[10px] font-mono uppercase tracking-[0.18em] text-sky-200/75">
+                  <div className="mt-1 space-y-1 text-[10px] font-mono uppercase tracking-[0.18em] text-[#484f58]">
                     <div>Distance {Math.round(navMetrics.remaining)}m</div>
                     <div>Route drift {Math.round(navMetrics.offRouteDistance)}m</div>
                   </div>
@@ -1209,56 +1227,13 @@ export function CityCanvas({
               </div>
             )}
 
-            {showTuning && (
-              <div className="mt-3 space-y-2 rounded-xl border border-purple-500/25 bg-black/30 p-2">
-                <div className="flex items-center justify-between gap-2 text-[10px] text-purple-200/80">
-                  <span className="font-mono uppercase tracking-[0.22em]">Max speed</span>
-                  <span className="font-mono text-sky-100">{Math.round(playerTuning.maxSpeed)}</span>
-                </div>
-                <input
-                  type="range"
-                  min={40}
-                  max={180}
-                  value={playerTuning.maxSpeed}
-                  onChange={(e) => setPlayerTuning((p) => ({ ...p, maxSpeed: Number(e.target.value) }))}
-                  className="w-full accent-pink-500"
-                />
-
-                <div className="flex items-center justify-between gap-2 text-[10px] text-purple-200/80">
-                  <span className="font-mono uppercase tracking-[0.22em]">Acceleration</span>
-                  <span className="font-mono text-sky-100">{Math.round(playerTuning.accel)}</span>
-                </div>
-                <input
-                  type="range"
-                  min={20}
-                  max={120}
-                  value={playerTuning.accel}
-                  onChange={(e) => setPlayerTuning((p) => ({ ...p, accel: Number(e.target.value) }))}
-                  className="w-full accent-pink-500"
-                />
-
-                <div className="flex items-center justify-between gap-2 text-[10px] text-purple-200/80">
-                  <span className="font-mono uppercase tracking-[0.22em]">Grip</span>
-                  <span className="font-mono text-sky-100">{playerTuning.grip.toFixed(2)}</span>
-                </div>
-                <input
-                  type="range"
-                  min={0.35}
-                  max={0.95}
-                  step={0.01}
-                  value={playerTuning.grip}
-                  onChange={(e) => setPlayerTuning((p) => ({ ...p, grip: Number(e.target.value) }))}
-                  className="w-full accent-pink-500"
-                />
-              </div>
-            )}
           </div>
         </div>
       )}
 
       {toast && (
         <div className="pointer-events-none absolute inset-x-4 top-4 z-40 flex justify-center">
-          <div className="rounded-full border border-pink-500/40 bg-black/70 px-4 py-2 text-[11px] font-mono uppercase tracking-[0.25em] text-pink-100 shadow-[0_0_25px_rgba(236,72,153,0.4)] backdrop-blur-md">
+          <div className="border-2 border-[#238636] bg-[#0d1117] px-4 py-2 text-[11px] font-mono uppercase tracking-[0.25em] text-[#7ee787] shadow-[4px_4px_0_#010409]">
             {toast}
           </div>
         </div>

@@ -30,7 +30,7 @@ export default function Home() {
   const [playerName, setPlayerName] = useState("");
   const [bootMessage, setBootMessage] = useState("Loading city data…");
   const [bootProgress, setBootProgress] = useState(0);
-  const [fade, setFade] = useState<"none" | "out" | "in">("none");
+  const [blockWipe, setBlockWipe] = useState<"none" | "cover" | "uncover">("none");
   const [musicStarted, setMusicStarted] = useState(false);
   const showroomMusicRef = useRef<HTMLAudioElement | null>(null);
   const assetsLoadedRef = useRef(false);
@@ -148,7 +148,7 @@ export default function Home() {
               }
               setCarVariant(car);
               setSelectedBiome(biome);
-              setFade("out");
+              setBlockWipe("cover");
               setPhase("transition");
               // Fullscreen request during user gesture
               try {
@@ -158,15 +158,15 @@ export default function Home() {
               }
               window.setTimeout(() => {
                 setPhase("play");
-                setFade("in");
-                window.setTimeout(() => setFade("none"), 650);
-              }, 650);
+                setBlockWipe("uncover");
+                window.setTimeout(() => setBlockWipe("none"), 700);
+              }, 700);
             }}
           />
 
           <div className="absolute right-6 top-6 z-50">
-            <div className="rounded-2xl border border-purple-500/30 bg-black/40 px-4 py-3 backdrop-blur-md">
-              <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-purple-300/80">
+            <div className="gc-panel px-4 py-3">
+              <p className="gc-label">
                 Map
               </p>
               <div className="mt-2">
@@ -175,7 +175,7 @@ export default function Home() {
                   onChange={(e) => setPlayerName(e.target.value)}
                   maxLength={24}
                   placeholder="Your name"
-                  className="mb-2 h-9 w-full rounded-xl border border-purple-500/40 bg-black/40 px-3 text-xs text-slate-100 placeholder:text-purple-300/50 focus:outline-none focus:ring-2 focus:ring-pink-500/40"
+                  className="gc-input mb-2 h-9 w-full px-3 text-xs placeholder:text-[#484f58]"
                 />
                 <CitySelector
                   selected={selectedCity}
@@ -212,16 +212,21 @@ export default function Home() {
         </div>
       )}
 
-      {/* Cinematic fade overlay */}
-      {fade !== "none" && (
-        <div
-          className="pointer-events-none fixed inset-0 z-50"
-          style={{
-            background: "radial-gradient(circle at 50% 45%, rgba(34,197,94,0.12), rgba(13,17,23,0.6) 45%, rgba(0,0,0,0.95) 70%, rgba(0,0,0,1) 100%)",
-            opacity: fade === "out" ? 1 : 0,
-            transition: "opacity 650ms cubic-bezier(0.2, 0.9, 0.2, 1)",
-          }}
-        />
+      {/* Blocky grid transition (no fade) */}
+      {blockWipe !== "none" && (
+        <div className="pointer-events-none fixed inset-0 z-50 grid grid-cols-8 grid-rows-6">
+          {Array.from({ length: 48 }).map((_, i) => (
+            <div
+              key={i}
+              className={`border border-[#238636]/40 ${
+                blockWipe === "cover" ? "animate-block-cover" : "animate-block-uncover"
+              }`}
+              style={{
+                animationDelay: `${(i % 8) * 35 + Math.floor(i / 8) * 50}ms`,
+              }}
+            />
+          ))}
+        </div>
       )}
     </div>
   );
