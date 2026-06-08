@@ -311,7 +311,7 @@ export function CarShowroom({
   const cfg = CAR_CONFIGS[variant];
   const stats = React.useMemo(() => getCarStats(variant), [variant]);
 
-  const [selectedBiome, setSelectedBiome] = React.useState<"alpine" | "canyon" | "volcanic" | "tundra" | "cyberpunk">("cyberpunk");
+  const [selectedBiome, setSelectedBiome] = React.useState<"alpine" | "canyon" | "volcanic" | "tundra" | "cyberpunk">("alpine");
 
   const [garageScale, setGarageScale] = React.useState(GARAGE_PRESET.scale);
   const [garagePos, setGaragePos] = React.useState<[number, number, number]>(GARAGE_PRESET.position);

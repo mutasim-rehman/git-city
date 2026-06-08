@@ -26,7 +26,7 @@ export default function Home() {
   const [layoutResult, setLayoutResult] = useState<CityLayoutResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [carVariant, setCarVariant] = useState<CarVariant>(DEFAULT_CAR_VARIANT);
-  const [selectedBiome, setSelectedBiome] = useState<"alpine" | "canyon" | "volcanic" | "tundra" | "cyberpunk">("cyberpunk");
+  const [selectedBiome, setSelectedBiome] = useState<"alpine" | "canyon" | "volcanic" | "tundra" | "cyberpunk">("alpine");
   const [playerName, setPlayerName] = useState("");
   const [bootMessage, setBootMessage] = useState("Loading city data…");
   const [bootProgress, setBootProgress] = useState(0);

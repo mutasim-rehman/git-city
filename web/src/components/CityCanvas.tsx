@@ -376,7 +376,7 @@ export function CityCanvas({
   carVariant = DEFAULT_CAR_VARIANT,
   startInStreetMode = false,
   fullHeight = false,
-  initialBiome = "cyberpunk",
+  initialBiome = "alpine",
 }: CityCanvasProps) {
   const [geoGenSettings, setGeoGenSettings] = useState({
     theme: initialBiome,
