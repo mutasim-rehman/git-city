@@ -380,8 +380,11 @@ function createBuildingSignTexture(username: string) {
   if (!ctx) return null;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "rgba(10,15,10,0.96)";
-  ctx.strokeStyle = "rgba(34,197,94,0.92)";
+  const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+  gradient.addColorStop(0, "rgba(10,10,18,0.96)");
+  gradient.addColorStop(1, "rgba(36,10,48,0.96)");
+  ctx.fillStyle = gradient;
+  ctx.strokeStyle = "rgba(236,72,153,0.92)";
   ctx.lineWidth = 14;
 
   const radius = 34;
@@ -399,7 +402,7 @@ function createBuildingSignTexture(username: string) {
   ctx.fill();
   ctx.stroke();
 
-  ctx.fillStyle = "rgba(126,231,135,0.98)";
+  ctx.fillStyle = "rgba(255,244,181,0.98)";
   ctx.font = "700 108px Arial";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -482,8 +485,8 @@ export function BuildingSignBoards({
                 <mesh position={[0, 0, -0.24]} renderOrder={20}>
                   <planeGeometry args={[sign.signWidth + 2, sign.signHeight + 1.5]} />
                   <meshStandardMaterial
-                    color="#0a0f0a"
-                    emissive="#14532d"
+                    color="#120814"
+                    emissive="#3b0764"
                     emissiveIntensity={0.35}
                     roughness={0.45}
                     metalness={0.22}

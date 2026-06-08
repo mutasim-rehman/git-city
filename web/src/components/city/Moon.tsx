@@ -2,7 +2,6 @@
 
 import { useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { useGLTF } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 
 export const MOON_LIGHT_LAYER = 10;
@@ -64,8 +63,13 @@ export function MoonBeamFromCity({
 }
 
 export function Moon({ position }: { position: [number, number, number] }) {
-  const gltf = useGLTF("/models/moon_nasa.glb");
-  const scene = useMemo(() => gltf.scene.clone(true), [gltf.scene]);
+  const meshRef = useRef<THREE.Mesh>(null);
+
+  useLayoutEffect(() => {
+    if (meshRef.current) {
+      meshRef.current.layers.set(MOON_LIGHT_LAYER);
+    }
+  }, []);
 
   const moonRotRad = useMemo(() => {
     const D = Math.PI / 180;
@@ -76,33 +80,24 @@ export function Moon({ position }: { position: [number, number, number] }) {
     ] as [number, number, number];
   }, []);
 
-  useMemo(() => {
+  const emissiveColor = useMemo(() => {
+    const base = new THREE.Color("#f0e8ff");
     const pink = new THREE.Color("#ec4899");
-    scene.traverse((obj) => {
-      const o = obj as THREE.Object3D;
-      o.layers.set(MOON_LIGHT_LAYER);
-      const mesh = obj as THREE.Mesh;
-      if (!mesh.isMesh) return;
-      mesh.castShadow = false;
-      mesh.receiveShadow = false;
-      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const mat of mats) {
-        if (!mat) continue;
-        const mAny = mat as THREE.Material & { fog?: boolean };
-        mAny.fog = false;
-        if ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
-          const m = mat as THREE.MeshStandardMaterial;
-          m.metalness = 0;
-          m.roughness = 0.92;
-          m.emissive = new THREE.Color(0xf0e8ff).lerp(pink, 0.12);
-          m.emissiveIntensity = 0.05;
-          m.needsUpdate = true;
-        }
-      }
-    });
-  }, [scene]);
+    return base.lerp(pink, 0.12);
+  }, []);
 
   return (
-    <primitive object={scene} position={position} rotation={moonRotRad} scale={500.0} />
+    <mesh ref={meshRef} position={position} rotation={moonRotRad} scale={500.0}>
+      <sphereGeometry args={[1, 32, 32]} />
+      <meshStandardMaterial
+        color="#f0e8ff"
+        emissive={emissiveColor}
+        emissiveIntensity={0.05}
+        metalness={0}
+        roughness={0.92}
+        fog={false}
+      />
+    </mesh>
   );
 }
+

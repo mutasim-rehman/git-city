@@ -153,7 +153,7 @@ export function CarModelTuner({
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-emerald-300/90">Model tuner</p>
-          <p className="mt-0.5 text-[10px] text-[#484f58]">
+          <p className="mt-0.5 text-[10px] text-purple-200/70">
             {cfg.label} · <span className="font-mono text-emerald-200/80">{variant}</span>
           </p>
           <p className="mt-0.5 text-[9px] text-white/30">Double-click a value to type</p>
@@ -209,7 +209,7 @@ export function CarModelTuner({
 
       {SLIDERS.map(({ key, label, min, max, step, format }) => (
         <div key={key}>
-          <div className="flex items-center justify-between gap-2 text-[10px] text-[#484f58]">
+          <div className="flex items-center justify-between gap-2 text-[10px] text-purple-200/80">
             <span className="font-mono uppercase tracking-[0.18em]">{label}</span>
             <EditableValue
               value={tuning[key]}

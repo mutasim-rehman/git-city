@@ -86,41 +86,42 @@ function tryPlayAudio(audio: HTMLAudioElement) {
 }
 
 const EMERALD_THEME: CityTheme = {
+  // Sunset / dusk palette (still keeping your neon/pink vibe)
   sky: [
-    [0, "#000000"],
-    [0.55, "#000000"],
-    [0.55, "#050805"],
-    [0.78, "#050805"],
-    [0.78, "#0a140a"],
-    [0.92, "#0a140a"],
-    [0.92, "#0d1a0d"],
-    [1, "#14532d"],
+    [0, "#05010f"],
+    [0.12, "#120523"],
+    [0.28, "#2a0a3d"],
+    [0.45, "#5b146a"],
+    [0.62, "#a21caf"],
+    [0.78, "#ff7a18"],
+    [0.9, "#fbbf24"],
+    [1, "#ffe4b5"],
   ],
-  fogColor: "#0a0f0a",
+  fogColor: "#2a0f3a",
   fogNear: 520,
   fogFar: 4200,
-  ambientColor: "#1a3d22",
-  ambientIntensity: 0.45,
-  sunColor: "#7ee787",
-  sunIntensity: 1.35,
+  ambientColor: "#ffb4c8",
+  ambientIntensity: 0.5,
+  sunColor: "#ffd08a",
+  sunIntensity: 1.45,
   sunPos: [1200, 1600, -900],
-  fillColor: "#14532d",
-  fillIntensity: 0.32,
+  fillColor: "#7dd3fc",
+  fillIntensity: 0.28,
   fillPos: [-300, 120, 280],
-  hemiSky: "#7ee787",
-  hemiGround: "#000000",
-  hemiIntensity: 0.55,
-  groundColor: "#0a0f0a",
-  grid1: "#050805",
-  grid2: "#22c55e",
-  roadMarkingColor: "#30363d",
-  sidewalkColor: "#484f58",
+  hemiSky: "#ff77b7",
+  hemiGround: "#2a0f2f",
+  hemiIntensity: 0.6,
+  groundColor: "#0b1b2a",
+  grid1: "#120c1a",
+  grid2: "#facc15",
+  roadMarkingColor: "#e5e7eb",
+  sidewalkColor: "#6b6f7a",
   building: {
-    windowLit: ["#22c55e", "#7ee787", "#4ade80", "#238636", "#bbf7d0"],
-    windowOff: "#0d1117",
-    face: "#30363d",
-    roof: "#21262d",
-    accent: "#22c55e",
+    windowLit: ["#ff7a18", "#ec4899", "#a855f7", "#7dd3fc", "#ffe4b5"],
+    windowOff: "#111827",
+    face: "#4b5563",
+    roof: "#374151",
+    accent: "#ec4899",
   },
 };
 // ─── Performance sampler ──────────────────────────────────────────────────────
@@ -346,23 +347,23 @@ const BIOME_ENV_THEMES = {
   },
   cyberpunk: {
     sky: [
-      [0, "#000000"],
-      [0.55, "#000000"],
-      [0.55, "#050805"],
-      [0.78, "#050805"],
-      [0.78, "#0a140a"],
-      [0.92, "#0a140a"],
-      [0.92, "#0d1a0d"],
-      [1, "#14532d"],
+      [0, "#05010f"],
+      [0.12, "#120523"],
+      [0.28, "#2a0a3d"],
+      [0.45, "#5b146a"],
+      [0.62, "#a21caf"],
+      [0.78, "#ff7a18"],
+      [0.9, "#fbbf24"],
+      [1, "#ffe4b5"],
     ] as [number, string][],
-    fogColor: "#0a0f0a",
-    sunColor: "#7ee787",
-    sunIntensity: 1.35,
-    ambientColor: "#1a3d22",
-    ambientIntensity: 0.45,
-    hemiSky: "#7ee787",
-    hemiGround: "#000000",
-    hemiIntensity: 0.55,
+    fogColor: "#2a0f3a",
+    sunColor: "#ffd08a",
+    sunIntensity: 1.45,
+    ambientColor: "#ffb4c8",
+    ambientIntensity: 0.5,
+    hemiSky: "#ff77b7",
+    hemiGround: "#2a0f2f",
+    hemiIntensity: 0.6,
   },
 };
 
@@ -855,14 +856,14 @@ export function CityCanvas({
 
   return (
     <div
-      className={`relative w-full overflow-hidden border-2 border-[#238636] bg-[#0d1117] shadow-[4px_4px_0_#010409] ${fullHeight ? "min-h-0 flex-1 rounded-none" : "h-[560px] rounded-none"}`}
+      className={`relative w-full overflow-hidden border border-purple-500/40 bg-gradient-to-br from-slate-900 via-purple-950/30 to-pink-950/40 shadow-[0_0_60px_rgba(15,23,42,0.9)] ${fullHeight ? "min-h-0 flex-1 rounded-none" : "h-[560px] rounded-3xl"}`}
     >
       <CityAmbientAudio />
       <Canvas
         shadows
         camera={{ position: [800, 700, 1000], fov: 55, near: 8, far: qualityConfig.cameraFar }}
       >
-        <color attach="background" args={["#0d1117"]} />
+        <color attach="background" args={["#020c1b"]} />
         <fog attach="fog" args={[theme.fogColor, theme.fogNear, theme.fogFar]} />
 
         {/* Lights */}
@@ -986,12 +987,12 @@ export function CityCanvas({
       </Canvas>
 
       {showPerf && perfSample && (
-        <div className="pointer-events-none absolute left-4 top-4 z-40 border-2 border-[#238636] bg-[#0d1117] px-3 py-2 text-[10px] font-mono text-[#7ee787] shadow-[3px_3px_0_#010409]">
+        <div className="pointer-events-none absolute left-4 top-4 z-40 rounded-xl border border-emerald-400/40 bg-black/80 px-3 py-2 text-[10px] font-mono text-emerald-100 shadow-[0_0_24px_rgba(16,185,129,0.45)] backdrop-blur">
           <div className="flex items-baseline gap-2">
-            <span className="text-[9px] uppercase tracking-[0.25em] text-[#484f58]">
+            <span className="text-[9px] uppercase tracking-[0.25em] text-emerald-300/80">
               Perf
             </span>
-            <span className="text-xs font-semibold text-[#7ee787]">
+            <span className="text-xs font-semibold text-emerald-100">
               {perfSample.fps} fps
             </span>
           </div>
@@ -999,7 +1000,7 @@ export function CityCanvas({
             <span>draws {perfSample.drawCalls}</span>
             <span>tris {Math.round(perfSample.triangles / 1000)}k</span>
           </div>
-          <div className="mt-1 text-[9px] text-[#484f58]">
+          <div className="mt-1 text-[9px] text-emerald-300/70">
             Toggle with F3
           </div>
         </div>
@@ -1007,7 +1008,7 @@ export function CityCanvas({
 
       {/* HUD */}
       <div className="pointer-events-none absolute inset-x-4 bottom-4 flex justify-center">
-        <div className="w-full max-w-md border-2 border-[#238636] bg-[#0d1117] px-4 py-3 text-xs text-[#e6edf3] shadow-[4px_4px_0_#010409]">
+        <div className="w-full max-w-md rounded-2xl border border-purple-500/40 bg-black/70 px-4 py-3 text-xs text-slate-100 shadow-[0_0_30px_rgba(168,85,247,0.3)] backdrop-blur-md">
           <div className="flex justify-between gap-3 items-center">
             <div className="min-w-0">
               {/*
@@ -1020,10 +1021,10 @@ export function CityCanvas({
                 if (active) {
                   return (
                     <>
-                      <p className="font-semibold text-[#7ee787] truncate">
+                      <p className="font-semibold text-pink-200 truncate">
                         {active.username}
                       </p>
-                      <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-[#484f58] truncate">
+                      <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-purple-300/80 truncate">
                         Repos: {active.publicRepos.toLocaleString()} · Commits:{" "}
                         {active.lifetimeCommits.toLocaleString()}
                       </p>
@@ -1032,10 +1033,10 @@ export function CityCanvas({
                 }
                 return (
                   <>
-                    <p className="font-semibold text-[#7ee787]">
+                    <p className="font-semibold text-pink-200">
                       {`${city.toUpperCase()} · Git City`}
                     </p>
-                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-[#484f58]">
+                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-purple-300/80">
                       {`${buildings.length.toLocaleString()} developers rendered as towers`}
                     </p>
                   </>
@@ -1047,16 +1048,16 @@ export function CityCanvas({
               <button
                 type="button"
                 onClick={() => setStreetMode((prev) => !prev)}
-                className="gc-btn px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider"
+                className="rounded-xl border border-pink-500/40 bg-pink-500/10 px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider text-pink-300 transition hover:bg-pink-500/20"
               >
                 {streetMode ? "✈ Fly" : "🚗 Drive"}
               </button>
               <button
                 type="button"
                 onClick={() => setShowGeoGen((prev) => !prev)}
-                className={`border-2 px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider shadow-[3px_3px_0_#010409] ${showGeoGen
-                    ? "gc-btn-active"
-                    : "gc-btn"
+                className={`rounded-xl border px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider transition ${showGeoGen
+                    ? "border-purple-400 bg-purple-500/20 text-purple-200"
+                    : "border-purple-500/40 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20"
                   }`}
               >
                 ▲ Terrain
@@ -1067,26 +1068,26 @@ export function CityCanvas({
       </div>
 
       {showGeoGen && (
-        <div className="pointer-events-auto absolute right-4 bottom-24 z-40 w-56 border-2 border-[#238636] bg-[#0d1117] p-4 text-[#e6edf3] shadow-[4px_4px_0_#010409]">
+        <div className="pointer-events-auto absolute right-4 bottom-24 z-40 w-56 rounded-2xl border border-purple-500/30 bg-black/85 p-4 text-slate-100 shadow-[0_0_40px_rgba(168,85,247,0.35)] backdrop-blur-md">
           <div className="flex items-center justify-between mb-2">
-            <span className="font-mono text-xs font-bold tracking-[0.2em] text-[#7ee787]">
+            <span className="font-mono text-xs font-bold tracking-[0.2em] text-pink-300">
               ▲ GEOGEN ULTRA
             </span>
             <button
               onClick={() => setShowGeoGen(false)}
-              className="text-[#484f58] hover:text-[#7ee787] font-mono text-[10px]"
+              className="text-purple-400 hover:text-purple-200 font-mono text-[10px]"
             >
               ✕
             </button>
           </div>
-          <p className="text-[9px] leading-relaxed text-[#484f58] font-mono mb-4">
+          <p className="text-[9px] leading-relaxed text-purple-300/60 font-mono mb-4">
             Domain-warped ridges, erosion, 5-layer biome splatting
           </p>
 
           <div className="space-y-3 text-[11px] font-mono">
             {/* Biome Presets */}
             <div>
-              <span className="text-[9px] uppercase tracking-wider text-[#484f58] block mb-1.5">
+              <span className="text-[9px] uppercase tracking-wider text-purple-400/80 block mb-1.5">
                 Biome Preset
               </span>
               <div className="grid grid-cols-2 gap-1">
@@ -1096,9 +1097,9 @@ export function CityCanvas({
                     onClick={() =>
                       setGeoGenSettings((prev) => ({ ...prev, theme: t }))
                     }
-                    className={`py-1 px-1.5 text-center text-[9px] border-2 shadow-[2px_2px_0_#010409] ${geoGenSettings.theme === t
-                        ? "gc-btn-active font-semibold"
-                        : "border-[#30363d] bg-[#161b22] text-[#484f58] hover:bg-[#21262d]"
+                    className={`rounded-lg py-1 px-1.5 text-center text-[9px] border transition ${geoGenSettings.theme === t
+                        ? "border-pink-500/50 bg-pink-500/20 text-white font-semibold"
+                        : "border-purple-500/20 bg-purple-500/5 text-purple-300/80 hover:bg-purple-500/10"
                       }`}
                   >
                     {t}
@@ -1113,7 +1114,7 @@ export function CityCanvas({
       {/* Navigation + minimap (street mode) */}
       {streetMode && (
         <div className="absolute bottom-4 left-4 z-30 flex flex-col-reverse items-start gap-3">
-          <div className="border-2 border-[#30363d] bg-[#161b22] p-2 shadow-[3px_3px_0_#010409]">
+          <div className="rounded-3xl border border-purple-500/35 bg-black/40 p-2 shadow-[0_0_35px_rgba(168,85,247,0.2)] backdrop-blur-md">
             <Minimap
               graph={roadGraph}
               playerXZ={uiPose ? { x: uiPose.x, z: uiPose.z } : null}
@@ -1129,8 +1130,8 @@ export function CityCanvas({
             />
           </div>
 
-          <div className="pointer-events-auto w-[280px] border-2 border-[#238636] bg-[#0d1117] px-3 py-3 shadow-[4px_4px_0_#010409]">
-            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-[#7ee787]">
+          <div className="pointer-events-auto w-[280px] rounded-2xl border border-purple-500/35 bg-black/70 px-3 py-3 backdrop-blur-md shadow-[0_0_30px_rgba(168,85,247,0.25)]">
+            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-pink-300/90">
               Navigation
             </p>
             <div className="flex items-center gap-2">
@@ -1145,11 +1146,11 @@ export function CityCanvas({
                   if (target) computeRouteTo(target);
                 }}
                 placeholder="Type @username and press Enter"
-                className="gc-input h-9 flex-1 px-3 text-xs placeholder:text-[#484f58]"
+                className="h-9 flex-1 rounded-xl border border-purple-500/30 bg-black/40 px-3 text-xs text-slate-100 placeholder:text-purple-300/50 focus:outline-none focus:ring-2 focus:ring-pink-500/40"
               />
               <button
                 type="button"
-                className="gc-btn h-9 px-3 text-[11px] font-medium"
+                className="h-9 rounded-xl border border-pink-500/40 bg-pink-500/15 px-3 text-[11px] font-medium text-slate-100 hover:bg-pink-500/25"
                 onClick={() => {
                   const needle = navQuery.trim().replace(/^@/, "").toLowerCase();
                   if (!needle) return;
@@ -1164,7 +1165,7 @@ export function CityCanvas({
             <div className="mt-2 flex items-center justify-between gap-2">
               <button
                 type="button"
-                className="gc-btn px-2 py-1 text-[10px] font-mono uppercase tracking-[0.22em]"
+                className="rounded-xl border border-purple-500/30 bg-black/30 px-2 py-1 text-[10px] font-mono uppercase tracking-[0.22em] text-pink-200/90 hover:bg-pink-500/15"
                 onClick={() => {
                   if (!buildings.length) return;
                   const idx = Math.floor((Math.abs(Math.sin(Date.now())) % 1) * buildings.length);
@@ -1180,7 +1181,7 @@ export function CityCanvas({
               <select
                 value={quality}
                 onChange={(e) => setQuality(e.target.value as typeof quality)}
-                className="gc-input h-8 px-2 text-[10px] font-mono uppercase tracking-[0.18em]"
+                className="h-8 rounded-xl border border-purple-500/40 bg-black/40 px-2 text-[10px] font-mono uppercase tracking-[0.18em] text-purple-200/90"
               >
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
@@ -1189,37 +1190,37 @@ export function CityCanvas({
             </div>
 
             {uiPose && (
-              <div className="mt-2 space-y-1 text-[11px] text-[#484f58]">
+              <div className="mt-2 space-y-1 text-[11px] text-purple-200/80">
                 <div>
-                  Speed: <span className="font-semibold text-[#7ee787]">{Math.round(Math.abs(uiPose.speed))}</span>
+                  Speed: <span className="font-semibold text-sky-100">{Math.round(Math.abs(uiPose.speed))}</span>
                 </div>
                 <div>
                   Position:{" "}
-                  <span className="font-semibold text-[#7ee787]">
+                  <span className="font-semibold text-sky-100">
                     {Math.round(uiPose.x)}, {Math.round(uiPose.z)}
                   </span>
                 </div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#484f58]">
+                <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-purple-300/70">
                   W forward · S reverse
                 </div>
               </div>
             )}
 
             {navTarget && (
-              <div className="mt-2 text-[11px] text-[#484f58]">
-                Destination: <span className="font-semibold text-[#7ee787]">@{navTarget.username}</span>
+              <div className="mt-2 text-[11px] text-purple-200/90">
+                Destination: <span className="font-semibold text-pink-100">@{navTarget.username}</span>
                 {navRoute.length > 0 && (
-                  <span className="ml-2 text-[#238636]">
+                  <span className="ml-2 text-sky-300/80">
                     ({navRoute.length - 1} hops)
                   </span>
                 )}
                 {navHint && (
-                  <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-[#7ee787]">
+                  <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-pink-300/80">
                     {navHint.turn} · {Math.round(navHint.dist)}m
                   </div>
                 )}
                 {navMetrics && (
-                  <div className="mt-1 space-y-1 text-[10px] font-mono uppercase tracking-[0.18em] text-[#484f58]">
+                  <div className="mt-1 space-y-1 text-[10px] font-mono uppercase tracking-[0.18em] text-sky-200/75">
                     <div>Distance {Math.round(navMetrics.remaining)}m</div>
                     <div>Route drift {Math.round(navMetrics.offRouteDistance)}m</div>
                   </div>
@@ -1233,7 +1234,7 @@ export function CityCanvas({
 
       {toast && (
         <div className="pointer-events-none absolute inset-x-4 top-4 z-40 flex justify-center">
-          <div className="border-2 border-[#238636] bg-[#0d1117] px-4 py-2 text-[11px] font-mono uppercase tracking-[0.25em] text-[#7ee787] shadow-[4px_4px_0_#010409]">
+          <div className="rounded-full border border-pink-500/40 bg-black/70 px-4 py-2 text-[11px] font-mono uppercase tracking-[0.25em] text-pink-100 shadow-[0_0_25px_rgba(236,72,153,0.4)] backdrop-blur-md">
             {toast}
           </div>
         </div>

@@ -279,28 +279,18 @@ function ShowroomScene({
 }
 
 function StatBar({ label, value }: { label: string; value: number }) {
-  const segments = 10;
-  const filled = Math.round((clamp(value, 0, 100) / 100) * segments);
   return (
     <div className="flex items-center gap-3">
-      <div className="w-16 text-[10px] font-mono uppercase tracking-[0.28em] text-[#484f58]">
+      <div className="w-16 text-[10px] font-mono uppercase tracking-[0.28em] text-pink-300/80">
         {label}
       </div>
-      <div className="flex h-3 flex-1 gap-[2px]">
-        {Array.from({ length: segments }).map((_, i) => (
-          <div
-            key={i}
-            className="flex-1 border border-[#30363d]"
-            style={{
-              background: i < filled ? "#22c55e" : "#21262d",
-              boxShadow: i < filled
-                ? "inset 1px 1px 0 #4ade80, inset -1px -1px 0 #14532d"
-                : "inset 1px 1px 0 #30363d, inset -1px -1px 0 #0d1117",
-            }}
-          />
-        ))}
+      <div className="h-2 flex-1 overflow-hidden rounded-full bg-purple-950/70">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-pink-500 to-sky-400"
+          style={{ width: `${clamp(value, 0, 100)}%`, transition: "width 200ms ease-out" }}
+        />
       </div>
-      <div className="w-10 text-right text-[10px] font-mono text-[#7ee787]">
+      <div className="w-10 text-right text-[10px] font-mono text-slate-100/90">
         {Math.round(value)}
       </div>
     </div>
@@ -392,7 +382,7 @@ export function CarShowroom({
         <React.Suspense
           fallback={
             <Html center>
-              <div className="gc-panel px-4 py-3 text-xs text-[#7ee787]">
+              <div className="rounded-xl border border-pink-500/30 bg-black/60 px-4 py-3 text-xs text-pink-100">
                 Loading car…
               </div>
             </Html>
@@ -417,31 +407,30 @@ export function CarShowroom({
         </React.Suspense>
       </Canvas>
 
-      {/* Block grid overlay */}
+      {/* Neon noise overlay */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.03]"
+        className="pointer-events-none absolute inset-0"
         style={{
           backgroundImage:
-            "linear-gradient(#7ee787 1px, transparent 1px), linear-gradient(90deg, #7ee787 1px, transparent 1px)",
-          backgroundSize: "32px 32px",
+            "radial-gradient(circle at 30% 20%, rgba(236,72,153,0.12), transparent 55%), radial-gradient(circle at 70% 35%, rgba(125,211,252,0.08), transparent 50%)",
         }}
       />
 
       {/* Left panel */}
       <div className="absolute left-6 top-6 z-20 w-[320px]">
-        <div className="gc-panel p-4">
-          <p className="gc-label">
+        <div className="rounded-2xl border border-purple-500/30 bg-black/55 p-4 backdrop-blur-md shadow-[0_0_30px_rgba(168,85,247,0.2)]">
+          <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-pink-300/80">
             Select your ride
           </p>
           <div className="mt-2 flex items-end justify-between gap-3">
             <div className="min-w-0">
-              <p className="truncate text-xl font-semibold text-[#e6edf3]">{cfg.label}</p>
-              <p className="mt-1 text-[11px] text-[#484f58]">
+              <p className="truncate text-xl font-semibold text-slate-100">{cfg.label}</p>
+              <p className="mt-1 text-[11px] text-purple-200/80">
                 {cityLabel ? `Map: ${cityLabel}` : "Map loading…"}
               </p>
             </div>
-            <div className="border-2 border-[#30363d] bg-[#161b22] px-3 py-1 text-[10px] font-mono uppercase tracking-[0.25em] text-[#7ee787] shadow-[2px_2px_0_#010409]">
+            <div className="rounded-full border border-purple-500/30 bg-purple-500/10 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.25em] text-slate-100/90">
               {idx + 1}/{CAR_VARIANTS.length}
             </div>
           </div>
@@ -453,8 +442,8 @@ export function CarShowroom({
           </div>
 
           {/* Biome Preset selection */}
-          <div className="mt-4 border-t-2 border-[#30363d] pt-3">
-            <p className="gc-label mb-2">
+          <div className="mt-4 border-t border-purple-500/20 pt-3">
+            <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-pink-300/80 mb-2">
               Select Biome Preset
             </p>
             <div className="grid grid-cols-2 gap-1 font-mono text-[9px]">
@@ -463,9 +452,9 @@ export function CarShowroom({
                   key={t}
                   type="button"
                   onClick={() => setSelectedBiome(t)}
-                  className={`py-1 px-1.5 text-center border-2 shadow-[2px_2px_0_#010409] ${selectedBiome === t
-                      ? "gc-btn-active font-semibold"
-                      : "border-[#30363d] bg-[#161b22] text-[#484f58] hover:bg-[#21262d]"
+                  className={`rounded-lg py-1 px-1.5 text-center border transition ${selectedBiome === t
+                      ? "border-pink-500/50 bg-pink-500/20 text-white font-semibold shadow-[0_0_8px_rgba(236,72,153,0.25)]"
+                      : "border-purple-500/20 bg-purple-500/5 text-purple-300/80 hover:bg-purple-500/10"
                     }`}
                 >
                   {t}
@@ -477,20 +466,20 @@ export function CarShowroom({
           <div className="mt-4 flex items-center gap-2">
             <button
               type="button"
-              className="gc-btn-active inline-flex h-10 flex-1 items-center justify-center px-4 text-[11px] font-semibold uppercase tracking-[0.3em]"
+              className="inline-flex h-10 flex-1 items-center justify-center rounded-xl border border-pink-400/60 bg-pink-500/15 px-4 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-50 shadow-[0_0_20px_rgba(236,72,153,0.35)] transition hover:bg-pink-500/25"
               onClick={() => onStart(variant, selectedBiome)}
             >
               Drive
             </button>
             <button
               type="button"
-              className="gc-btn px-3 py-2 text-[10px] font-mono uppercase tracking-[0.2em]"
+              className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-mono uppercase tracking-[0.2em] text-emerald-200/90 hover:bg-emerald-500/20"
               onClick={() => setDebugEnabled((v) => !v)}
               title="F4"
             >
               {debugEnabled ? "Hide tuner" : "Tuner"}
             </button>
-            <div className="hidden sm:block gc-panel-muted px-3 py-2 text-[10px] font-mono uppercase tracking-[0.25em] text-[#484f58]">
+            <div className="hidden sm:block rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-mono uppercase tracking-[0.25em] text-white/30">
               ← →
             </div>
           </div>
@@ -579,7 +568,7 @@ export function CarShowroom({
                       <span className="text-white/30">{carScaleMul.toFixed(2)}</span>
                     </div>
                     <input
-                      className="w-full accent-[#22c55e]"
+                      className="w-full accent-pink-400"
                       type="range"
                       min={0.05}
                       max={10}
@@ -707,7 +696,7 @@ export function CarShowroom({
                           <span className="text-white/30">{carPos[axisIdx].toFixed(2)}</span>
                         </div>
                         <input
-                          className="w-full accent-[#22c55e]"
+                          className="w-full accent-pink-400"
                           type="range"
                           min={-20}
                           max={20}
@@ -766,7 +755,7 @@ export function CarShowroom({
           )}
 
           {active && (
-            <div className="mt-3 text-[10px] font-mono uppercase tracking-[0.25em] text-[#484f58]">
+            <div className="mt-3 text-[10px] font-mono uppercase tracking-[0.25em] text-purple-300/70">
               Streaming assets… {Math.round(progress)}%
             </div>
           )}
@@ -776,14 +765,14 @@ export function CarShowroom({
       {/* Title */}
       <div className="pointer-events-none absolute inset-x-6 bottom-6 z-20 flex items-end justify-between gap-6">
         <div className="max-w-xl">
-          <p className="gc-label">
+          <p className="text-[10px] font-mono uppercase tracking-[0.45em] text-pink-400/80">
             Git City
           </p>
-          <p className="mt-2 text-sm text-[#c9d1d9]">
+          <p className="mt-2 text-sm text-slate-100/80">
             Choose a car, then drop straight into the city. No menus. No breaks.
           </p>
         </div>
-        <div className="text-right text-[10px] font-mono uppercase tracking-[0.35em] text-[#484f58]">
+        <div className="text-right text-[10px] font-mono uppercase tracking-[0.35em] text-white/25">
           Press Enter to start
         </div>
       </div>

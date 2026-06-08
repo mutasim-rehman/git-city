@@ -12,15 +12,12 @@ export type CarConfig = {
   forwardOffset: number;
   downOffset: number;
   sideOffset: number;
-  /** Max forward speed (units/s). */
   speed: number;
   accel: number;
-  /** Minimum turning circle radius in world units (lower = sharper turns). */
   turnRadius: number;
   eyeOffset: number;
 };
 
-/** Fields you can live-tune in the showroom model tuner. */
 export type CarModelTuning = Pick<
   CarConfig,
   | "scale"
@@ -58,18 +55,18 @@ function carEntry(id: CarVariant, label: string, tuning: Partial<CarModelTuning>
   };
 }
 
-/** Showroom display / garage preview tuning. */
+/** Showroom / garage preview. */
 export const CAR_SHOWROOM_CONFIGS: Record<CarVariant, CarConfig> = {
-  cm1: carEntry("cm1", "Car 1", { scale: 145, speed: 72, accel: 58, turnRadius: 38 }),
-  cm2: carEntry("cm2", "Car 2", { scale: 1.7, speed: 68, accel: 62, turnRadius: 30 }),
-  cm3: carEntry("cm3", "Car 3", { scale: 0.09, speed: 118, accel: 98, turnRadius: 11 }),
-  cm4: carEntry("cm4", "Car 4", { scale: 2.05, speed: 92, accel: 80, turnRadius: 16 }),
-  cm5: carEntry("cm5", "Car 5", { scale: 0.012, speed: 105, accel: 88, turnRadius: 13 }),
-  cm6: carEntry("cm6", "Car 6", { scale: 0.9, speed: 58, accel: 52, turnRadius: 42 }),
-  cm7: carEntry("cm7", "Car 7", { scale: 0.6, speed: 78, accel: 70, turnRadius: 24 }),
+  cm1: carEntry("cm1", "Car 1", { scale: 145 }),
+  cm2: carEntry("cm2", "Car 2", { scale: 1.7 }),
+  cm3: carEntry("cm3", "Car 3", { scale: 0.09 }),
+  cm4: carEntry("cm4", "Car 4", { scale: 2.05 }),
+  cm5: carEntry("cm5", "Car 5", { scale: 0.012 }),
+  cm6: carEntry("cm6", "Car 6", { scale: 0.9 }),
+  cm7: carEntry("cm7", "Car 7", { scale: 0.6 }),
 };
 
-/** In-game driving / street view tuning. */
+/** In-game driving. */
 export const CAR_GAME_CONFIGS: Record<CarVariant, CarConfig> = {
   cm1: {
     label: "Car 1",
@@ -178,7 +175,6 @@ export const CAR_GAME_CONFIGS: Record<CarVariant, CarConfig> = {
   },
 };
 
-/** @deprecated alias — showroom code should use CAR_SHOWROOM_CONFIGS */
 export const CAR_CONFIGS = CAR_SHOWROOM_CONFIGS;
 
 export const CAR_VARIANTS: CarVariant[] = Object.keys(CAR_SHOWROOM_CONFIGS) as CarVariant[];
@@ -209,7 +205,6 @@ export function getCarModelTuning(variant: CarVariant, override?: Partial<CarMod
   };
 }
 
-/** Map car config into arcade vehicle physics knobs. */
 export function vehicleTuningFromModel(tuning: CarModelTuning): {
   maxSpeed: number;
   accel: number;
@@ -223,7 +218,6 @@ export function vehicleTuningFromModel(tuning: CarModelTuning): {
   };
 }
 
-/** Format a numeric radian value as a readable TS expression when possible. */
 function formatRadians(rad: number): string {
   const tau = Math.PI * 2;
   const normalized = ((rad % tau) + tau) % tau;
@@ -240,7 +234,6 @@ function formatRadians(rad: number): string {
   return normalized.toFixed(4);
 }
 
-/** Copy-paste snippet for updating CAR_GAME_CONFIGS in cars.ts. */
 export function formatCarConfigSnippet(variant: CarVariant, tuning: CarModelTuning): string {
   const cfg = CAR_GAME_CONFIGS[variant];
   return [
@@ -263,12 +256,11 @@ export function formatCarConfigSnippet(variant: CarVariant, tuning: CarModelTuni
 }
 
 export type CarStats = {
-  speed: number; // 0..100
-  handling: number; // 0..100
-  accel: number; // 0..100
+  speed: number;
+  handling: number;
+  accel: number;
 };
 
-/** Map a raw value into a 10..100 display stat relative to the roster range. */
 function statFromRange(value: number, min: number, max: number): number {
   if (max <= min) return 50;
   const t = (value - min) / (max - min);

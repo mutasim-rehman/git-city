@@ -2,7 +2,7 @@
 @source not "../../public";
 
 :root {
-  --background: #0d1117;
+  --background: #020617;
   --foreground: #e5e7eb;
 }
 
@@ -14,60 +14,8 @@
 }
 
 body {
-  background: #0d1117;
+  background: radial-gradient(circle at top, #022c22 0, #020617 40%, #020617 100%);
   color: var(--foreground);
-}
-
-/* Blocky Git City UI primitives */
-.gc-panel {
-  border: 2px solid #238636;
-  background: #0d1117;
-  box-shadow: 4px 4px 0 #010409;
-}
-
-.gc-panel-muted {
-  border: 2px solid #30363d;
-  background: #161b22;
-  box-shadow: 3px 3px 0 #010409;
-}
-
-.gc-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.35em;
-  color: #7ee787;
-}
-
-.gc-input {
-  border: 2px solid #30363d;
-  background: #161b22;
-  color: #e6edf3;
-  box-shadow: inset 2px 2px 0 #484f58, inset -2px -2px 0 #010409;
-}
-
-.gc-input:focus {
-  outline: none;
-  border-color: #238636;
-}
-
-.gc-btn {
-  border: 2px solid #238636;
-  background: #161b22;
-  color: #7ee787;
-  box-shadow: 3px 3px 0 #010409;
-  transition: background 80ms steps(1);
-}
-
-.gc-btn:hover {
-  background: #21262d;
-}
-
-.gc-btn-active {
-  border-color: #7ee787;
-  background: #238636;
-  color: #0d1117;
-  box-shadow: inset 2px 2px 0 #4ade80, inset -2px -2px 0 #14532d, 3px 3px 0 #010409;
 }
 
 @keyframes block-place {
@@ -133,31 +81,5 @@ body {
 
 .animate-block-shimmer {
   animation: block-shimmer 1.2s ease-in-out infinite;
-}
-
-@keyframes block-cover {
-  from {
-    background-color: transparent;
-  }
-  to {
-    background-color: #0d1117;
-  }
-}
-
-@keyframes block-uncover {
-  from {
-    background-color: #0d1117;
-  }
-  to {
-    background-color: transparent;
-  }
-}
-
-.animate-block-cover {
-  animation: block-cover 120ms steps(1) forwards;
-}
-
-.animate-block-uncover {
-  animation: block-uncover 120ms steps(1) forwards;
 }
 

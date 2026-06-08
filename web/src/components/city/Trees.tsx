@@ -1174,7 +1174,7 @@ function drawPixelFlower(ctx: CanvasRenderingContext2D, type: "daisy" | "poppy" 
     ctx.fillRect(6 * blockW, 6 * blockH, 4 * blockW, 1 * blockH);
 
     // Purple center
-    ctx.fillStyle = "#22c55e";
+    ctx.fillStyle = "#a855f7"; // purple-500
     ctx.fillRect(7 * blockW, 5 * blockH, 2 * blockW, 1 * blockH);
   } else if (type === "dandelion") {
     // Yellow petals

@@ -54,8 +54,8 @@ export function LoadingScreen({
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col items-center justify-center overflow-hidden bg-[#0d1117]">
-      {/* Night sky — solid bands, no gradient fade */}
-      <div className="pointer-events-none absolute inset-0 bg-[#0d1117]" />
+      {/* Night sky */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#0a0f14] via-[#0d1117] to-[#161b22]" />
       <div className="pointer-events-none absolute inset-0 opacity-40">
         {Array.from({ length: 48 }).map((_, i) => (
           <span
@@ -71,9 +71,13 @@ export function LoadingScreen({
         ))}
       </div>
 
-      {/* Horizon band */}
+      {/* Horizon glow */}
       <div
-        className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-[#14532d]"
+        className="pointer-events-none absolute bottom-0 left-0 right-0 h-48"
+        style={{
+          background:
+            "linear-gradient(to top, rgba(34,197,94,0.08) 0%, rgba(22,163,74,0.04) 30%, transparent 100%)",
+        }}
       />
 
       <div className="relative z-10 flex flex-col items-center gap-8 px-6 py-10">
