@@ -281,12 +281,12 @@ function ShowroomScene({
 function StatBar({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="w-16 text-[10px] font-mono uppercase tracking-[0.28em] text-pink-300/80">
+      <div className="w-16 text-[10px] font-mono uppercase tracking-[0.28em] text-emerald-300/80">
         {label}
       </div>
-      <div className="h-2 flex-1 overflow-hidden rounded-full bg-purple-950/70">
+      <div className="h-2 flex-1 overflow-hidden rounded-full border border-emerald-950 bg-black">
         <div
-          className="h-full rounded-full bg-gradient-to-r from-pink-500 to-sky-400"
+          className="h-full rounded-full bg-gradient-to-r from-emerald-800 to-emerald-400"
           style={{ width: `${clamp(value, 0, 100)}%`, transition: "width 200ms ease-out" }}
         />
       </div>
@@ -382,7 +382,7 @@ export function CarShowroom({
         <React.Suspense
           fallback={
             <Html center>
-              <div className="rounded-xl border border-pink-500/30 bg-black/60 px-4 py-3 text-xs text-pink-100">
+              <div className="rounded-xl border border-emerald-900 bg-black/80 px-4 py-3 text-xs text-emerald-100">
                 Loading car…
               </div>
             </Html>
@@ -413,24 +413,24 @@ export function CarShowroom({
         className="pointer-events-none absolute inset-0"
         style={{
           backgroundImage:
-            "radial-gradient(circle at 30% 20%, rgba(236,72,153,0.12), transparent 55%), radial-gradient(circle at 70% 35%, rgba(125,211,252,0.08), transparent 50%)",
+            "radial-gradient(circle at 30% 20%, rgba(6,78,59,0.18), transparent 55%), radial-gradient(circle at 70% 35%, rgba(16,185,129,0.08), transparent 50%)",
         }}
       />
 
       {/* Left panel */}
       <div className="absolute left-6 top-6 z-20 w-[320px]">
-        <div className="rounded-2xl border border-purple-500/30 bg-black/55 p-4 backdrop-blur-md shadow-[0_0_30px_rgba(168,85,247,0.2)]">
-          <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-pink-300/80">
-            Select your ride
+        <div className="rounded-2xl border border-emerald-900 bg-black/70 p-4 backdrop-blur-md shadow-[0_0_28px_rgba(6,78,59,0.28)]">
+          <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300/80">
+            Select your car
           </p>
           <div className="mt-2 flex items-end justify-between gap-3">
             <div className="min-w-0">
               <p className="truncate text-xl font-semibold text-slate-100">{cfg.label}</p>
-              <p className="mt-1 text-[11px] text-purple-200/80">
+              <p className="mt-1 text-[11px] text-emerald-200/70">
                 {cityLabel ? `Map: ${cityLabel}` : "Map loading…"}
               </p>
             </div>
-            <div className="rounded-full border border-purple-500/30 bg-purple-500/10 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.25em] text-slate-100/90">
+            <div className="rounded-full border border-emerald-900 bg-black px-3 py-1 text-[10px] font-mono uppercase tracking-[0.25em] text-emerald-100/90">
               {idx + 1}/{CAR_VARIANTS.length}
             </div>
           </div>
@@ -442,8 +442,8 @@ export function CarShowroom({
           </div>
 
           {/* Biome Preset selection */}
-          <div className="mt-4 border-t border-purple-500/20 pt-3">
-            <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-pink-300/80 mb-2">
+          <div className="mt-4 border-t border-emerald-950 pt-3">
+            <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300/80 mb-2">
               Select Biome Preset
             </p>
             <div className="grid grid-cols-2 gap-1 font-mono text-[9px]">
@@ -453,8 +453,8 @@ export function CarShowroom({
                   type="button"
                   onClick={() => setSelectedBiome(t)}
                   className={`rounded-lg py-1 px-1.5 text-center border transition ${selectedBiome === t
-                      ? "border-pink-500/50 bg-pink-500/20 text-white font-semibold shadow-[0_0_8px_rgba(236,72,153,0.25)]"
-                      : "border-purple-500/20 bg-purple-500/5 text-purple-300/80 hover:bg-purple-500/10"
+                      ? "border-emerald-700 bg-black text-emerald-100 font-semibold shadow-[0_0_10px_rgba(6,78,59,0.45)]"
+                      : "border-emerald-950 bg-black text-emerald-300/65 hover:border-emerald-800 hover:text-emerald-100"
                     }`}
                 >
                   {t}
@@ -466,14 +466,14 @@ export function CarShowroom({
           <div className="mt-4 flex items-center gap-2">
             <button
               type="button"
-              className="inline-flex h-10 flex-1 items-center justify-center rounded-xl border border-pink-400/60 bg-pink-500/15 px-4 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-50 shadow-[0_0_20px_rgba(236,72,153,0.35)] transition hover:bg-pink-500/25"
+              className="inline-flex h-10 flex-1 items-center justify-center rounded-xl border border-emerald-700 bg-black px-4 text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-100 shadow-[0_0_18px_rgba(6,78,59,0.35)] transition hover:border-emerald-500 hover:text-white"
               onClick={() => onStart(variant, selectedBiome)}
             >
               Drive
             </button>
             <button
               type="button"
-              className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-mono uppercase tracking-[0.2em] text-emerald-200/90 hover:bg-emerald-500/20"
+              className="rounded-xl border border-emerald-900 bg-black px-3 py-2 text-[10px] font-mono uppercase tracking-[0.2em] text-emerald-200/90 hover:border-emerald-700 hover:text-emerald-100"
               onClick={() => setDebugEnabled((v) => !v)}
               title="F4"
             >
@@ -568,7 +568,7 @@ export function CarShowroom({
                       <span className="text-white/30">{carScaleMul.toFixed(2)}</span>
                     </div>
                     <input
-                      className="w-full accent-pink-400"
+                      className="w-full accent-emerald-500"
                       type="range"
                       min={0.05}
                       max={10}
@@ -696,7 +696,7 @@ export function CarShowroom({
                           <span className="text-white/30">{carPos[axisIdx].toFixed(2)}</span>
                         </div>
                         <input
-                          className="w-full accent-pink-400"
+                          className="w-full accent-emerald-500"
                           type="range"
                           min={-20}
                           max={20}
@@ -755,7 +755,7 @@ export function CarShowroom({
           )}
 
           {active && (
-            <div className="mt-3 text-[10px] font-mono uppercase tracking-[0.25em] text-purple-300/70">
+            <div className="mt-3 text-[10px] font-mono uppercase tracking-[0.25em] text-emerald-300/70">
               Streaming assets… {Math.round(progress)}%
             </div>
           )}
@@ -765,7 +765,7 @@ export function CarShowroom({
       {/* Title */}
       <div className="pointer-events-none absolute inset-x-6 bottom-6 z-20 flex items-end justify-between gap-6">
         <div className="max-w-xl">
-          <p className="text-[10px] font-mono uppercase tracking-[0.45em] text-pink-400/80">
+          <p className="text-[10px] font-mono uppercase tracking-[0.45em] text-emerald-400/80">
             Git City
           </p>
           <p className="mt-2 text-sm text-slate-100/80">

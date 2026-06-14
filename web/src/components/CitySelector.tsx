@@ -25,11 +25,11 @@ export function CitySelector({ selected, onSelect, disabled }: Props) {
             type="button"
             disabled={disabled}
             onClick={() => onSelect(city)}
-            className={`px-6 py-3 rounded-xl border text-sm font-semibold tracking-wide transition-all
+            className={`px-6 py-3 rounded-xl border bg-black text-sm font-semibold tracking-wide transition-all
               ${
                 active
-                  ? "bg-pink-400 text-black border-pink-300 shadow-[0_0_30px_rgba(236,72,153,0.8)]"
-                  : "bg-slate-900/70 text-pink-100 border-purple-500/50 hover:bg-slate-900 hover:border-pink-200/80"
+                  ? "text-emerald-100 border-emerald-700 shadow-[0_0_18px_rgba(6,78,59,0.55)]"
+                  : "text-emerald-200/70 border-emerald-950 hover:border-emerald-700 hover:text-emerald-100"
               }
               ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}
             `}

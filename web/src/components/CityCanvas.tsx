@@ -86,7 +86,7 @@ function tryPlayAudio(audio: HTMLAudioElement) {
 }
 
 const EMERALD_THEME: CityTheme = {
-  // Sunset / dusk palette (still keeping your neon/pink vibe)
+  // Sunset / dusk palette tuned for the dark emerald UI.
   sky: [
     [0, "#05010f"],
     [0.12, "#120523"],
@@ -856,7 +856,7 @@ export function CityCanvas({
 
   return (
     <div
-      className={`relative w-full overflow-hidden border border-purple-500/40 bg-gradient-to-br from-slate-900 via-purple-950/30 to-pink-950/40 shadow-[0_0_60px_rgba(15,23,42,0.9)] ${fullHeight ? "min-h-0 flex-1 rounded-none" : "h-[560px] rounded-3xl"}`}
+      className={`relative w-full overflow-hidden border border-emerald-950 bg-black shadow-[0_0_60px_rgba(2,6,23,0.95)] ${fullHeight ? "min-h-0 flex-1 rounded-none" : "h-[560px] rounded-3xl"}`}
     >
       <CityAmbientAudio />
       <Canvas
@@ -1008,7 +1008,7 @@ export function CityCanvas({
 
       {/* HUD */}
       <div className="pointer-events-none absolute inset-x-4 bottom-4 flex justify-center">
-        <div className="w-full max-w-md rounded-2xl border border-purple-500/40 bg-black/70 px-4 py-3 text-xs text-slate-100 shadow-[0_0_30px_rgba(168,85,247,0.3)] backdrop-blur-md">
+        <div className="w-full max-w-md rounded-2xl border border-emerald-900 bg-black/75 px-4 py-3 text-xs text-slate-100 shadow-[0_0_30px_rgba(6,78,59,0.35)] backdrop-blur-md">
           <div className="flex justify-between gap-3 items-center">
             <div className="min-w-0">
               {/*
@@ -1021,10 +1021,10 @@ export function CityCanvas({
                 if (active) {
                   return (
                     <>
-                      <p className="font-semibold text-pink-200 truncate">
+                      <p className="font-semibold text-emerald-100 truncate">
                         {active.username}
                       </p>
-                      <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-purple-300/80 truncate">
+                      <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-emerald-300/70 truncate">
                         Repos: {active.publicRepos.toLocaleString()} · Commits:{" "}
                         {active.lifetimeCommits.toLocaleString()}
                       </p>
@@ -1033,10 +1033,10 @@ export function CityCanvas({
                 }
                 return (
                   <>
-                    <p className="font-semibold text-pink-200">
+                    <p className="font-semibold text-emerald-100">
                       {`${city.toUpperCase()} · Git City`}
                     </p>
-                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-purple-300/80">
+                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-emerald-300/70">
                       {`${buildings.length.toLocaleString()} developers rendered as towers`}
                     </p>
                   </>
@@ -1048,7 +1048,7 @@ export function CityCanvas({
               <button
                 type="button"
                 onClick={() => setStreetMode((prev) => !prev)}
-                className="rounded-xl border border-pink-500/40 bg-pink-500/10 px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider text-pink-300 transition hover:bg-pink-500/20"
+                className="rounded-xl border border-emerald-800 bg-black px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider text-emerald-300 transition hover:border-emerald-600 hover:text-emerald-100"
               >
                 {streetMode ? "✈ Fly" : "🚗 Drive"}
               </button>
@@ -1056,8 +1056,8 @@ export function CityCanvas({
                 type="button"
                 onClick={() => setShowGeoGen((prev) => !prev)}
                 className={`rounded-xl border px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider transition ${showGeoGen
-                    ? "border-purple-400 bg-purple-500/20 text-purple-200"
-                    : "border-purple-500/40 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20"
+                    ? "border-emerald-700 bg-black text-emerald-100"
+                    : "border-emerald-900 bg-black text-emerald-300/75 hover:border-emerald-700 hover:text-emerald-100"
                   }`}
               >
                 ▲ Terrain
@@ -1068,26 +1068,26 @@ export function CityCanvas({
       </div>
 
       {showGeoGen && (
-        <div className="pointer-events-auto absolute right-4 bottom-24 z-40 w-56 rounded-2xl border border-purple-500/30 bg-black/85 p-4 text-slate-100 shadow-[0_0_40px_rgba(168,85,247,0.35)] backdrop-blur-md">
+        <div className="pointer-events-auto absolute right-4 bottom-24 z-40 w-56 rounded-2xl border border-emerald-900 bg-black/85 p-4 text-slate-100 shadow-[0_0_40px_rgba(6,78,59,0.35)] backdrop-blur-md">
           <div className="flex items-center justify-between mb-2">
-            <span className="font-mono text-xs font-bold tracking-[0.2em] text-pink-300">
+            <span className="font-mono text-xs font-bold tracking-[0.2em] text-emerald-300">
               ▲ GEOGEN ULTRA
             </span>
             <button
               onClick={() => setShowGeoGen(false)}
-              className="text-purple-400 hover:text-purple-200 font-mono text-[10px]"
+              className="text-emerald-500 hover:text-emerald-200 font-mono text-[10px]"
             >
               ✕
             </button>
           </div>
-          <p className="text-[9px] leading-relaxed text-purple-300/60 font-mono mb-4">
+          <p className="text-[9px] leading-relaxed text-emerald-300/60 font-mono mb-4">
             Domain-warped ridges, erosion, 5-layer biome splatting
           </p>
 
           <div className="space-y-3 text-[11px] font-mono">
             {/* Biome Presets */}
             <div>
-              <span className="text-[9px] uppercase tracking-wider text-purple-400/80 block mb-1.5">
+              <span className="text-[9px] uppercase tracking-wider text-emerald-400/80 block mb-1.5">
                 Biome Preset
               </span>
               <div className="grid grid-cols-2 gap-1">
@@ -1098,8 +1098,8 @@ export function CityCanvas({
                       setGeoGenSettings((prev) => ({ ...prev, theme: t }))
                     }
                     className={`rounded-lg py-1 px-1.5 text-center text-[9px] border transition ${geoGenSettings.theme === t
-                        ? "border-pink-500/50 bg-pink-500/20 text-white font-semibold"
-                        : "border-purple-500/20 bg-purple-500/5 text-purple-300/80 hover:bg-purple-500/10"
+                        ? "border-emerald-700 bg-black text-emerald-100 font-semibold"
+                        : "border-emerald-950 bg-black text-emerald-300/70 hover:border-emerald-800 hover:text-emerald-100"
                       }`}
                   >
                     {t}
@@ -1114,7 +1114,7 @@ export function CityCanvas({
       {/* Navigation + minimap (street mode) */}
       {streetMode && (
         <div className="absolute bottom-4 left-4 z-30 flex flex-col-reverse items-start gap-3">
-          <div className="rounded-3xl border border-purple-500/35 bg-black/40 p-2 shadow-[0_0_35px_rgba(168,85,247,0.2)] backdrop-blur-md">
+          <div className="rounded-3xl border border-emerald-900 bg-black/50 p-2 shadow-[0_0_35px_rgba(6,78,59,0.25)] backdrop-blur-md">
             <Minimap
               graph={roadGraph}
               playerXZ={uiPose ? { x: uiPose.x, z: uiPose.z } : null}
@@ -1130,8 +1130,8 @@ export function CityCanvas({
             />
           </div>
 
-          <div className="pointer-events-auto w-[280px] rounded-2xl border border-purple-500/35 bg-black/70 px-3 py-3 backdrop-blur-md shadow-[0_0_30px_rgba(168,85,247,0.25)]">
-            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-pink-300/90">
+          <div className="pointer-events-auto w-[280px] rounded-2xl border border-emerald-900 bg-black/75 px-3 py-3 backdrop-blur-md shadow-[0_0_30px_rgba(6,78,59,0.3)]">
+            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.28em] text-emerald-300/90">
               Navigation
             </p>
             <div className="flex items-center gap-2">
@@ -1146,11 +1146,11 @@ export function CityCanvas({
                   if (target) computeRouteTo(target);
                 }}
                 placeholder="Type @username and press Enter"
-                className="h-9 flex-1 rounded-xl border border-purple-500/30 bg-black/40 px-3 text-xs text-slate-100 placeholder:text-purple-300/50 focus:outline-none focus:ring-2 focus:ring-pink-500/40"
+                className="h-9 flex-1 rounded-xl border border-emerald-900 bg-black px-3 text-xs text-emerald-100 placeholder:text-emerald-400/45 focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-950"
               />
               <button
                 type="button"
-                className="h-9 rounded-xl border border-pink-500/40 bg-pink-500/15 px-3 text-[11px] font-medium text-slate-100 hover:bg-pink-500/25"
+                className="h-9 rounded-xl border border-emerald-800 bg-black px-3 text-[11px] font-medium text-emerald-100 hover:border-emerald-600"
                 onClick={() => {
                   const needle = navQuery.trim().replace(/^@/, "").toLowerCase();
                   if (!needle) return;
@@ -1165,7 +1165,7 @@ export function CityCanvas({
             <div className="mt-2 flex items-center justify-between gap-2">
               <button
                 type="button"
-                className="rounded-xl border border-purple-500/30 bg-black/30 px-2 py-1 text-[10px] font-mono uppercase tracking-[0.22em] text-pink-200/90 hover:bg-pink-500/15"
+                className="rounded-xl border border-emerald-900 bg-black px-2 py-1 text-[10px] font-mono uppercase tracking-[0.22em] text-emerald-200/90 hover:border-emerald-700"
                 onClick={() => {
                   if (!buildings.length) return;
                   const idx = Math.floor((Math.abs(Math.sin(Date.now())) % 1) * buildings.length);
@@ -1181,7 +1181,7 @@ export function CityCanvas({
               <select
                 value={quality}
                 onChange={(e) => setQuality(e.target.value as typeof quality)}
-                className="h-8 rounded-xl border border-purple-500/40 bg-black/40 px-2 text-[10px] font-mono uppercase tracking-[0.18em] text-purple-200/90"
+                className="h-8 rounded-xl border border-emerald-900 bg-black px-2 text-[10px] font-mono uppercase tracking-[0.18em] text-emerald-200/90"
               >
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
@@ -1190,7 +1190,7 @@ export function CityCanvas({
             </div>
 
             {uiPose && (
-              <div className="mt-2 space-y-1 text-[11px] text-purple-200/80">
+              <div className="mt-2 space-y-1 text-[11px] text-emerald-200/75">
                 <div>
                   Speed: <span className="font-semibold text-sky-100">{Math.round(Math.abs(uiPose.speed))}</span>
                 </div>
@@ -1200,22 +1200,22 @@ export function CityCanvas({
                     {Math.round(uiPose.x)}, {Math.round(uiPose.z)}
                   </span>
                 </div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-purple-300/70">
+                <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-emerald-300/70">
                   W forward · S reverse
                 </div>
               </div>
             )}
 
             {navTarget && (
-              <div className="mt-2 text-[11px] text-purple-200/90">
-                Destination: <span className="font-semibold text-pink-100">@{navTarget.username}</span>
+              <div className="mt-2 text-[11px] text-emerald-200/90">
+                Destination: <span className="font-semibold text-emerald-100">@{navTarget.username}</span>
                 {navRoute.length > 0 && (
                   <span className="ml-2 text-sky-300/80">
                     ({navRoute.length - 1} hops)
                   </span>
                 )}
                 {navHint && (
-                  <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-pink-300/80">
+                  <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.22em] text-emerald-300/80">
                     {navHint.turn} · {Math.round(navHint.dist)}m
                   </div>
                 )}
@@ -1234,7 +1234,7 @@ export function CityCanvas({
 
       {toast && (
         <div className="pointer-events-none absolute inset-x-4 top-4 z-40 flex justify-center">
-          <div className="rounded-full border border-pink-500/40 bg-black/70 px-4 py-2 text-[11px] font-mono uppercase tracking-[0.25em] text-pink-100 shadow-[0_0_25px_rgba(236,72,153,0.4)] backdrop-blur-md">
+          <div className="rounded-full border border-emerald-900 bg-black/75 px-4 py-2 text-[11px] font-mono uppercase tracking-[0.25em] text-emerald-100 shadow-[0_0_25px_rgba(6,78,59,0.4)] backdrop-blur-md">
             {toast}
           </div>
         </div>
