@@ -35,26 +35,6 @@ export function LoadingScreen({
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col items-center justify-center overflow-hidden bg-[#0d1117]">
-      {/* 1. Subtle green blueprint grid background */}
-      <div 
-        className="pointer-events-none absolute inset-0 opacity-[0.06]"
-        style={{
-          backgroundImage: `
-            linear-gradient(to right, rgba(16, 185, 129, 0.25) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(16, 185, 129, 0.25) 1px, transparent 1px)
-          `,
-          backgroundSize: "32px 32px"
-        }}
-      />
-
-      {/* 2. Soft center horizon glow */}
-      <div
-        className="pointer-events-none absolute bottom-0 left-0 right-0 h-64"
-        style={{
-          background: "linear-gradient(to top, rgba(16,185,129,0.06) 0%, rgba(16,185,129,0.02) 40%, transparent 100%)",
-        }}
-      />
-
       {/* Main content box */}
       <div className="relative z-10 flex flex-col items-center gap-6 px-6 w-full max-w-2xl py-8">
         

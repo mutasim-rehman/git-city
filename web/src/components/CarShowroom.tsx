@@ -407,16 +407,6 @@ export function CarShowroom({
         </React.Suspense>
       </Canvas>
 
-      {/* Neon noise overlay */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle at 30% 20%, rgba(6,78,59,0.18), transparent 55%), radial-gradient(circle at 70% 35%, rgba(16,185,129,0.08), transparent 50%)",
-        }}
-      />
-
       {/* Left panel */}
       <div className="absolute left-6 top-6 z-20 w-[320px]">
         <div className="rounded-2xl border border-emerald-900 bg-black/70 p-4 backdrop-blur-md shadow-[0_0_28px_rgba(6,78,59,0.28)]">
