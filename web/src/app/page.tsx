@@ -6,7 +6,7 @@ import type { CityLayoutResult } from "@/lib/city/layout";
 import { loadCityData } from "@/lib/data/csvClient";
 import { mapCsvToBuildings } from "@/lib/city/scaling";
 import { computeCityLayout } from "@/lib/city/layout";
-import { loadAllAssets } from "@/lib/loadAssets";
+import { loadShowroomAssets, preloadRemainingCars } from "@/lib/loadAssets";
 import { CitySelector } from "@/components/CitySelector";
 import { LoadingScreen } from "@/components/LoadingScreen";
 import { CityCanvas } from "@/components/CityCanvas";
@@ -103,6 +103,10 @@ export default function Home() {
   }, [musicStarted, phase]);
 
   useEffect(() => {
+    if (phase === "carSelect") preloadRemainingCars();
+  }, [phase]);
+
+  useEffect(() => {
     let canceled = false;
 
     async function boot() {
@@ -111,10 +115,18 @@ export default function Home() {
         setBootMessage("Downloading city data…");
         setBootProgress(5);
 
+        const showroomAssetsPromise = !assetsLoadedRef.current
+          ? loadShowroomAssets((p) => {
+              if (canceled) return;
+              setBootMessage(p.message);
+              setBootProgress(15 + (p.progress * 75) / 100);
+            })
+          : null;
+
         const csv = await loadCityData(selectedCity);
         if (canceled) return;
         setBootMessage("Generating skyline and roads…");
-        setBootProgress(15);
+        setBootProgress(12);
 
         const mapped = mapCsvToBuildings(selectedCity, csv);
         const layout = computeCityLayout(mapped);
@@ -131,15 +143,9 @@ export default function Home() {
 
         if (canceled) return;
 
-        if (!assetsLoadedRef.current) {
-          setBootMessage("Loading 3D models…");
-          setBootProgress(20);
-
-          await loadAllAssets((p) => {
-            if (canceled) return;
-            setBootMessage(p.message);
-            setBootProgress(20 + (p.progress * 80) / 100);
-          });
+        if (showroomAssetsPromise) {
+          setBootMessage("Loading showroom…");
+          await showroomAssetsPromise;
           assetsLoadedRef.current = true;
         } else {
           setBootMessage("Rebuilding city from cached assets…");
@@ -149,9 +155,7 @@ export default function Home() {
         if (canceled) return;
         setBootMessage("Ready");
         setBootProgress(100);
-        window.setTimeout(() => {
-          if (!canceled) setPhase("carSelect");
-        }, 300);
+        setPhase("carSelect");
       } catch (err) {
         console.error(err);
         if (!canceled) setError("Failed to load. Please try again.");

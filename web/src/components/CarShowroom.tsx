@@ -1,12 +1,14 @@
 "use client";
 
 import * as React from "react";
+import "@/lib/gltf";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Html, Environment, useGLTF, useProgress } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
 import type { CarVariant, CarModelTuning } from "@/game/content/cars";
-import { CAR_CONFIGS, CAR_VARIANTS, DEFAULT_CAR_VARIANT, getCarStats } from "@/game/content/cars";
+import { CAR_CONFIGS, CAR_VARIANTS, DEFAULT_CAR_VARIANT, GARAGE_MODEL_PATH, getCarStats } from "@/game/content/cars";
+import { SHOWROOM_ENV_PRESET } from "@/lib/loadAssets";
 import { CarModelTuner, useCarModelTuning } from "@/components/city/CarModelTuner";
 
 function seededRng(seed: number): number {
@@ -53,8 +55,6 @@ function Turntable({ children, speed = 0.35 }: { children: React.ReactNode; spee
   return <group ref={ref}>{children}</group>;
 }
 
-const GARAGE_MODEL_PATH = "/models/garage.glb";
-
 const GARAGE_PRESET = {
   scale: 2.15,
   position: [0, -0.2, 0] as [number, number, number],
@@ -66,7 +66,6 @@ const CAR_SHOWROOM_PRESETS: Record<
   { scaleMul: number; position: [number, number, number]; pivot: [number, number, number] }
 > = {
   cm1: { scaleMul: 2, position: [-0.4, 0, 0.4], pivot: [0, 0.75, 0] },
-  cm2: { scaleMul: 2, position: [-0.4, 0, 0.4], pivot: [0, 0.75, 0] },
   cm3: { scaleMul: 2, position: [-0.4, 0, 0.4], pivot: [0, 0.75, 0] },
   cm4: { scaleMul: 2, position: [-0.4, 0, 0.4], pivot: [0, 0.75, 0] },
   cm5: { scaleMul: 2, position: [-0.4, 0, 0.4], pivot: [0, 0.75, 0] },
@@ -261,7 +260,7 @@ function ShowroomScene({
         <GarageDebugViz bounds={debug.bounds} garageOrigin={garage.position} pivot={carPlacement.pivot} />
       )}
 
-      <Environment preset="night" />
+      <Environment preset={SHOWROOM_ENV_PRESET} />
 
       <OrbitControls
         ref={controlsRef}
@@ -340,14 +339,6 @@ export function CarShowroom({
     }),
     [],
   );
-
-  // Preload all cars so switching feels instant
-  React.useEffect(() => {
-    for (const v of CAR_VARIANTS) {
-      useGLTF.preload(CAR_CONFIGS[v].modelPath);
-    }
-    useGLTF.preload(GARAGE_MODEL_PATH);
-  }, []);
 
   React.useEffect(() => {
     const preset = CAR_SHOWROOM_PRESETS[variant];

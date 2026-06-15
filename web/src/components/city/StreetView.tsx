@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef } from "react";
+import "@/lib/gltf";
 import { Html, useGLTF } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";

@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "eslint",
     "migrate:supabase": "node scripts/migrate-to-supabase.mjs",
-    "backfill:sectors": "node scripts/backfill-sectors.mjs"
+    "backfill:sectors": "node scripts/backfill-sectors.mjs",
+    "optimize:models": "node scripts/optimize-models.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",

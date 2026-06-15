@@ -15,7 +15,7 @@ const PLAYER_COLORS = [
   "#e879f9",
 ];
 const CITIES = ["lahore", "karachi", "islamabad"];
-const CAR_VARIANTS = ["cm1", "cm2", "cm3", "cm4", "cm5", "cm6", "cm7"];
+const CAR_VARIANTS = ["cm1", "cm3", "cm4", "cm5", "cm6", "cm7"];
 
 /**
  * @typedef {Object} PlayerState

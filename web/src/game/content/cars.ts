@@ -1,4 +1,6 @@
-export type CarVariant = "cm1" | "cm2" | "cm3" | "cm4" | "cm5" | "cm6" | "cm7";
+export type CarVariant = "cm1" | "cm3" | "cm4" | "cm5" | "cm6" | "cm7";
+
+export const GARAGE_MODEL_PATH = "/models/garage.glb";
 
 export const DEFAULT_CAR_VARIANT: CarVariant = "cm1";
 
@@ -58,7 +60,6 @@ function carEntry(id: CarVariant, label: string, tuning: Partial<CarModelTuning>
 /** Showroom / garage preview. */
 export const CAR_SHOWROOM_CONFIGS: Record<CarVariant, CarConfig> = {
   cm1: carEntry("cm1", "Car 1", { scale: 145 }),
-  cm2: carEntry("cm2", "Car 2", { scale: 1.7 }),
   cm3: carEntry("cm3", "Car 3", { scale: 0.09 }),
   cm4: carEntry("cm4", "Car 4", { scale: 2.05 }),
   cm5: carEntry("cm5", "Car 5", { scale: 0.012 }),
@@ -82,21 +83,6 @@ export const CAR_GAME_CONFIGS: Record<CarVariant, CarConfig> = {
     accel: 26,
     turnRadius: 17,
     eyeOffset: 0.8,
-  },
-  cm2: {
-    label: "Car 2",
-    modelPath: "/models/cm2.glb",
-    audioPath: "/audios/city_music.mp3",
-    scale: 3,
-    modelYaw: Math.PI / 2,
-    modelTilt: 0,
-    forwardOffset: 10,
-    downOffset: 1.5,
-    sideOffset: 0,
-    speed: 67,
-    accel: 68,
-    turnRadius: 22,
-    eyeOffset: 2,
   },
   cm3: {
     label: "Car 3",
