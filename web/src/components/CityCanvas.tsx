@@ -492,7 +492,6 @@ export function CityCanvas({
   // Lightweight performance sampling for debug overlay (toggled with F3)
   const [perfSample, setPerfSample] = useState<PerfSample | null>(null);
   const [showPerf, setShowPerf] = useState(false);
-  const [selfId, setSelfId] = useState<string | null>(null);
   const [allPlayers, setAllPlayers] = useState<NetPlayerState[]>([]);
   const [localPlayerColor, setLocalPlayerColor] = useState<string>("#ec4899");
   const lastPoseSentAtRef = useRef(0);
@@ -507,13 +506,11 @@ export function CityCanvas({
     [allPlayers, city],
   );
   const otherPlayers = useMemo(
-    () => sessionPlayers.filter((p) => p.id !== selfId),
-    [sessionPlayers, selfId],
+    () => sessionPlayers.filter((p) => p.id !== myId && !p.isNpc),
+    [sessionPlayers, myId],
   );
 
   useEffect(() => {
-    setSelfId(myId);
-
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -525,6 +522,7 @@ export function CityCanvas({
     const channelName = `city-room-${city}`;
     const channel = supabase.channel(channelName, {
       config: {
+        broadcast: { self: false },
         presence: {
           key: myId,
         },
@@ -536,12 +534,22 @@ export function CityCanvas({
     // Listen to pose broadcasts from other players
     channel.on("broadcast", { event: "pose" }, ({ payload }) => {
       if (payload && payload.id && payload.id !== myId) {
-        posesRef.current[payload.id] = {
+        const pose = {
           x: payload.x,
           z: payload.z,
           yaw: payload.yaw,
           speed: payload.speed,
         };
+        posesRef.current[payload.id] = pose;
+        setAllPlayers((prev) => {
+          const idx = prev.findIndex((p) => p.id === payload.id);
+          if (idx === -1) return prev;
+          const p = prev[idx];
+          if (p.x === pose.x && p.z === pose.z && p.yaw === pose.yaw && p.speed === pose.speed) return prev;
+          const next = [...prev];
+          next[idx] = { ...p, ...pose };
+          return next;
+        });
       }
     });
 
@@ -643,40 +651,17 @@ export function CityCanvas({
     };
   }, [carVariant, city, playerName, myId]);
 
-  // Sync NPC state locally and batch coordinate state flushes to reduce React layout overhead
+  // Sync other players' poses locally and batch coordinate state flushes to reduce React layout overhead
   useEffect(() => {
     let tickCount = 0;
     const intervalId = window.setInterval(() => {
       tickCount++;
       const currentPoses = posesRef.current;
 
-      // Deterministic synced circular movement for "mutasim" NPC
-      const npcTime = Date.now() / 1000;
-      const npcAngle = npcTime * 0.0944;
-      const npcRadius = 280;
-      const npcX = Math.cos(npcAngle) * npcRadius;
-      const npcZ = Math.sin(npcAngle) * npcRadius;
-      const npcYaw = npcAngle + Math.PI / 2;
-
-      const npcPlayer: NetPlayerState = {
-        id: `npc-${city}`,
-        name: "mutasim",
-        city,
-        carVariant: "cm2",
-        color: "#f97316",
-        x: npcX,
-        z: npcZ,
-        yaw: npcYaw,
-        speed: 26,
-        isNpc: true,
-      };
-
       setAllPlayers((prev) => {
         let changed = false;
 
         const next = prev.map((p) => {
-          if (p.isNpc) return p;
-
           const pose = currentPoses[p.id];
           if (pose) {
             if (p.x !== pose.x || p.z !== pose.z || p.yaw !== pose.yaw || p.speed !== pose.speed) {
@@ -687,24 +672,15 @@ export function CityCanvas({
           return p;
         });
 
-        const npcIndex = next.findIndex((p) => p.isNpc);
-        if (npcIndex === -1) {
-          next.push(npcPlayer);
-          changed = true;
-        } else {
-          next[npcIndex] = npcPlayer;
-          changed = true;
-        }
-
         return changed ? next : prev;
       });
 
       // Update player position tracking/heartbeat in database every ~5 seconds
-      if (tickCount % 50 === 0 && channelRef.current && selfId) {
+      if (tickCount % 50 === 0 && channelRef.current && myId) {
         supabase
           .from("players")
           .upsert({
-            id: selfId,
+            id: myId,
             username: playerName,
             x: playerPoseRef.current.x,
             y: 1.5,
@@ -722,7 +698,7 @@ export function CityCanvas({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [city, playerName, selfId]);
+  }, [city, playerName, myId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -990,12 +966,12 @@ export function CityCanvas({
                 if (now - lastPoseSentAtRef.current < 45) return;
                 lastPoseSentAtRef.current = now;
                 const channel = channelRef.current;
-                if (!channel || !selfId) return;
+                if (!channel) return;
                 channel.send({
                   type: "broadcast",
                   event: "pose",
                   payload: {
-                    id: selfId,
+                    id: myId,
                     x: pose.x,
                     z: pose.z,
                     yaw: pose.yaw,

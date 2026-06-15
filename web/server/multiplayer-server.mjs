@@ -2,7 +2,6 @@ import { WebSocketServer } from "ws";
 
 const PORT = 8787;
 const MAX_HUMAN_PLAYERS = 10;
-const NPC_NAME = "mutasim";
 const PLAYER_COLORS = [
   "#f43f5e",
   "#22d3ee",
@@ -29,7 +28,6 @@ const CAR_VARIANTS = ["cm1", "cm2", "cm3", "cm4", "cm5", "cm6", "cm7"];
  * @property {number} z
  * @property {number} yaw
  * @property {number} speed
- * @property {boolean=} isNpc
  */
 
 /** @type {Map<string, Map<string, PlayerState>>} */
@@ -39,25 +37,7 @@ const sockets = new Map();
 
 function ensureSession(city) {
   if (!sessions.has(city)) sessions.set(city, new Map());
-  const players = sessions.get(city);
-  const npcId = `npc-${city}`;
-  if (!players.has(npcId)) {
-    const npcAngle = Math.random() * Math.PI * 2;
-    const npcRadius = 280 + Math.random() * 160;
-    players.set(npcId, {
-      id: npcId,
-      name: NPC_NAME,
-      city,
-      carVariant: CAR_VARIANTS[Math.floor(Math.random() * CAR_VARIANTS.length)],
-      color: "#f97316",
-      x: Math.cos(npcAngle) * npcRadius,
-      z: Math.sin(npcAngle) * npcRadius,
-      yaw: npcAngle + Math.PI / 2,
-      speed: 28,
-      isNpc: true,
-    });
-  }
-  return players;
+  return sessions.get(city);
 }
 
 function pickColor(players) {
@@ -98,8 +78,7 @@ wss.on("connection", (ws) => {
         const name = String(msg.name || "guest").trim().slice(0, 24) || "guest";
         const carVariant = CAR_VARIANTS.includes(msg.carVariant) ? msg.carVariant : "cm1";
         const players = ensureSession(city);
-        const humanCount = Array.from(players.values()).filter((p) => !p.isNpc).length;
-        if (humanCount >= MAX_HUMAN_PLAYERS) {
+        if (players.size >= MAX_HUMAN_PLAYERS) {
           ws.send(JSON.stringify({ type: "error", message: "Session full (10 players max)." }));
           return;
         }
@@ -150,15 +129,6 @@ wss.on("connection", (ws) => {
 
 setInterval(() => {
   for (const city of CITIES) {
-    const players = ensureSession(city);
-    const npc = players.get(`npc-${city}`);
-    if (!npc) continue;
-    const radius = Math.max(150, Math.hypot(npc.x, npc.z));
-    const angle = Math.atan2(npc.z, npc.x) + 0.0085;
-    npc.x = Math.cos(angle) * radius;
-    npc.z = Math.sin(angle) * radius;
-    npc.yaw = angle + Math.PI / 2;
-    npc.speed = 26;
     broadcastCity(city);
   }
 }, 90);
