@@ -71,10 +71,11 @@ function StreetCar({
 }) {
   const cfg = getGameCarConfig(variant);
   const gltf = useGLTF(cfg.modelPath);
+  const model = useMemo(() => gltf.scene.clone(true), [gltf.scene]);
   return (
     <group ref={carGroupRef}>
       <group rotation-y={cfg.modelYaw} rotation-x={cfg.modelTilt}>
-        <primitive object={gltf.scene} scale={cfg.scale} />
+        <primitive object={model} scale={cfg.scale} />
       </group>
     </group>
   );

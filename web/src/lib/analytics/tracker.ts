@@ -53,6 +53,8 @@ function logError(label: string, message: string) {
 export class AnalyticsTracker {
   private userId: string | null = null;
   private sessionId: string | null = null;
+  private sessionReady = false;
+  private startPromise: Promise<void> | null = null;
   private username = "";
   private cityId: CityId | null = null;
   private startedAt = 0;
@@ -64,56 +66,55 @@ export class AnalyticsTracker {
   private lastSearchQuery: string | null = null;
 
   get sessionActive(): boolean {
-    return !!this.sessionId && !this.ended;
+    return this.sessionReady && !!this.sessionId && !this.ended;
   }
 
   async startSession(ctx: AnalyticsSessionContext): Promise<void> {
-    if (!analyticsEnabled() || this.sessionId) return;
+    if (!analyticsEnabled()) return;
+    if (this.sessionActive) return;
+    if (this.startPromise) return this.startPromise;
 
-    this.userId = getOrCreateUserId(ctx.username);
-    this.sessionId = crypto.randomUUID();
-    this.username = ctx.username.trim();
-    this.cityId = ctx.cityId;
-    this.startedAt = Date.now();
-    this.lastAction = "session_start";
-    this.lastTheme = ctx.theme;
-    this.distance = 0;
-    this.lastPose = null;
-    this.ended = false;
-    this.lastSearchQuery = null;
+    this.startPromise = this.beginSession(ctx).finally(() => {
+      this.startPromise = null;
+    });
+    return this.startPromise;
+  }
 
+  private async beginSession(ctx: AnalyticsSessionContext): Promise<void> {
+    const pendingSessionId = crypto.randomUUID();
+    const pendingUserId = getOrCreateUserId(ctx.username);
+    const username = ctx.username.trim();
     const now = new Date().toISOString();
-    const seenKey = storageKey(this.username, "seen");
+    const seenKey = storageKey(username, "seen");
     const isFirstVisit = !localStorage.getItem(seenKey);
     if (isFirstVisit) localStorage.setItem(seenKey, "1");
 
-    const totalSessions = bumpCounter(this.username, "sc");
+    const totalSessions = bumpCounter(username, "sc");
 
     const { error: userError } = await supabase.rpc("analytics_upsert_user", {
-      p_id: this.userId,
-      p_username: this.username,
+      p_id: pendingUserId,
+      p_username: username,
       p_city_id: ctx.cityId,
       p_first_visit_at: isFirstVisit ? now : null,
       p_last_active_at: now,
       p_total_sessions: totalSessions,
-      p_total_time_seconds: readCounter(this.username, "tt"),
-      p_total_distance: readCounter(this.username, "td"),
-      p_search_count: readCounter(this.username, "sr"),
+      p_total_time_seconds: readCounter(username, "tt"),
+      p_total_distance: readCounter(username, "td"),
+      p_search_count: readCounter(username, "sr"),
       p_preferred_vehicle: ctx.vehicle,
       p_preferred_theme: ctx.theme,
     });
     if (userError) {
       logError("upsert user", userError.message);
-      this.sessionId = null;
       return;
     }
 
     const { error: sessionError } = await supabase.from("analytics_sessions").insert({
-      id: this.sessionId,
-      user_id: this.userId,
-      username: this.username,
+      id: pendingSessionId,
+      user_id: pendingUserId,
+      username,
       city_id: ctx.cityId,
-      client_session_id: this.sessionId,
+      client_session_id: pendingSessionId,
       started_at: now,
       distance_traveled: 0,
       bounced: false,
@@ -122,9 +123,21 @@ export class AnalyticsTracker {
     });
     if (sessionError) {
       logError("insert session", sessionError.message);
-      this.sessionId = null;
       return;
     }
+
+    this.userId = pendingUserId;
+    this.sessionId = pendingSessionId;
+    this.sessionReady = true;
+    this.username = username;
+    this.cityId = ctx.cityId;
+    this.startedAt = Date.now();
+    this.lastAction = "session_start";
+    this.lastTheme = ctx.theme;
+    this.distance = 0;
+    this.lastPose = null;
+    this.ended = false;
+    this.lastSearchQuery = null;
 
     await this.insertEvent("session_start", {
       vehicle: ctx.vehicle,
@@ -137,11 +150,13 @@ export class AnalyticsTracker {
   private async insertEvent(
     eventType: string,
     payload: Record<string, string | number | boolean | null>,
+    sessionId = this.sessionId,
   ): Promise<void> {
-    if (!this.sessionId || !this.username) return;
+    if (!sessionId || !this.username) return;
+    if (!this.sessionReady && eventType !== "session_end") return;
 
     const { error } = await supabase.from("analytics_events").insert({
-      session_id: this.sessionId,
+      session_id: sessionId,
       username: this.username,
       city_id: this.cityId,
       event_type: eventType,
@@ -256,40 +271,61 @@ export class AnalyticsTracker {
   }
 
   async endSession(): Promise<void> {
-    if (!analyticsEnabled() || !this.sessionId || this.ended) return;
-    this.ended = true;
+    if (!analyticsEnabled()) return;
+    if (this.startPromise) await this.startPromise;
+    if (!this.sessionId || !this.sessionReady || this.ended) {
+      this.sessionId = null;
+      this.sessionReady = false;
+      return;
+    }
 
-    const endedAt = new Date();
-    const durationSeconds = Math.max(1, Math.round((endedAt.getTime() - this.startedAt) / 1000));
-    const bounced = durationSeconds < BOUNCE_SECONDS && this.distance < BOUNCE_DISTANCE;
+    this.ended = true;
+    const sessionId = this.sessionId;
+    const username = this.username;
+    const userId = this.userId;
+    const startedAt = this.startedAt;
+    const lastAction = this.lastAction;
+    const lastTheme = this.lastTheme;
     const sessionDistance = Math.round(this.distance);
 
-    void this.insertEvent("session_end", {
-      last_action: this.lastAction,
-      duration_seconds: durationSeconds,
-      distance_traveled: sessionDistance,
-      bounced,
-    });
+    const endedAt = new Date();
+    const durationSeconds = Math.max(1, Math.round((endedAt.getTime() - startedAt) / 1000));
+    const bounced = durationSeconds < BOUNCE_SECONDS && sessionDistance < BOUNCE_DISTANCE;
+
+    await this.insertEvent(
+      "session_end",
+      {
+        last_action: lastAction,
+        duration_seconds: durationSeconds,
+        distance_traveled: sessionDistance,
+        bounced,
+      },
+      sessionId,
+    );
+
+    this.sessionId = null;
+    this.sessionReady = false;
+    this.userId = null;
 
     const { error: sessionError } = await supabase.rpc("analytics_end_session", {
-      p_session_id: this.sessionId,
+      p_session_id: sessionId,
       p_ended_at: endedAt.toISOString(),
       p_duration_seconds: durationSeconds,
       p_distance_traveled: sessionDistance,
       p_bounced: bounced,
-      p_final_theme: this.lastTheme,
-      p_last_action: this.lastAction,
+      p_final_theme: lastTheme,
+      p_last_action: lastAction,
     });
     if (sessionError) logError("end session", sessionError.message);
 
-    const totalTime = readCounter(this.username, "tt") + durationSeconds;
-    const totalDistance = readCounter(this.username, "td") + sessionDistance;
-    writeCounter(this.username, "tt", totalTime);
-    writeCounter(this.username, "td", totalDistance);
+    const totalTime = readCounter(username, "tt") + durationSeconds;
+    const totalDistance = readCounter(username, "td") + sessionDistance;
+    writeCounter(username, "tt", totalTime);
+    writeCounter(username, "td", totalDistance);
 
-    if (this.userId) {
+    if (userId) {
       const { error: userError } = await supabase.rpc("analytics_patch_user", {
-        p_id: this.userId,
+        p_id: userId,
         p_last_active_at: endedAt.toISOString(),
         p_search_count: null,
         p_preferred_vehicle: null,
@@ -299,8 +335,6 @@ export class AnalyticsTracker {
       });
       if (userError) logError("update user on end", userError.message);
     }
-
-    this.sessionId = null;
   }
 }
 

@@ -35,11 +35,15 @@ export function useGameAnalytics({
   useEffect(() => {
     if (!enabled || !username.trim()) return;
 
+    let cancelled = false;
+
     void gameAnalytics.startSession({
       username: username.trim(),
       cityId,
       vehicle,
       theme,
+    }).then(() => {
+      if (cancelled) void gameAnalytics.endSession();
     });
 
     const onPageHide = () => {
@@ -75,6 +79,7 @@ export function useGameAnalytics({
     }, 5000);
 
     return () => {
+      cancelled = true;
       window.removeEventListener("pagehide", onPageHide);
       window.clearInterval(positionInterval);
 
