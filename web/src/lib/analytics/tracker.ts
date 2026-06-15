@@ -89,23 +89,24 @@ export class AnalyticsTracker {
 
     const totalSessions = bumpCounter(this.username, "sc");
 
-    const { error: userError } = await supabase.from("analytics_users").upsert(
-      {
-        id: this.userId,
-        username: this.username,
-        city_id: ctx.cityId,
-        first_visit_at: isFirstVisit ? now : undefined,
-        last_active_at: now,
-        total_sessions: totalSessions,
-        total_time_seconds: readCounter(this.username, "tt"),
-        total_distance: readCounter(this.username, "td"),
-        search_count: readCounter(this.username, "sr"),
-        preferred_vehicle: ctx.vehicle,
-        preferred_theme: ctx.theme,
-      },
-      { onConflict: "id" },
-    );
-    if (userError) logError("upsert user", userError.message);
+    const { error: userError } = await supabase.rpc("analytics_upsert_user", {
+      p_id: this.userId,
+      p_username: this.username,
+      p_city_id: ctx.cityId,
+      p_first_visit_at: isFirstVisit ? now : null,
+      p_last_active_at: now,
+      p_total_sessions: totalSessions,
+      p_total_time_seconds: readCounter(this.username, "tt"),
+      p_total_distance: readCounter(this.username, "td"),
+      p_search_count: readCounter(this.username, "sr"),
+      p_preferred_vehicle: ctx.vehicle,
+      p_preferred_theme: ctx.theme,
+    });
+    if (userError) {
+      logError("upsert user", userError.message);
+      this.sessionId = null;
+      return;
+    }
 
     const { error: sessionError } = await supabase.from("analytics_sessions").insert({
       id: this.sessionId,
@@ -119,7 +120,11 @@ export class AnalyticsTracker {
       initial_vehicle: ctx.vehicle,
       initial_theme: ctx.theme,
     });
-    if (sessionError) logError("insert session", sessionError.message);
+    if (sessionError) {
+      logError("insert session", sessionError.message);
+      this.sessionId = null;
+      return;
+    }
 
     await this.insertEvent("session_start", {
       vehicle: ctx.vehicle,
@@ -145,12 +150,22 @@ export class AnalyticsTracker {
     if (error) logError(`event ${eventType}`, error.message);
   }
 
-  private touchUser(patch: Record<string, string | number>): void {
+  private touchUser(patch: {
+    search_count?: number;
+    preferred_vehicle?: string;
+    preferred_theme?: string;
+  }): void {
     if (!this.userId) return;
     void supabase
-      .from("analytics_users")
-      .update({ last_active_at: new Date().toISOString(), ...patch })
-      .eq("id", this.userId)
+      .rpc("analytics_patch_user", {
+        p_id: this.userId,
+        p_last_active_at: new Date().toISOString(),
+        p_search_count: patch.search_count ?? null,
+        p_preferred_vehicle: patch.preferred_vehicle ?? null,
+        p_preferred_theme: patch.preferred_theme ?? null,
+        p_total_time_seconds: null,
+        p_total_distance: null,
+      })
       .then(({ error }) => {
         if (error) logError("update user", error.message);
       });
@@ -256,17 +271,15 @@ export class AnalyticsTracker {
       bounced,
     });
 
-    const { error: sessionError } = await supabase
-      .from("analytics_sessions")
-      .update({
-        ended_at: endedAt.toISOString(),
-        duration_seconds: durationSeconds,
-        distance_traveled: sessionDistance,
-        bounced,
-        final_theme: this.lastTheme,
-        metadata: { last_action: this.lastAction },
-      })
-      .eq("id", this.sessionId);
+    const { error: sessionError } = await supabase.rpc("analytics_end_session", {
+      p_session_id: this.sessionId,
+      p_ended_at: endedAt.toISOString(),
+      p_duration_seconds: durationSeconds,
+      p_distance_traveled: sessionDistance,
+      p_bounced: bounced,
+      p_final_theme: this.lastTheme,
+      p_last_action: this.lastAction,
+    });
     if (sessionError) logError("end session", sessionError.message);
 
     const totalTime = readCounter(this.username, "tt") + durationSeconds;
@@ -275,14 +288,15 @@ export class AnalyticsTracker {
     writeCounter(this.username, "td", totalDistance);
 
     if (this.userId) {
-      const { error: userError } = await supabase
-        .from("analytics_users")
-        .update({
-          last_active_at: endedAt.toISOString(),
-          total_time_seconds: totalTime,
-          total_distance: totalDistance,
-        })
-        .eq("id", this.userId);
+      const { error: userError } = await supabase.rpc("analytics_patch_user", {
+        p_id: this.userId,
+        p_last_active_at: endedAt.toISOString(),
+        p_search_count: null,
+        p_preferred_vehicle: null,
+        p_preferred_theme: null,
+        p_total_time_seconds: totalTime,
+        p_total_distance: totalDistance,
+      });
       if (userError) logError("update user on end", userError.message);
     }
 

@@ -1,6 +1,7 @@
 -- =============================================================================
 -- Git City — Lock down analytics (fix "Unrestricted / publicly available" warning)
 -- Run this AFTER creating analytics tables + views.
+-- Then run supabase_analytics_client_writes.sql
 -- =============================================================================
 -- Why Supabase warns:
 --   1. Views are exposed to the Data API and bypass table RLS by default.

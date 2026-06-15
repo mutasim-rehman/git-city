@@ -2,6 +2,7 @@
 -- Git City — User Analytics Schema
 -- Run in Supabase SQL Editor (safe to re-run; uses IF NOT EXISTS / OR REPLACE)
 -- Then run supabase_analytics_lockdown.sql
+-- Then run supabase_analytics_client_writes.sql
 -- =============================================================================
 -- Design:
 --   analytics_users    → one row per username (rollup / preferences)
