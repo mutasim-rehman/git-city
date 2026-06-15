@@ -38,6 +38,8 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { OrbitCityCamera } from "@/components/city/CameraView";
 import { StreetView, type NetPlayerState } from "@/components/city/StreetView";
 import { supabase } from "@/lib/supabaseClient";
+import { gameAnalytics } from "@/lib/analytics/tracker";
+import { useGameAnalytics } from "@/lib/analytics/useGameAnalytics";
 
 const PLAYER_COLORS = [
   "#f43f5e",
@@ -434,6 +436,18 @@ export function CityCanvas({
 
   const roadGraph = useMemo(() => createGridRoadGraph(layoutResult), [layoutResult]);
   const playerPoseRef = useRef<{ x: number; z: number; yaw: number; speed: number }>({ x: 0, z: 0, yaw: 0, speed: 0 });
+  const getPlayerPose = useCallback(
+    () => ({ x: playerPoseRef.current.x, z: playerPoseRef.current.z }),
+    [],
+  );
+  useGameAnalytics({
+    username: playerName,
+    cityId: city,
+    vehicle: carVariant,
+    theme: geoGenSettings.theme,
+    layoutResult,
+    getPose: getPlayerPose,
+  });
   const [uiPose, setUiPose] = useState<{ x: number; z: number; yaw: number; speed: number } | null>(null);
   const [navQuery, setNavQuery] = useState("");
   const [navTarget, setNavTarget] = useState<PositionedBuilding | null>(null);
@@ -709,7 +723,11 @@ export function CityCanvas({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "F3") {
-        setShowPerf((v) => !v);
+        setShowPerf((v) => {
+          const next = !v;
+          gameAnalytics.trackFeature(next ? "perf_overlay_on" : "perf_overlay_off");
+          return next;
+        });
       }
     };
     window.addEventListener("keydown", onKey);
@@ -729,6 +747,8 @@ export function CityCanvas({
           const key = navTarget.id;
           if (arrivalLatchRef.current !== key) {
             arrivalLatchRef.current = key;
+            gameAnalytics.trackBuildingVisit(navTarget.username, navTarget.sectorId);
+            gameAnalytics.trackAction("arrived_at_building");
             setToast(`Arrived at @${navTarget.username}`);
             setNavTarget(null);
             setNavQuery("");
@@ -819,9 +839,18 @@ export function CityCanvas({
     const start = nearestRoadNode(roadGraph, playerPoseRef.current.x, playerPoseRef.current.z);
     const goal = nearestRoadNode(roadGraph, target.x, target.z);
     const path = aStar(roadGraph, start, goal);
+    gameAnalytics.trackAction("route_started");
     setNavTarget(target);
     setNavRoute(path);
   }, [roadGraph]);
+
+  const runNavSearch = useCallback(() => {
+    const needle = navQuery.trim().replace(/^@/, "").toLowerCase();
+    if (!needle) return;
+    const target = buildings.find((b) => b.username.toLowerCase() === needle);
+    gameAnalytics.trackSearch(needle, target ? 1 : 0, !!target);
+    if (target) computeRouteTo(target);
+  }, [buildings, computeRouteTo, navQuery]);
 
   useEffect(() => {
     if (!streetMode || !navTarget) return;
@@ -836,7 +865,12 @@ export function CityCanvas({
   }, [navTarget, roadGraph, streetMode]);
 
   useEffect(() => {
-    const handler = () => setStreetMode(prev => !prev);
+    const handler = () =>
+      setStreetMode((prev) => {
+        const next = !prev;
+        gameAnalytics.trackFeature(next ? "drive_mode" : "fly_mode");
+        return next;
+      });
     window.addEventListener("gc-proto-street-toggle", handler);
     return () => window.removeEventListener("gc-proto-street-toggle", handler);
   }, []);
@@ -1140,10 +1174,7 @@ export function CityCanvas({
                 onChange={(e) => setNavQuery(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key !== "Enter") return;
-                  const needle = navQuery.trim().replace(/^@/, "").toLowerCase();
-                  if (!needle) return;
-                  const target = buildings.find((b) => b.username.toLowerCase() === needle);
-                  if (target) computeRouteTo(target);
+                  runNavSearch();
                 }}
                 placeholder="Type @username and press Enter"
                 className="h-9 flex-1 rounded-xl border border-emerald-900 bg-black px-3 text-xs text-emerald-100 placeholder:text-emerald-400/45 focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-950"
@@ -1151,12 +1182,7 @@ export function CityCanvas({
               <button
                 type="button"
                 className="h-9 rounded-xl border border-emerald-800 bg-black px-3 text-[11px] font-medium text-emerald-100 hover:border-emerald-600"
-                onClick={() => {
-                  const needle = navQuery.trim().replace(/^@/, "").toLowerCase();
-                  if (!needle) return;
-                  const target = buildings.find((b) => b.username.toLowerCase() === needle);
-                  if (target) computeRouteTo(target);
-                }}
+                onClick={runNavSearch}
               >
                 Route
               </button>
@@ -1170,6 +1196,7 @@ export function CityCanvas({
                   if (!buildings.length) return;
                   const idx = Math.floor((Math.abs(Math.sin(Date.now())) % 1) * buildings.length);
                   const target = buildings[idx];
+                  gameAnalytics.trackFeature("random_job");
                   computeRouteTo(target);
                   setNavQuery(`@${target.username}`);
                   setToast(`Job started: deliver to @${target.username}`);
