@@ -11,7 +11,7 @@ type Options = {
   vehicle: string;
   theme: string;
   layoutResult: CityLayoutResult;
-  getPose: () => { x: number; z: number };
+  getPose: () => { x: number; z: number; speed?: number };
   enabled?: boolean;
 };
 
@@ -50,7 +50,7 @@ export function useGameAnalytics({
     const positionInterval = window.setInterval(() => {
       if (!gameAnalytics.sessionActive) return;
       const pose = getPoseRef.current();
-      gameAnalytics.trackPosition(pose.x, pose.z);
+      gameAnalytics.trackPosition(pose.x, pose.z, pose.speed ?? 0);
 
       const sector = findSectorAt(pose.x, pose.z, layoutResult.sectors);
       const prev = currentSectorRef.current;

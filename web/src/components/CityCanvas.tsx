@@ -437,7 +437,11 @@ export function CityCanvas({
   const roadGraph = useMemo(() => createGridRoadGraph(layoutResult), [layoutResult]);
   const playerPoseRef = useRef<{ x: number; z: number; yaw: number; speed: number }>({ x: 0, z: 0, yaw: 0, speed: 0 });
   const getPlayerPose = useCallback(
-    () => ({ x: playerPoseRef.current.x, z: playerPoseRef.current.z }),
+    () => ({
+      x: playerPoseRef.current.x,
+      z: playerPoseRef.current.z,
+      speed: playerPoseRef.current.speed,
+    }),
     [],
   );
   useGameAnalytics({

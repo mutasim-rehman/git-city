@@ -2,8 +2,7 @@ import type { CityId } from "@/lib/types";
 import type { SectorRect } from "@/lib/city/layout";
 import { supabase } from "@/lib/supabaseClient";
 
-const GRID_CELL = 50;
-const BOUNCE_SECONDS = 30;
+const BOUNCE_SECONDS = 60;
 const BOUNCE_DISTANCE = 40;
 
 export type AnalyticsSessionContext = {
@@ -47,10 +46,6 @@ function bumpCounter(username: string, suffix: string, delta = 1): number {
   return next;
 }
 
-function gridCoord(value: number): number {
-  return Math.floor(value / GRID_CELL);
-}
-
 function logError(label: string, message: string) {
   console.error(`[ANALYTICS] ${label}:`, message);
 }
@@ -64,7 +59,9 @@ export class AnalyticsTracker {
   private lastAction = "session_start";
   private distance = 0;
   private lastPose: { x: number; z: number } | null = null;
+  private lastTheme = "";
   private ended = false;
+  private lastSearchQuery: string | null = null;
 
   get sessionActive(): boolean {
     return !!this.sessionId && !this.ended;
@@ -79,9 +76,11 @@ export class AnalyticsTracker {
     this.cityId = ctx.cityId;
     this.startedAt = Date.now();
     this.lastAction = "session_start";
+    this.lastTheme = ctx.theme;
     this.distance = 0;
     this.lastPose = null;
     this.ended = false;
+    this.lastSearchQuery = null;
 
     const now = new Date().toISOString();
     const seenKey = storageKey(this.username, "seen");
@@ -110,27 +109,29 @@ export class AnalyticsTracker {
 
     const { error: sessionError } = await supabase.from("analytics_sessions").insert({
       id: this.sessionId,
+      user_id: this.userId,
       username: this.username,
       city_id: ctx.cityId,
+      client_session_id: this.sessionId,
       started_at: now,
       distance_traveled: 0,
       bounced: false,
       initial_vehicle: ctx.vehicle,
       initial_theme: ctx.theme,
-      last_action: this.lastAction,
     });
     if (sessionError) logError("insert session", sessionError.message);
 
-    await this.insertEvent({
-      event_type: "session_start",
+    await this.insertEvent("session_start", {
       vehicle: ctx.vehicle,
       theme: ctx.theme,
-      feature: "session_start",
     });
+    await this.insertEvent("theme_select", { theme: ctx.theme });
+    await this.insertEvent("vehicle_select", { vehicle: ctx.vehicle });
   }
 
   private async insertEvent(
-    fields: Record<string, string | number | boolean | null | undefined>,
+    eventType: string,
+    payload: Record<string, string | number | boolean | null>,
   ): Promise<void> {
     if (!this.sessionId || !this.username) return;
 
@@ -138,9 +139,10 @@ export class AnalyticsTracker {
       session_id: this.sessionId,
       username: this.username,
       city_id: this.cityId,
-      ...fields,
+      event_type: eventType,
+      payload,
     });
-    if (error) logError(`event ${fields.event_type}`, error.message);
+    if (error) logError(`event ${eventType}`, error.message);
   }
 
   private touchUser(patch: Record<string, string | number>): void {
@@ -156,46 +158,56 @@ export class AnalyticsTracker {
 
   trackAction(action: string): void {
     this.lastAction = action;
-    void this.insertEvent({ event_type: "action", feature: action });
+    void this.insertEvent("action", { feature: action });
   }
 
   trackSearch(searchTerm: string, resultsCount: number, converted: boolean): void {
-    this.lastAction = converted ? "search_converted" : "search";
-    void this.insertEvent({
-      event_type: "search",
-      search_term: searchTerm,
-      results_count: resultsCount,
-      converted,
-    });
+    this.lastSearchQuery = searchTerm;
+    this.lastAction = converted ? "search" : resultsCount > 0 ? "search" : "search_no_results";
+
+    if (resultsCount === 0) {
+      void this.insertEvent("search_no_results", {
+        query: searchTerm,
+        results_count: 0,
+        converted: false,
+      });
+    } else {
+      void this.insertEvent("search", {
+        query: searchTerm,
+        results_count: resultsCount,
+        converted,
+      });
+    }
+
     const searchCount = bumpCounter(this.username, "sr");
     this.touchUser({ search_count: searchCount });
   }
 
   trackFeature(feature: string): void {
     this.lastAction = feature;
-    void this.insertEvent({ event_type: "feature", feature });
+    void this.insertEvent("settings_change", { feature });
   }
 
   trackVehicle(vehicle: string): void {
     this.lastAction = "vehicle_select";
-    void this.insertEvent({ event_type: "vehicle_select", vehicle });
+    void this.insertEvent("vehicle_select", { vehicle });
     this.touchUser({ preferred_vehicle: vehicle });
   }
 
   trackTheme(theme: string, durationSeconds?: number): void {
-    this.lastAction = "theme_change";
-    void this.insertEvent({
-      event_type: "theme_change",
-      theme,
+    this.lastAction = "theme_switch";
+    void this.insertEvent("theme_switch", {
+      from: this.lastTheme,
+      to: theme,
       duration_seconds: durationSeconds ?? null,
     });
+    this.lastTheme = theme;
     this.touchUser({ preferred_theme: theme });
   }
 
   trackSector(sectorId: number, sectorLabel: string, durationSeconds: number): void {
-    this.lastAction = "sector_visit";
-    void this.insertEvent({
-      event_type: "sector_time",
+    this.lastAction = "sector_enter";
+    void this.insertEvent("sector_enter", {
       sector_id: sectorId,
       sector_label: sectorLabel,
       duration_seconds: Math.round(durationSeconds),
@@ -204,14 +216,20 @@ export class AnalyticsTracker {
 
   trackBuildingVisit(githubUsername: string, sectorId: number): void {
     this.lastAction = "building_visit";
-    void this.insertEvent({
-      event_type: "building_visit",
+    void this.insertEvent("building_visit", {
       github_username: githubUsername,
       sector_id: sectorId,
     });
+    if (this.lastSearchQuery) {
+      void this.insertEvent("search_visit", {
+        query: this.lastSearchQuery,
+        visited_username: githubUsername,
+      });
+      this.lastSearchQuery = null;
+    }
   }
 
-  trackPosition(x: number, z: number): void {
+  trackPosition(x: number, z: number, speed = 0): void {
     if (this.lastPose) {
       const dx = x - this.lastPose.x;
       const dz = z - this.lastPose.z;
@@ -219,11 +237,7 @@ export class AnalyticsTracker {
     }
     this.lastPose = { x, z };
 
-    void this.insertEvent({
-      event_type: "position",
-      grid_x: gridCoord(x),
-      grid_z: gridCoord(z),
-    });
+    void this.insertEvent("position_sample", { x, z, speed });
   }
 
   async endSession(): Promise<void> {
@@ -235,6 +249,13 @@ export class AnalyticsTracker {
     const bounced = durationSeconds < BOUNCE_SECONDS && this.distance < BOUNCE_DISTANCE;
     const sessionDistance = Math.round(this.distance);
 
+    void this.insertEvent("session_end", {
+      last_action: this.lastAction,
+      duration_seconds: durationSeconds,
+      distance_traveled: sessionDistance,
+      bounced,
+    });
+
     const { error: sessionError } = await supabase
       .from("analytics_sessions")
       .update({
@@ -242,7 +263,8 @@ export class AnalyticsTracker {
         duration_seconds: durationSeconds,
         distance_traveled: sessionDistance,
         bounced,
-        last_action: this.lastAction,
+        final_theme: this.lastTheme,
+        metadata: { last_action: this.lastAction },
       })
       .eq("id", this.sessionId);
     if (sessionError) logError("end session", sessionError.message);
