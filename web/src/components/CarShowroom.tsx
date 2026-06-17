@@ -8,6 +8,7 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
 import type { CarVariant, CarModelTuning } from "@/game/content/cars";
 import { CAR_CONFIGS, CAR_VARIANTS, DEFAULT_CAR_VARIANT, GARAGE_MODEL_PATH, getCarStats } from "@/game/content/cars";
+import { preloadCarModel } from "@/lib/loadAssets";
 import { SHOWROOM_ENV_PRESET } from "@/lib/loadAssets";
 import { CarModelTuner, useCarModelTuning } from "@/components/city/CarModelTuner";
 
@@ -309,6 +310,10 @@ export function CarShowroom({
   const variant = CAR_VARIANTS[idx] ?? DEFAULT_CAR_VARIANT;
   const cfg = CAR_CONFIGS[variant];
   const stats = React.useMemo(() => getCarStats(variant), [variant]);
+
+  React.useEffect(() => {
+    preloadCarModel(variant);
+  }, [variant]);
 
   const [selectedBiome, setSelectedBiome] = React.useState<"alpine" | "canyon" | "volcanic" | "tundra" | "cyberpunk">("alpine");
 

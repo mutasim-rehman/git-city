@@ -1,17 +1,26 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CityId, PositionedBuilding } from "@/lib/types";
 import type { CityLayoutResult } from "@/lib/city/layout";
 import { loadCityData } from "@/lib/data/csvClient";
 import { mapCsvToBuildings } from "@/lib/city/scaling";
 import { computeCityLayout } from "@/lib/city/layout";
-import { loadShowroomAssets, preloadRemainingCars } from "@/lib/loadAssets";
+import { loadShowroomAssets, warmShowroomExtras } from "@/lib/loadAssets";
 import { CitySelector } from "@/components/CitySelector";
 import { LoadingScreen } from "@/components/LoadingScreen";
-import { CityCanvas } from "@/components/CityCanvas";
-import { CarShowroom } from "@/components/CarShowroom";
 import { DEFAULT_CAR_VARIANT, type CarVariant } from "@/game/content/cars";
+
+const CarShowroom = dynamic(
+  () => import("@/components/CarShowroom").then((m) => ({ default: m.CarShowroom })),
+  { ssr: false },
+);
+
+const CityCanvas = dynamic(
+  () => import("@/components/CityCanvas").then((m) => ({ default: m.CityCanvas })),
+  { ssr: false },
+);
 
 type Phase = "boot" | "carSelect" | "transition" | "play";
 
@@ -104,7 +113,10 @@ export default function Home() {
   }, [musicStarted, phase]);
 
   useEffect(() => {
-    if (phase === "carSelect") preloadRemainingCars();
+    if (phase === "carSelect") {
+      warmShowroomExtras();
+      void import("@/components/CityCanvas");
+    }
   }, [phase]);
 
   useEffect(() => {
@@ -152,14 +164,13 @@ export default function Home() {
           return layout;
         });
 
-        // Wait for both in parallel
-        const [layout] = await Promise.all([csvPromise, showroomAssetsPromise]);
+        // Enter garage as soon as city data is ready — showroom assets continue in background
+        const layout = await csvPromise;
+        void showroomAssetsPromise.then(() => {
+          if (!canceled) assetsLoadedRef.current = true;
+        });
 
         if (canceled) return;
-
-        if (!assetsLoadedRef.current) {
-          assetsLoadedRef.current = true;
-        }
 
         if (!layout) {
           setError("Failed to load city data. Please try again.");
@@ -276,9 +287,12 @@ export default function Home() {
         />
       )}
 
-      {/* Phase: gameplay fullscreen */}
-      {phase === "play" && layoutResult && buildings.length > 0 && (
-        <div className="fixed inset-0 z-10 flex flex-col bg-black">
+      {/* Warm WebGL during transition so city mount overlaps the fade */}
+      {(phase === "transition" || phase === "play") && layoutResult && buildings.length > 0 && (
+        <div
+          className={`fixed inset-0 z-10 flex flex-col bg-black ${phase === "transition" ? "invisible" : ""}`}
+          aria-hidden={phase === "transition"}
+        >
           <CityCanvas
             city={selectedCity}
             buildings={buildings}
@@ -292,7 +306,7 @@ export default function Home() {
         </div>
       )}
 
-      {phase === "play" && (!layoutResult || buildings.length === 0) && (
+      {(phase === "transition" || phase === "play") && (!layoutResult || buildings.length === 0) && (
         <PhaseStatusScreen
           title="Rebuilding City"
           message="Keeping the world visible while the city catches up."

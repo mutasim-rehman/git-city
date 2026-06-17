@@ -60,25 +60,36 @@ async function preloadPaths(
   onProgress?.({ phase: "models", progress: 100, message: "All assets loaded" });
 }
 
-/** Preload default car + garage + showroom HDRI — gate before entering car select. */
+/** Preload default car + garage GLBs. HDRI loads when the showroom Environment mounts. */
 export async function loadShowroomAssets(onProgress?: (p: LoadProgress) => void): Promise<void> {
   onProgress?.({ phase: "models", progress: 0, message: "Loading showroom…" });
-
-  useEnvironment.preload({ preset: SHOWROOM_ENV_PRESET });
   await preloadPaths(showroomPaths(), onProgress);
 }
 
-let remainingCarsStarted = false;
-
-/** Fire-and-forget preload of non-default cars while user browses showroom. */
-export function preloadRemainingCars(): void {
-  if (remainingCarsStarted) return;
-  remainingCarsStarted = true;
-
+/** Kick off HDRI + remaining cars without blocking the boot → garage transition. */
+export function warmShowroomExtras(): void {
+  useEnvironment.preload({ preset: SHOWROOM_ENV_PRESET });
   const paths = remainingCarPaths();
-  void Promise.all(paths.map((path) => preloadGltf(path).catch((err) => {
-    console.warn("Background preload failed:", path, err);
-  })));
+  void Promise.all(
+    paths.map((path) =>
+      preloadGltf(path).catch((err) => {
+        console.warn("Background preload failed:", path, err);
+      }),
+    ),
+  );
+}
+
+/** Preload a single car model when the user selects it in the showroom. */
+export function preloadCarModel(variant: (typeof CAR_VARIANTS)[number]): void {
+  const path = CAR_CONFIGS[variant].modelPath;
+  void preloadGltf(path).catch((err) => {
+    console.warn("Car preload failed:", path, err);
+  });
+}
+
+/** @deprecated Use warmShowroomExtras */
+export function preloadRemainingCars(): void {
+  warmShowroomExtras();
 }
 
 /** @deprecated Use loadShowroomAssets + preloadRemainingCars */

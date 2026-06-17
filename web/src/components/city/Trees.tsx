@@ -681,11 +681,11 @@ export function InstancedForestTrees({
   const trees = useMemo((): TreePlacement[] => {
     if (!cityBounds) return [];
     const out: TreePlacement[] = [];
-    const step = 8; // Highly dense forest spacing
+    const step = 12;
     for (let x = forest.minX; x < forest.maxX; x += step) {
       for (let z = forest.minZ; z < forest.maxZ; z += step) {
         const s = x * 0.13 + z * 0.17;
-        if (seededRng(s) > 0.25) continue; // Keep 85% of grid positions for highly dense cover
+        if (seededRng(s) > 0.35) continue;
 
         const tx = x + (seededRng(s + 1) - 0.5) * step * 0.85;
         const tz = z + (seededRng(s + 2) - 0.5) * step * 0.85;
@@ -712,7 +712,7 @@ export function InstancedForestTrees({
         });
       }
     }
-    return out.slice(0, 15000); // Increased cap to support extremely dense coverage
+    return out.slice(0, 6000);
   }, [forest, roads, cityBounds]);
 
   // Group trees by style index deterministically

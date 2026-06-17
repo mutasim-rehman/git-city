@@ -38,6 +38,7 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { OrbitCityCamera } from "@/components/city/CameraView";
 import { StreetView, type NetPlayerState } from "@/components/city/StreetView";
 import { supabase } from "@/lib/supabaseClient";
+import { DeferredMount } from "@/components/DeferredMount";
 import { gameAnalytics } from "@/lib/analytics/tracker";
 import { useGameAnalytics } from "@/lib/analytics/useGameAnalytics";
 
@@ -461,7 +462,12 @@ export function CityCanvas({
   const arrivalLatchRef = useRef<string | null>(null);
 
   type QualityLevel = "low" | "medium" | "high";
-  const [quality, setQuality] = useState<QualityLevel>("medium");
+  const [quality, setQuality] = useState<QualityLevel>(() => {
+    if (typeof window === "undefined") return "medium";
+    const mobile = window.matchMedia("(max-width: 768px)").matches;
+    const lowCores = (navigator.hardwareConcurrency ?? 8) <= 4;
+    return mobile || lowCores ? "low" : "medium";
+  });
 
   const qualityConfig = useMemo(() => {
     switch (quality) {
@@ -939,17 +945,19 @@ export function CityCanvas({
         <PulseTargetBuilding building={pulseBuilding} />
         <BuildingSignBoards buildings={signTargetBuildings} activeBuildingId={signTagBuildingId} />
 
-        {/* Scenery */}
-        <Mountains
-          buildings={buildings}
-          cityBounds={layoutResult.cityBounds}
-          theme={geoGenSettings.theme}
-          snow={geoGenSettings.snow}
-          wire={geoGenSettings.wire}
-          hScale={geoGenSettings.hScale}
-          seedOffset={geoGenSettings.seedOffset}
-        />
-        <Clouds extent={cityExtent} />
+        {/* Scenery — deferred so roads/buildings/player car appear first */}
+        <DeferredMount timeoutMs={2000}>
+          <Mountains
+            buildings={buildings}
+            cityBounds={layoutResult.cityBounds}
+            theme={geoGenSettings.theme}
+            snow={geoGenSettings.snow}
+            wire={geoGenSettings.wire}
+            hScale={geoGenSettings.hScale}
+            seedOffset={geoGenSettings.seedOffset}
+          />
+          <Clouds extent={cityExtent} />
+        </DeferredMount>
 
         {!streetMode && (
           <OrbitCityCamera focusPosition={focusPosition} controlsRef={controlsRef} />

@@ -82,9 +82,27 @@ export async function loadCityCsv(city: CityId): Promise<CsvUser[]> {
   return parsed;
 }
 
+async function loadCityDataFromApi(city: CityId): Promise<CsvUser[] | null> {
+  try {
+    const res = await fetch(`/api/city/${city}`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as CsvUser[];
+    return data.length > 0 ? data : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function loadCityData(city: CityId): Promise<CsvUser[]> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  // Single edge-cached request — server fans out Supabase pages in one hop
+  const apiData = await loadCityDataFromApi(city);
+  if (apiData) {
+    console.log(`[API] Loaded ${apiData.length} records for '${city}'.`);
+    return apiData;
+  }
 
   // If environment variables are missing, fallback to CSV immediately
   if (!supabaseUrl || !supabaseAnonKey) {
