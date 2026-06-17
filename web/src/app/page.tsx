@@ -75,7 +75,8 @@ export default function Home() {
   useEffect(() => {
     const audio = new Audio("/audios/showroom.mp3");
     audio.loop = true;
-    audio.preload = "auto";
+    // Defer buffering until the user explicitly starts audio — saves ~5 MB on cold load
+    audio.preload = "none";
     audio.volume = 0.34;
     showroomMusicRef.current = audio;
     return () => {
@@ -115,44 +116,56 @@ export default function Home() {
         setBootMessage("Downloading city data…");
         setBootProgress(5);
 
+        // Kick off GLTF/showroom loading immediately — runs in parallel with CSV fetch
         const showroomAssetsPromise = !assetsLoadedRef.current
           ? loadShowroomAssets((p) => {
               if (canceled) return;
-              setBootMessage(p.message);
-              setBootProgress(15 + (p.progress * 75) / 100);
+              // Only update the message if city layout hasn't finished yet
+              setBootMessage((prev) =>
+                prev.startsWith("Generating") ? prev : p.message
+              );
+              setBootProgress((prev) => Math.max(prev, 15 + (p.progress * 60) / 100));
             })
-          : null;
+          : Promise.resolve();
 
-        const csv = await loadCityData(selectedCity);
+        // CSV fetch + layout computation (runs concurrently with showroomAssetsPromise)
+        const csvPromise = loadCityData(selectedCity).then((csv) => {
+          if (canceled) return null;
+          setBootMessage("Generating skyline and roads…");
+          setBootProgress((prev) => Math.max(prev, 30));
+
+          const mapped = mapCsvToBuildings(selectedCity, csv);
+          const layout = computeCityLayout(mapped);
+
+          if (!canceled) {
+            setBuildings(layout.buildings);
+            setLayoutResult(layout);
+
+            const totalDevs = csv.length;
+            const totalBuildings = layout.buildings.length;
+            const totalCommits = csv.reduce((acc, row) => {
+              const val = Number(row.Lifetime_Commits);
+              return acc + (Number.isFinite(val) ? val : 0);
+            }, 0);
+            setStats({ devs: totalDevs, buildings: totalBuildings, commits: totalCommits });
+          }
+          return layout;
+        });
+
+        // Wait for both in parallel
+        const [layout] = await Promise.all([csvPromise, showroomAssetsPromise]);
+
         if (canceled) return;
-        setBootMessage("Generating skyline and roads…");
-        setBootProgress(12);
 
-        const mapped = mapCsvToBuildings(selectedCity, csv);
-        const layout = computeCityLayout(mapped);
-        setBuildings(layout.buildings);
-        setLayoutResult(layout);
-
-        const totalDevs = csv.length;
-        const totalBuildings = layout.buildings.length;
-        const totalCommits = csv.reduce((acc, row) => {
-          const val = Number(row.Lifetime_Commits);
-          return acc + (Number.isFinite(val) ? val : 0);
-        }, 0);
-        setStats({ devs: totalDevs, buildings: totalBuildings, commits: totalCommits });
-
-        if (canceled) return;
-
-        if (showroomAssetsPromise) {
-          setBootMessage("Loading showroom…");
-          await showroomAssetsPromise;
+        if (!assetsLoadedRef.current) {
           assetsLoadedRef.current = true;
-        } else {
-          setBootMessage("Rebuilding city from cached assets…");
-          setBootProgress(92);
         }
 
-        if (canceled) return;
+        if (!layout) {
+          setError("Failed to load city data. Please try again.");
+          return;
+        }
+
         setBootMessage("Ready");
         setBootProgress(100);
         setPhase("carSelect");

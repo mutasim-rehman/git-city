@@ -33,27 +33,43 @@ function mapGithubUserRow(item: GithubUserRow): CsvUser {
   };
 }
 
-/** PostgREST caps each response (default 1000 rows); paginate to load the full city. */
+/**
+ * PostgREST caps each response at SUPABASE_PAGE_SIZE rows.
+ * Strategy: fetch the first page + total count together, then fire all remaining
+ * pages in parallel — reduces N serial RTTs to just 2 effective waits.
+ */
 async function fetchAllGithubUsers(city: CityId): Promise<GithubUserRow[]> {
-  const all: GithubUserRow[] = [];
-  let from = 0;
+  // First page + total row count in one request
+  const { data: firstPage, error: firstError, count } = await supabase
+    .from("github_users")
+    .select(GITHUB_USER_COLUMNS, { count: "exact" })
+    .eq("city_id", city)
+    .range(0, SUPABASE_PAGE_SIZE - 1);
 
-  while (true) {
-    const { data, error } = await supabase
-      .from("github_users")
-      .select(GITHUB_USER_COLUMNS)
-      .eq("city_id", city)
-      .range(from, from + SUPABASE_PAGE_SIZE - 1);
+  if (firstError) throw firstError;
+  if (!firstPage?.length) return [];
 
-    if (error) throw error;
-    if (!data?.length) break;
+  const total = count ?? firstPage.length;
+  if (firstPage.length >= total) return firstPage as GithubUserRow[];
 
-    all.push(...(data as GithubUserRow[]));
-    if (data.length < SUPABASE_PAGE_SIZE) break;
-    from += SUPABASE_PAGE_SIZE;
-  }
+  // Fan out all remaining pages in parallel
+  const pageCount = Math.ceil(total / SUPABASE_PAGE_SIZE);
+  const remainingPages = await Promise.all(
+    Array.from({ length: pageCount - 1 }, (_, i) => {
+      const from = (i + 1) * SUPABASE_PAGE_SIZE;
+      return supabase
+        .from("github_users")
+        .select(GITHUB_USER_COLUMNS)
+        .eq("city_id", city)
+        .range(from, from + SUPABASE_PAGE_SIZE - 1)
+        .then(({ data, error }) => {
+          if (error) throw error;
+          return (data ?? []) as GithubUserRow[];
+        });
+    }),
+  );
 
-  return all;
+  return [firstPage as GithubUserRow[], ...remainingPages].flat();
 }
 
 export async function loadCityCsv(city: CityId): Promise<CsvUser[]> {

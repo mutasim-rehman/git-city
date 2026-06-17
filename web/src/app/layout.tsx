@@ -29,6 +29,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        {/* Warm up Supabase connection before JS executes */}
+        <link rel="preconnect" href="https://supabase.co" />
+        {/* Preload the two largest models and the Draco WASM so they're in-flight immediately */}
+        <link rel="preload" href="/draco/draco_wasm_wrapper.js" as="script" />
+        <link rel="preload" href="/draco/draco_decoder.wasm" as="fetch" crossOrigin="anonymous" />
         <link rel="preload" href="/models/cm1.glb" as="fetch" crossOrigin="anonymous" />
         <link rel="preload" href="/models/garage.glb" as="fetch" crossOrigin="anonymous" />
       </head>

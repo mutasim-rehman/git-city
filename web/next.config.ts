@@ -24,8 +24,34 @@ function loadParentEnv() {
 
 loadParentEnv();
 
+const IMMUTABLE = "public, max-age=31536000, immutable";
+const AUDIO_CACHE = "public, max-age=86400, stale-while-revalidate=604800";
+
 const nextConfig: NextConfig = {
   reactCompiler: true,
+  async headers() {
+    return [
+      // CSV city data – content-addressed by city name; safe to cache for a week
+      {
+        source: "/data/:file*.csv",
+        headers: [{ key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" }],
+      },
+      // 3-D models & Draco decoder – versioned by filename; immutable
+      {
+        source: "/models/:file*",
+        headers: [{ key: "Cache-Control", value: IMMUTABLE }],
+      },
+      {
+        source: "/draco/:file*",
+        headers: [{ key: "Cache-Control", value: IMMUTABLE }],
+      },
+      // Audio – large files; 1-day fresh, 1-week stale-while-revalidate
+      {
+        source: "/audios/:file*",
+        headers: [{ key: "Cache-Control", value: AUDIO_CACHE }],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

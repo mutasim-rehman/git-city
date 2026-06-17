@@ -172,14 +172,15 @@ function CityAmbientAudio() {
     const wind = new Audio("/audios/wind.mp3");
 
     cityMusic.loop = true;
-    cityMusic.preload = "auto";
+    // Defer download until user gesture — city_music.mp3 is 65 MB, auto-preloading it kills load perf
+    cityMusic.preload = "none";
     cityMusic.volume = 0.16;
 
     cityAmbience.loop = true;
-    cityAmbience.preload = "auto";
+    cityAmbience.preload = "none";
     cityAmbience.volume = 0.11;
 
-    wind.preload = "auto";
+    wind.preload = "none";
     wind.volume = 0.2;
 
     const unlock = () => {
