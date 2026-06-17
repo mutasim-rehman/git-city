@@ -1,5 +1,8 @@
 import * as THREE from "three";
 import type { CityLayoutResult, LayoutRect, RoadSegment } from "@/lib/city/layout";
+import { LANE_WIDTH, MEDIAN_WIDTH } from "@/lib/city/layout";
+
+const ARTERIAL_LANE_OFFSET = MEDIAN_WIDTH / 2 + LANE_WIDTH / 2;
 
 export type RoadNodeId = string;
 
@@ -128,4 +131,66 @@ export function nodeWorldPosition(graph: RoadGraph, id: RoadNodeId): THREE.Vecto
   const n = graph.nodes.get(id);
   if (!n) return new THREE.Vector3(0, 1.5, 0);
   return new THREE.Vector3(n.x, 1.5, n.z);
+}
+
+function closestPointOnSegment(
+  px: number,
+  pz: number,
+  x1: number,
+  z1: number,
+  x2: number,
+  z2: number,
+): { x: number; z: number; segDx: number; segDz: number } {
+  const dx = x2 - x1;
+  const dz = z2 - z1;
+  const lenSq = dx * dx + dz * dz;
+  if (lenSq < 1e-6) return { x: x1, z: z1, segDx: 1, segDz: 0 };
+
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (pz - z1) * dz) / lenSq));
+  return { x: x1 + t * dx, z: z1 + t * dz, segDx: dx, segDz: dz };
+}
+
+/** Snap a world XZ point onto the nearest drivable lane (not the arterial median). */
+export function snapToDrivingLane(
+  graph: RoadGraph,
+  x: number,
+  z: number,
+): { x: number; z: number } {
+  let bestX = x;
+  let bestZ = z;
+  let bestDistSq = Infinity;
+
+  for (const seg of graph.segments) {
+    const hit = closestPointOnSegment(x, z, seg.x1, seg.z1, seg.x2, seg.z2);
+    let sx = hit.x;
+    let sz = hit.z;
+
+    if (seg.kind === "arterial") {
+      const len = Math.hypot(hit.segDx, hit.segDz);
+      if (len > 1e-6) {
+        const nx = -hit.segDz / len;
+        const nz = hit.segDx / len;
+        const lx = sx + nx * ARTERIAL_LANE_OFFSET;
+        const lz = sz + nz * ARTERIAL_LANE_OFFSET;
+        const rx = sx - nx * ARTERIAL_LANE_OFFSET;
+        const rz = sz - nz * ARTERIAL_LANE_OFFSET;
+        if ((x - lx) ** 2 + (z - lz) ** 2 <= (x - rx) ** 2 + (z - rz) ** 2) {
+          sx = lx;
+          sz = lz;
+        } else {
+          sx = rx;
+          sz = rz;
+        }
+      }
+    }
+
+    const dSq = (x - sx) ** 2 + (z - sz) ** 2;
+    if (dSq < bestDistSq) {
+      bestDistSq = dSq;
+      bestX = sx;
+      bestZ = sz;
+    }
+  }
+
+  return { x: bestX, z: bestZ };
 }

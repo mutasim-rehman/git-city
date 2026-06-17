@@ -7,7 +7,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import type { CityId, PositionedBuilding } from "@/lib/types";
 import { Game } from "@/game/Game";
-import type { RoadGraph } from "@/game/world/RoadGraph";
+import { snapToDrivingLane, type RoadGraph } from "@/game/world/RoadGraph";
 import { NpcTraffic } from "@/game/ai/NpcTraffic";
 import {
   DEFAULT_CAR_VARIANT,
@@ -149,6 +149,10 @@ export function StreetView({
   const { camera, gl } = useThree();
 
   const spawnConfig = useMemo(() => {
+    let rawX: number;
+    let rawZ: number;
+    let fallbackYaw = Math.PI;
+
     if (focusBuilding) {
       const bx = focusBuilding.x;
       const bz = focusBuilding.z;
@@ -158,23 +162,22 @@ export function StreetView({
         dir = new THREE.Vector3(1, 0, 0);
       }
       const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize();
-      const spawnPos = new THREE.Vector3(
-        bx + dir.x * -18 + right.x * 10,
-        1.5,
-        bz + dir.z * -18 + right.z * 10,
-      );
-      const toBuilding = buildingPos.clone().sub(spawnPos).normalize();
-      // Always face the moon for a consistent “story” direction.
-      const toMoon = new THREE.Vector3(moonPosition[0] - spawnPos.x, 0, moonPosition[2] - spawnPos.z).normalize();
-      const yaw = toMoon.lengthSq() > 1e-6 ? Math.atan2(-toMoon.x, -toMoon.z) : Math.atan2(-toBuilding.x, -toBuilding.z);
-      return { pos: spawnPos, yaw };
+      rawX = bx + dir.x * -18 + right.x * 10;
+      rawZ = bz + dir.z * -18 + right.z * 10;
+      const roughSpawn = new THREE.Vector3(rawX, 0, rawZ);
+      const toBuilding = buildingPos.clone().sub(roughSpawn).normalize();
+      fallbackYaw = Math.atan2(-toBuilding.x, -toBuilding.z);
+    } else {
+      rawX = defaultSpawn.x;
+      rawZ = defaultSpawn.z;
     }
 
-    const spawnPos = new THREE.Vector3(defaultSpawn.x, 1.5, defaultSpawn.z);
+    const lane = snapToDrivingLane(roadGraph, rawX, rawZ);
+    const spawnPos = new THREE.Vector3(lane.x, 1.5, lane.z);
     const toMoon = new THREE.Vector3(moonPosition[0] - spawnPos.x, 0, moonPosition[2] - spawnPos.z).normalize();
-    const yaw = toMoon.lengthSq() > 1e-6 ? Math.atan2(-toMoon.x, -toMoon.z) : Math.PI;
+    const yaw = toMoon.lengthSq() > 1e-6 ? Math.atan2(-toMoon.x, -toMoon.z) : fallbackYaw;
     return { pos: spawnPos, yaw };
-  }, [focusBuilding, moonPosition, defaultSpawn.x, defaultSpawn.z]);
+  }, [focusBuilding, moonPosition, defaultSpawn.x, defaultSpawn.z, roadGraph]);
 
   // Separate ref for the car group — positioned and rotated every frame
   const carRef = useRef<THREE.Group | null>(null);
