@@ -37,6 +37,7 @@ revoke all on table public.v_analytics_top_buildings from anon, authenticated;
 revoke all on table public.v_analytics_heatmap from anon, authenticated;
 revoke all on table public.v_analytics_feature_usage from anon, authenticated;
 revoke all on table public.v_analytics_user_journey from anon, authenticated;
+revoke all on table public.v_analytics_user_playtime from anon, authenticated;
 revoke all on table public.v_analytics_drop_offs from anon, authenticated;
 
 -- -----------------------------------------------------------------------------
@@ -87,4 +88,5 @@ alter view public.v_analytics_top_buildings set (security_invoker = true);
 alter view public.v_analytics_heatmap set (security_invoker = true);
 alter view public.v_analytics_feature_usage set (security_invoker = true);
 alter view public.v_analytics_user_journey set (security_invoker = true);
+alter view public.v_analytics_user_playtime set (security_invoker = true);
 alter view public.v_analytics_drop_offs set (security_invoker = true);

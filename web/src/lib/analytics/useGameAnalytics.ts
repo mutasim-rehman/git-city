@@ -5,6 +5,8 @@ import type { CityId } from "@/lib/types";
 import type { CityLayoutResult } from "@/lib/city/layout";
 import { findSectorAt, gameAnalytics } from "./tracker";
 
+const SYNC_INTERVAL_MS = 15_000;
+
 type Options = {
   username: string;
   cityId: CityId;
@@ -31,6 +33,7 @@ export function useGameAnalytics({
   const currentSectorRef = useRef<{ id: number; label: string } | null>(null);
   const themeRef = useRef(theme);
   const themeStartedAtRef = useRef(Date.now());
+  const vehicleRef = useRef(vehicle);
 
   useEffect(() => {
     if (!enabled || !username.trim()) return;
@@ -47,9 +50,22 @@ export function useGameAnalytics({
     });
 
     const onPageHide = () => {
-      void gameAnalytics.endSession();
+      gameAnalytics.syncSession(true);
+      void gameAnalytics.endSession({ keepalive: true });
     };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        gameAnalytics.syncSession(true);
+      }
+    };
+
     window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    const syncInterval = window.setInterval(() => {
+      gameAnalytics.syncSession();
+    }, SYNC_INTERVAL_MS);
 
     const positionInterval = window.setInterval(() => {
       if (!gameAnalytics.sessionActive) return;
@@ -81,6 +97,8 @@ export function useGameAnalytics({
     return () => {
       cancelled = true;
       window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.clearInterval(syncInterval);
       window.clearInterval(positionInterval);
 
       const prev = currentSectorRef.current;
@@ -91,6 +109,7 @@ export function useGameAnalytics({
         }
       }
 
+      gameAnalytics.syncSession();
       void gameAnalytics.endSession();
     };
     // Session lifecycle is tied to entering the city canvas, not every pose callback change.
@@ -106,6 +125,13 @@ export function useGameAnalytics({
     themeRef.current = theme;
     themeStartedAtRef.current = Date.now();
   }, [enabled, theme]);
+
+  useEffect(() => {
+    if (!enabled || !gameAnalytics.sessionActive) return;
+    if (vehicleRef.current === vehicle) return;
+    gameAnalytics.trackVehicle(vehicle);
+    vehicleRef.current = vehicle;
+  }, [enabled, vehicle]);
 
   return gameAnalytics;
 }

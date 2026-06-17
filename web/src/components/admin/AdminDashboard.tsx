@@ -169,6 +169,16 @@ export function AdminDashboard({ data, onLogout, onRefresh, refreshing }: Props)
               label="Avg session"
               value={formatDuration(engagement?.avg_session_seconds ?? null)}
             />
+            <StatCard
+              label="Min session"
+              value={formatDuration(engagement?.min_session_seconds ?? null)}
+            />
+            <StatCard
+              label="Max session"
+              value={formatDuration(engagement?.max_session_seconds ?? null)}
+            />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-2">
             <StatCard label="Bounce rate" value={formatPercent(engagement?.bounce_rate_pct)} />
             <StatCard
               label="Avg distance"
@@ -358,12 +368,16 @@ export function AdminDashboard({ data, onLogout, onRefresh, refreshing }: Props)
                 columns={[
                   { key: "user", label: "Username" },
                   { key: "sessions", label: "Sessions", align: "right" },
-                  { key: "time", label: "Total time", align: "right" },
+                  { key: "avg", label: "Avg time", align: "right" },
+                  { key: "min", label: "Min", align: "right" },
+                  { key: "max", label: "Max", align: "right" },
                 ]}
                 rows={data.users.map((u) => ({
                   user: u.username,
                   sessions: u.total_sessions,
-                  time: formatDuration(u.total_time_seconds),
+                  avg: formatDuration(u.avg_session_seconds),
+                  min: formatDuration(u.min_session_seconds),
+                  max: formatDuration(u.max_session_seconds),
                 }))}
               />
             </div>
@@ -372,15 +386,29 @@ export function AdminDashboard({ data, onLogout, onRefresh, refreshing }: Props)
               <DataTable
                 empty="No sessions yet."
                 columns={[
-                  { key: "user", label: "User" },
-                  { key: "vehicle", label: "Vehicle" },
+                  { key: "user", label: "Username" },
+                  { key: "car", label: "Car" },
+                  { key: "searches", label: "Searches" },
+                  { key: "started", label: "Started", align: "right" },
+                  { key: "ended", label: "Ended", align: "right" },
                   { key: "duration", label: "Duration", align: "right" },
                 ]}
-                rows={data.recentSessions.map((s) => ({
-                  user: s.username,
-                  vehicle: s.initial_vehicle ?? "—",
-                  duration: s.bounced ? `${formatDuration(s.duration_seconds)} (bounce)` : formatDuration(s.duration_seconds),
-                }))}
+                rows={data.recentSessions.map((s) => {
+                  const searched =
+                    s.metadata?.github_users_searched?.join(", ") ||
+                    (s.searches > 0 ? `${s.searches} queries` : "—");
+                  const car = s.final_vehicle ?? s.initial_vehicle ?? "—";
+                  return {
+                    user: s.username,
+                    car,
+                    searches: searched,
+                    started: formatDate(s.started_at),
+                    ended: s.ended_at ? formatDate(s.ended_at) : "In progress",
+                    duration: s.bounced
+                      ? `${formatDuration(s.duration_seconds)} (bounce)`
+                      : formatDuration(s.duration_seconds),
+                  };
+                })}
               />
             </div>
           </div>

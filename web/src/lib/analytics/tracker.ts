@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabaseClient";
 
 const BOUNCE_SECONDS = 60;
 const BOUNCE_DISTANCE = 40;
+const PENDING_SESSION_KEY = "gc_pending_session_end";
 
 export type AnalyticsSessionContext = {
   username: string;
@@ -12,10 +13,35 @@ export type AnalyticsSessionContext = {
   theme: string;
 };
 
+type SessionEndPayload = {
+  sessionId: string;
+  userId: string;
+  username: string;
+  endedAt: string;
+  durationSeconds: number;
+  distanceTraveled: number;
+  bounced: boolean;
+  finalTheme: string;
+  finalVehicle: string;
+  lastAction: string;
+  searches: number;
+  searchesNoResults: number;
+  searchesConverted: number;
+  githubUsersSearched: string[];
+};
+
 function analyticsEnabled(): boolean {
   return !!(
     process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   );
+}
+
+function supabaseUrl(): string {
+  return process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+}
+
+function supabaseAnonKey(): string {
+  return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 }
 
 function storageKey(username: string, suffix: string): string {
@@ -50,6 +76,23 @@ function logError(label: string, message: string) {
   console.error(`[ANALYTICS] ${label}:`, message);
 }
 
+function rpcFetch(
+  fn: string,
+  body: Record<string, unknown>,
+  keepalive = false,
+): Promise<Response> {
+  return fetch(`${supabaseUrl()}/rest/v1/rpc/${fn}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: supabaseAnonKey(),
+      Authorization: `Bearer ${supabaseAnonKey()}`,
+    },
+    body: JSON.stringify(body),
+    keepalive,
+  });
+}
+
 export class AnalyticsTracker {
   private userId: string | null = null;
   private sessionId: string | null = null;
@@ -62,8 +105,14 @@ export class AnalyticsTracker {
   private distance = 0;
   private lastPose: { x: number; z: number } | null = null;
   private lastTheme = "";
+  private currentVehicle = "";
   private ended = false;
   private lastSearchQuery: string | null = null;
+  private githubUsersSearched: string[] = [];
+  private sessionSearchCount = 0;
+  private sessionSearchesNoResults = 0;
+  private sessionSearchesConverted = 0;
+  private syncing = false;
 
   get sessionActive(): boolean {
     return this.sessionReady && !!this.sessionId && !this.ended;
@@ -71,6 +120,7 @@ export class AnalyticsTracker {
 
   async startSession(ctx: AnalyticsSessionContext): Promise<void> {
     if (!analyticsEnabled()) return;
+    await this.flushPendingSessionEnd();
     if (this.sessionActive) return;
     if (this.startPromise) return this.startPromise;
 
@@ -120,6 +170,8 @@ export class AnalyticsTracker {
       bounced: false,
       initial_vehicle: ctx.vehicle,
       initial_theme: ctx.theme,
+      final_vehicle: ctx.vehicle,
+      metadata: { github_users_searched: [] },
     });
     if (sessionError) {
       logError("insert session", sessionError.message);
@@ -134,10 +186,15 @@ export class AnalyticsTracker {
     this.startedAt = Date.now();
     this.lastAction = "session_start";
     this.lastTheme = ctx.theme;
+    this.currentVehicle = ctx.vehicle;
     this.distance = 0;
     this.lastPose = null;
     this.ended = false;
     this.lastSearchQuery = null;
+    this.githubUsersSearched = [];
+    this.sessionSearchCount = 0;
+    this.sessionSearchesNoResults = 0;
+    this.sessionSearchesConverted = 0;
 
     await this.insertEvent("session_start", {
       vehicle: ctx.vehicle,
@@ -145,6 +202,168 @@ export class AnalyticsTracker {
     });
     await this.insertEvent("theme_select", { theme: ctx.theme });
     await this.insertEvent("vehicle_select", { vehicle: ctx.vehicle });
+    void this.syncSession();
+  }
+
+  private sessionSnapshot(): SessionEndPayload | null {
+    if (!this.sessionId || !this.userId || !this.sessionReady) return null;
+    const endedAt = new Date();
+    const durationSeconds = Math.max(1, Math.round((endedAt.getTime() - this.startedAt) / 1000));
+    const sessionDistance = Math.round(this.distance);
+    return {
+      sessionId: this.sessionId,
+      userId: this.userId,
+      username: this.username,
+      endedAt: endedAt.toISOString(),
+      durationSeconds,
+      distanceTraveled: sessionDistance,
+      bounced: durationSeconds < BOUNCE_SECONDS && sessionDistance < BOUNCE_DISTANCE,
+      finalTheme: this.lastTheme,
+      finalVehicle: this.currentVehicle,
+      lastAction: this.lastAction,
+      searches: this.sessionSearchCount,
+      searchesNoResults: this.sessionSearchesNoResults,
+      searchesConverted: this.sessionSearchesConverted,
+      githubUsersSearched: [...this.githubUsersSearched],
+    };
+  }
+
+  private syncPayloadFromSnapshot(snap: SessionEndPayload) {
+    return {
+      p_session_id: snap.sessionId,
+      p_duration_seconds: snap.durationSeconds,
+      p_distance_traveled: snap.distanceTraveled,
+      p_final_vehicle: snap.finalVehicle,
+      p_last_action: snap.lastAction,
+      p_searches: snap.searches,
+      p_searches_no_results: snap.searchesNoResults,
+      p_searches_converted: snap.searchesConverted,
+      p_github_users_searched: snap.githubUsersSearched,
+    };
+  }
+
+  private endPayloadFromSnapshot(snap: SessionEndPayload) {
+    return {
+      p_session_id: snap.sessionId,
+      p_ended_at: snap.endedAt,
+      p_duration_seconds: snap.durationSeconds,
+      p_distance_traveled: snap.distanceTraveled,
+      p_bounced: snap.bounced,
+      p_final_theme: snap.finalTheme,
+      p_final_vehicle: snap.finalVehicle,
+      p_last_action: snap.lastAction,
+      p_searches: snap.searches,
+      p_searches_no_results: snap.searchesNoResults,
+      p_searches_converted: snap.searchesConverted,
+      p_github_users_searched: snap.githubUsersSearched,
+    };
+  }
+
+  private savePendingSessionEnd(snap: SessionEndPayload): void {
+    try {
+      localStorage.setItem(PENDING_SESSION_KEY, JSON.stringify(snap));
+    } catch {
+      // ignore quota errors
+    }
+  }
+
+  private clearPendingSessionEnd(): void {
+    localStorage.removeItem(PENDING_SESSION_KEY);
+  }
+
+  private applySessionEndCounters(snap: SessionEndPayload): void {
+    const totalTime = readCounter(snap.username, "tt") + snap.durationSeconds;
+    const totalDistance = readCounter(snap.username, "td") + snap.distanceTraveled;
+    writeCounter(snap.username, "tt", totalTime);
+    writeCounter(snap.username, "td", totalDistance);
+  }
+
+  private async patchUserTotals(snap: SessionEndPayload, keepalive = false): Promise<void> {
+    const totalTime = readCounter(snap.username, "tt");
+    const totalDistance = readCounter(snap.username, "td");
+    const patch = {
+      p_id: snap.userId,
+      p_last_active_at: snap.endedAt,
+      p_search_count: null,
+      p_preferred_vehicle: null,
+      p_preferred_theme: null,
+      p_total_time_seconds: totalTime,
+      p_total_distance: totalDistance,
+    };
+    if (keepalive) {
+      void rpcFetch("analytics_patch_user", patch, true).catch(() => {});
+      return;
+    }
+    const { error: userError } = await supabase.rpc("analytics_patch_user", patch);
+    if (userError) logError("update user on end", userError.message);
+  }
+
+  private async flushPendingSessionEnd(): Promise<void> {
+    if (!analyticsEnabled()) return;
+    const raw = localStorage.getItem(PENDING_SESSION_KEY);
+    if (!raw) return;
+
+    let snap: SessionEndPayload;
+    try {
+      snap = JSON.parse(raw) as SessionEndPayload;
+    } catch {
+      this.clearPendingSessionEnd();
+      return;
+    }
+
+    const { error } = await supabase.rpc("analytics_end_session", this.endPayloadFromSnapshot(snap));
+    if (error) {
+      logError("flush pending session", error.message);
+      return;
+    }
+
+    this.applySessionEndCounters(snap);
+
+    const { error: userError } = await supabase.rpc("analytics_patch_user", {
+      p_id: snap.userId,
+      p_last_active_at: snap.endedAt,
+      p_search_count: null,
+      p_preferred_vehicle: null,
+      p_preferred_theme: null,
+      p_total_time_seconds: readCounter(snap.username, "tt"),
+      p_total_distance: readCounter(snap.username, "td"),
+    });
+    if (userError) logError("flush pending user", userError.message);
+
+    this.clearPendingSessionEnd();
+  }
+
+  /** Push live session state to the database (survives abrupt tab closes). */
+  syncSession(keepalive = false): void {
+    if (!analyticsEnabled() || !this.sessionActive || this.syncing) return;
+    const snap = this.sessionSnapshot();
+    if (!snap) return;
+
+    this.syncing = true;
+    const payload = this.syncPayloadFromSnapshot(snap);
+
+    const done = () => {
+      this.syncing = false;
+    };
+
+    if (keepalive) {
+      void rpcFetch("analytics_sync_session", payload, true)
+        .then((res) => {
+          if (!res.ok) logError("sync session keepalive", String(res.status));
+        })
+        .catch(() => logError("sync session keepalive", "network error"))
+        .finally(done);
+      return;
+    }
+
+    void (async () => {
+      try {
+        const { error } = await supabase.rpc("analytics_sync_session", payload);
+        if (error) logError("sync session", error.message);
+      } finally {
+        done();
+      }
+    })();
   }
 
   private async insertEvent(
@@ -163,6 +382,32 @@ export class AnalyticsTracker {
       payload,
     });
     if (error) logError(`event ${eventType}`, error.message);
+  }
+
+  private insertEventKeepalive(
+    eventType: string,
+    payload: Record<string, string | number | boolean | null>,
+    sessionId: string,
+  ): void {
+    if (!sessionId || !this.username) return;
+    const url = `${supabaseUrl()}/rest/v1/analytics_events`;
+    void fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: supabaseAnonKey(),
+        Authorization: `Bearer ${supabaseAnonKey()}`,
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({
+        session_id: sessionId,
+        username: this.username,
+        city_id: this.cityId,
+        event_type: eventType,
+        payload,
+      }),
+      keepalive: true,
+    }).catch(() => {});
   }
 
   private touchUser(patch: {
@@ -192,18 +437,27 @@ export class AnalyticsTracker {
   }
 
   trackSearch(searchTerm: string, resultsCount: number, converted: boolean): void {
-    this.lastSearchQuery = searchTerm;
+    const query = searchTerm.trim().toLowerCase();
+    if (!query) return;
+
+    this.lastSearchQuery = query;
     this.lastAction = converted ? "search" : resultsCount > 0 ? "search" : "search_no_results";
+    this.sessionSearchCount += 1;
+    if (resultsCount === 0) this.sessionSearchesNoResults += 1;
+    if (converted) this.sessionSearchesConverted += 1;
+    if (!this.githubUsersSearched.includes(query)) {
+      this.githubUsersSearched.push(query);
+    }
 
     if (resultsCount === 0) {
       void this.insertEvent("search_no_results", {
-        query: searchTerm,
+        query,
         results_count: 0,
         converted: false,
       });
     } else {
       void this.insertEvent("search", {
-        query: searchTerm,
+        query,
         results_count: resultsCount,
         converted,
       });
@@ -211,6 +465,7 @@ export class AnalyticsTracker {
 
     const searchCount = bumpCounter(this.username, "sr");
     this.touchUser({ search_count: searchCount });
+    this.syncSession();
   }
 
   trackFeature(feature: string): void {
@@ -220,8 +475,10 @@ export class AnalyticsTracker {
 
   trackVehicle(vehicle: string): void {
     this.lastAction = "vehicle_select";
+    this.currentVehicle = vehicle;
     void this.insertEvent("vehicle_select", { vehicle });
     this.touchUser({ preferred_vehicle: vehicle });
+    this.syncSession();
   }
 
   trackTheme(theme: string, durationSeconds?: number): void {
@@ -233,6 +490,7 @@ export class AnalyticsTracker {
     });
     this.lastTheme = theme;
     this.touchUser({ preferred_theme: theme });
+    this.syncSession();
   }
 
   trackSector(sectorId: number, sectorLabel: string, durationSeconds: number): void {
@@ -257,6 +515,7 @@ export class AnalyticsTracker {
       });
       this.lastSearchQuery = null;
     }
+    this.syncSession();
   }
 
   trackPosition(x: number, z: number, speed = 0): void {
@@ -270,7 +529,7 @@ export class AnalyticsTracker {
     void this.insertEvent("position_sample", { x, z, speed });
   }
 
-  async endSession(): Promise<void> {
+  async endSession(options: { keepalive?: boolean } = {}): Promise<void> {
     if (!analyticsEnabled()) return;
     if (this.startPromise) await this.startPromise;
     if (!this.sessionId || !this.sessionReady || this.ended) {
@@ -280,61 +539,63 @@ export class AnalyticsTracker {
     }
 
     this.ended = true;
-    const sessionId = this.sessionId;
-    const username = this.username;
-    const userId = this.userId;
-    const startedAt = this.startedAt;
-    const lastAction = this.lastAction;
-    const lastTheme = this.lastTheme;
-    const sessionDistance = Math.round(this.distance);
+    const snap = this.sessionSnapshot();
+    if (!snap) return;
 
-    const endedAt = new Date();
-    const durationSeconds = Math.max(1, Math.round((endedAt.getTime() - startedAt) / 1000));
-    const bounced = durationSeconds < BOUNCE_SECONDS && sessionDistance < BOUNCE_DISTANCE;
+    const sessionId = snap.sessionId;
 
-    await this.insertEvent(
-      "session_end",
-      {
-        last_action: lastAction,
-        duration_seconds: durationSeconds,
-        distance_traveled: sessionDistance,
-        bounced,
-      },
-      sessionId,
-    );
+    this.savePendingSessionEnd(snap);
+
+    if (options.keepalive) {
+      this.insertEventKeepalive(
+        "session_end",
+        {
+          last_action: snap.lastAction,
+          duration_seconds: snap.durationSeconds,
+          distance_traveled: snap.distanceTraveled,
+          bounced: snap.bounced,
+        },
+        sessionId,
+      );
+      void rpcFetch("analytics_end_session", this.endPayloadFromSnapshot(snap), true)
+        .then(async (res) => {
+          if (!res.ok) {
+            logError("end session keepalive", String(res.status));
+            return;
+          }
+          this.applySessionEndCounters(snap);
+          this.clearPendingSessionEnd();
+          await this.patchUserTotals(snap, true);
+        })
+        .catch(() => logError("end session keepalive", "network error"));
+    } else {
+      await this.insertEvent(
+        "session_end",
+        {
+          last_action: snap.lastAction,
+          duration_seconds: snap.durationSeconds,
+          distance_traveled: snap.distanceTraveled,
+          bounced: snap.bounced,
+        },
+        sessionId,
+      );
+
+      const { error: sessionError } = await supabase.rpc(
+        "analytics_end_session",
+        this.endPayloadFromSnapshot(snap),
+      );
+      if (sessionError) {
+        logError("end session", sessionError.message);
+      } else {
+        this.applySessionEndCounters(snap);
+        this.clearPendingSessionEnd();
+        await this.patchUserTotals(snap);
+      }
+    }
 
     this.sessionId = null;
     this.sessionReady = false;
     this.userId = null;
-
-    const { error: sessionError } = await supabase.rpc("analytics_end_session", {
-      p_session_id: sessionId,
-      p_ended_at: endedAt.toISOString(),
-      p_duration_seconds: durationSeconds,
-      p_distance_traveled: sessionDistance,
-      p_bounced: bounced,
-      p_final_theme: lastTheme,
-      p_last_action: lastAction,
-    });
-    if (sessionError) logError("end session", sessionError.message);
-
-    const totalTime = readCounter(username, "tt") + durationSeconds;
-    const totalDistance = readCounter(username, "td") + sessionDistance;
-    writeCounter(username, "tt", totalTime);
-    writeCounter(username, "td", totalDistance);
-
-    if (userId) {
-      const { error: userError } = await supabase.rpc("analytics_patch_user", {
-        p_id: userId,
-        p_last_active_at: endedAt.toISOString(),
-        p_search_count: null,
-        p_preferred_vehicle: null,
-        p_preferred_theme: null,
-        p_total_time_seconds: totalTime,
-        p_total_distance: totalDistance,
-      });
-      if (userError) logError("update user on end", userError.message);
-    }
   }
 }
 

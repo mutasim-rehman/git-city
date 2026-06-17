@@ -99,6 +99,42 @@ end;
 $$;
 
 -- -----------------------------------------------------------------------------
+-- Live session checkpoint (called periodically while playing)
+-- -----------------------------------------------------------------------------
+create or replace function public.analytics_sync_session(
+  p_session_id uuid,
+  p_duration_seconds integer,
+  p_distance_traveled double precision,
+  p_final_vehicle text,
+  p_last_action text,
+  p_searches integer,
+  p_searches_no_results integer,
+  p_searches_converted integer,
+  p_github_users_searched jsonb
+) returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.analytics_sessions set
+    duration_seconds = p_duration_seconds,
+    distance_traveled = p_distance_traveled,
+    final_vehicle = p_final_vehicle,
+    searches = p_searches,
+    searches_no_results = p_searches_no_results,
+    searches_converted = p_searches_converted,
+    metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+      'last_action', p_last_action,
+      'github_users_searched', coalesce(p_github_users_searched, '[]'::jsonb),
+      'synced_at', timezone('utc'::text, now())
+    )
+  where id = p_session_id
+    and ended_at is null;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
 -- End session row update
 -- -----------------------------------------------------------------------------
 create or replace function public.analytics_end_session(
@@ -108,7 +144,12 @@ create or replace function public.analytics_end_session(
   p_distance_traveled double precision,
   p_bounced boolean,
   p_final_theme text,
-  p_last_action text
+  p_final_vehicle text,
+  p_last_action text,
+  p_searches integer,
+  p_searches_no_results integer,
+  p_searches_converted integer,
+  p_github_users_searched jsonb
 ) returns void
 language plpgsql
 security definer
@@ -121,7 +162,15 @@ begin
     distance_traveled = p_distance_traveled,
     bounced = p_bounced,
     final_theme = p_final_theme,
-    metadata = jsonb_build_object('last_action', p_last_action)
+    final_vehicle = p_final_vehicle,
+    searches = p_searches,
+    searches_no_results = p_searches_no_results,
+    searches_converted = p_searches_converted,
+    metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+      'last_action', p_last_action,
+      'github_users_searched', coalesce(p_github_users_searched, '[]'::jsonb),
+      'ended_at_client', p_ended_at
+    )
   where id = p_session_id;
 end;
 $$;
@@ -134,6 +183,11 @@ grant execute on function public.analytics_patch_user(
   uuid, timestamptz, integer, text, text, integer, double precision
 ) to anon, authenticated;
 
+grant execute on function public.analytics_sync_session(
+  uuid, integer, double precision, text, text, integer, integer, integer, jsonb
+) to anon, authenticated;
+
 grant execute on function public.analytics_end_session(
-  uuid, timestamptz, integer, double precision, boolean, text, text
+  uuid, timestamptz, integer, double precision, boolean, text, text, text,
+  integer, integer, integer, jsonb
 ) to anon, authenticated;

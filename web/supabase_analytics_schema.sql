@@ -203,6 +203,8 @@ create view public.v_analytics_engagement as
 select
   count(*) as total_sessions,
   round(avg(duration_seconds)::numeric, 1) as avg_session_seconds,
+  min(duration_seconds) as min_session_seconds,
+  max(duration_seconds) as max_session_seconds,
   round(100.0 * count(*) filter (where bounced) / nullif(count(*), 0), 1) as bounce_rate_pct,
   round(avg(distance_traveled)::numeric, 1) as avg_distance_per_session
 from public.analytics_sessions
@@ -352,3 +354,16 @@ join lateral (
 where s.ended_at is not null
 group by 1
 order by occurrences desc;
+
+create view public.v_analytics_user_playtime as
+select
+  username,
+  count(*) as completed_sessions,
+  round(avg(duration_seconds)::numeric, 1) as avg_session_seconds,
+  min(duration_seconds) as min_session_seconds,
+  max(duration_seconds) as max_session_seconds,
+  sum(duration_seconds) as total_seconds
+from public.analytics_sessions
+where ended_at is not null
+group by username
+order by total_seconds desc nulls last;

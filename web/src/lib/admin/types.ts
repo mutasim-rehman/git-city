@@ -8,6 +8,8 @@ export type AnalyticsDashboard = {
   engagement: {
     total_sessions: number;
     avg_session_seconds: number | null;
+    min_session_seconds: number | null;
+    max_session_seconds: number | null;
     bounce_rate_pct: number | null;
     avg_distance_per_session: number | null;
   } | null;
@@ -80,6 +82,9 @@ export type AnalyticsDashboard = {
     preferred_theme: string | null;
     search_count: number;
     total_distance: number;
+    avg_session_seconds: number | null;
+    min_session_seconds: number | null;
+    max_session_seconds: number | null;
   }>;
   recentSessions: Array<{
     id: string;
@@ -91,6 +96,9 @@ export type AnalyticsDashboard = {
     distance_traveled: number;
     bounced: boolean;
     initial_vehicle: string | null;
+    final_vehicle: string | null;
     initial_theme: string | null;
+    searches: number;
+    metadata: { github_users_searched?: string[] } | null;
   }>;
 };

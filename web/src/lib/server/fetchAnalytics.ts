@@ -32,6 +32,7 @@ export async function fetchAnalyticsDashboard(): Promise<AnalyticsDashboard> {
     featureUsage,
     dropOffs,
     userJourney,
+    userPlaytime,
     usersRes,
     sessionsRes,
   ] = await Promise.all([
@@ -48,6 +49,12 @@ export async function fetchAnalyticsDashboard(): Promise<AnalyticsDashboard> {
     queryView<AnalyticsDashboard["featureUsage"][number]>("v_analytics_feature_usage", 20),
     queryView<AnalyticsDashboard["dropOffs"][number]>("v_analytics_drop_offs", 15),
     queryView<AnalyticsDashboard["userJourney"][number]>("v_analytics_user_journey", 20),
+    queryView<{
+      username: string;
+      avg_session_seconds: number | null;
+      min_session_seconds: number | null;
+      max_session_seconds: number | null;
+    }>("v_analytics_user_playtime", 200),
     sb
       .from("analytics_users")
       .select(
@@ -58,11 +65,27 @@ export async function fetchAnalyticsDashboard(): Promise<AnalyticsDashboard> {
     sb
       .from("analytics_sessions")
       .select(
-        "id, username, city_id, started_at, ended_at, duration_seconds, distance_traveled, bounced, initial_vehicle, initial_theme",
+        "id, username, city_id, started_at, ended_at, duration_seconds, distance_traveled, bounced, initial_vehicle, final_vehicle, initial_theme, searches, metadata",
       )
       .order("started_at", { ascending: false })
       .limit(50),
   ]);
+
+  const playtimeByUser = new Map(
+    userPlaytime.map((row) => [row.username.toLowerCase(), row]),
+  );
+
+  const users = usersRes.error
+    ? []
+    : (usersRes.data ?? []).map((u) => {
+        const pt = playtimeByUser.get(u.username.toLowerCase());
+        return {
+          ...u,
+          avg_session_seconds: pt?.avg_session_seconds ?? null,
+          min_session_seconds: pt?.min_session_seconds ?? null,
+          max_session_seconds: pt?.max_session_seconds ?? null,
+        };
+      });
 
   return {
     activeUsers,
@@ -78,7 +101,7 @@ export async function fetchAnalyticsDashboard(): Promise<AnalyticsDashboard> {
     featureUsage,
     dropOffs,
     userJourney,
-    users: usersRes.error ? [] : (usersRes.data ?? []),
+    users,
     recentSessions: sessionsRes.error ? [] : (sessionsRes.data ?? []),
   };
 }
