@@ -4,7 +4,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { CityLayoutResult, LayoutRect } from "@/lib/city/layout";
-import { ParkPerimeterPromenade } from "@/components/city/ParkPerimeter";
 import { rectCenter } from "@/components/city/utils/rectCenter";
 import { seededRng } from "@/components/city/utils/seededRng";
 import {
@@ -1186,7 +1185,6 @@ export function CentralPark({ park }: { park: LayoutRect }) {
 export function CentralParkTerrain({ park }: { park: CityLayoutResult["park"] }) {
   return (
     <>
-      <ParkPerimeterPromenade park={park} />
       <CentralPark park={park} />
     </>
   );

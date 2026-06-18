@@ -296,6 +296,7 @@ export default function Home() {
             initialBiome={selectedBiome}
             startInStreetMode
             fullHeight
+            cityActive={phase === "play"}
           />
         </div>
       )}

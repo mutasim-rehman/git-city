@@ -284,6 +284,8 @@ interface CityCanvasProps {
   /** When true, canvas fills the viewport (for fullscreen gameplay) */
   fullHeight?: boolean;
   initialBiome?: "alpine" | "canyon" | "volcanic" | "tundra" | "cyberpunk";
+  /** When true, the player is in the live city (not transition overlay). */
+  cityActive?: boolean;
 }
 
 const BIOME_ENV_THEMES = {
@@ -383,6 +385,7 @@ export function CityCanvas({
   startInStreetMode = false,
   fullHeight = false,
   initialBiome = "alpine",
+  cityActive = false,
 }: CityCanvasProps) {
   const [geoGenSettings, setGeoGenSettings] = useState({
     theme: initialBiome,
@@ -492,6 +495,8 @@ export function CityCanvas({
   const hasPromptedReview = useRef(false);
 
   useEffect(() => {
+    if (!cityActive) return;
+
     const handleMouseLeave = (e: MouseEvent) => {
       if (e.clientY < 15 && !hasPromptedReview.current) {
         setShowReviewModal(true);
@@ -499,24 +504,26 @@ export function CityCanvas({
       }
     };
 
-    // Only register mouseleave listener after 5s to avoid immediate triggers on mount/transition
-    const registerTimer = window.setTimeout(() => {
-      document.addEventListener("mouseleave", handleMouseLeave);
-    }, 5000);
+    const REVIEW_DELAY_MS = 15_000;
 
-    const timer = window.setTimeout(() => {
+    const promptTimer = window.setTimeout(() => {
       if (!hasPromptedReview.current) {
         setShowReviewModal(true);
         hasPromptedReview.current = true;
       }
-    }, 15000);
+    }, REVIEW_DELAY_MS);
+
+    // Exit-intent only after the player has been in the city for a while
+    const exitIntentTimer = window.setTimeout(() => {
+      document.addEventListener("mouseleave", handleMouseLeave);
+    }, REVIEW_DELAY_MS);
 
     return () => {
-      window.clearTimeout(registerTimer);
+      window.clearTimeout(promptTimer);
+      window.clearTimeout(exitIntentTimer);
       document.removeEventListener("mouseleave", handleMouseLeave);
-      window.clearTimeout(timer);
     };
-  }, []);
+  }, [cityActive]);
 
   const submitReview = async () => {
     if (rating === 0) return;
