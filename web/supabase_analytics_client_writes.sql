@@ -11,9 +11,10 @@ grant insert, update on table public.analytics_users to anon, authenticated;
 grant insert, update on table public.analytics_sessions to anon, authenticated;
 grant insert on table public.analytics_events to anon, authenticated;
 
--- -----------------------------------------------------------------------------
--- Upsert user rollup (session start)
--- -----------------------------------------------------------------------------
+drop function if exists public.analytics_upsert_user(
+  uuid, text, text, timestamptz, timestamptz, integer, integer, double precision, integer, text, text
+);
+
 create or replace function public.analytics_upsert_user(
   p_id uuid,
   p_username text,

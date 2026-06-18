@@ -498,7 +498,11 @@ export function CityCanvas({
         hasPromptedReview.current = true;
       }
     };
-    document.addEventListener("mouseleave", handleMouseLeave);
+
+    // Only register mouseleave listener after 5s to avoid immediate triggers on mount/transition
+    const registerTimer = window.setTimeout(() => {
+      document.addEventListener("mouseleave", handleMouseLeave);
+    }, 5000);
 
     const timer = window.setTimeout(() => {
       if (!hasPromptedReview.current) {
@@ -508,6 +512,7 @@ export function CityCanvas({
     }, 15000);
 
     return () => {
+      window.clearTimeout(registerTimer);
       document.removeEventListener("mouseleave", handleMouseLeave);
       window.clearTimeout(timer);
     };
