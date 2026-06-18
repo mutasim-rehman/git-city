@@ -141,7 +141,7 @@ export class AnalyticsTracker {
 
     const totalSessions = bumpCounter(username, "sc");
 
-    const { error: userError } = await supabase.rpc("analytics_upsert_user", {
+    const { data: actualUserId, error: userError } = await supabase.rpc("analytics_upsert_user", {
       p_id: pendingUserId,
       p_username: username,
       p_city_id: ctx.cityId,
@@ -159,9 +159,12 @@ export class AnalyticsTracker {
       return;
     }
 
+    const finalUserId = (actualUserId as string) || pendingUserId;
+    localStorage.setItem(storageKey(username, "au"), finalUserId);
+
     const { error: sessionError } = await supabase.from("analytics_sessions").insert({
       id: pendingSessionId,
-      user_id: pendingUserId,
+      user_id: finalUserId,
       username,
       city_id: ctx.cityId,
       client_session_id: pendingSessionId,
@@ -178,7 +181,7 @@ export class AnalyticsTracker {
       return;
     }
 
-    this.userId = pendingUserId;
+    this.userId = finalUserId;
     this.sessionId = pendingSessionId;
     this.sessionReady = true;
     this.username = username;

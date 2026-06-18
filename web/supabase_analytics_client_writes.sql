@@ -26,47 +26,62 @@ create or replace function public.analytics_upsert_user(
   p_search_count integer,
   p_preferred_vehicle text,
   p_preferred_theme text
-) returns void
+) returns uuid
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_user_id uuid;
 begin
-  insert into public.analytics_users (
-    id,
-    username,
-    city_id,
-    first_visit_at,
-    last_active_at,
-    total_sessions,
-    total_time_seconds,
-    total_distance,
-    search_count,
-    preferred_vehicle,
-    preferred_theme
-  ) values (
-    p_id,
-    p_username,
-    p_city_id,
-    coalesce(p_first_visit_at, timezone('utc'::text, now())),
-    p_last_active_at,
-    p_total_sessions,
-    p_total_time_seconds,
-    p_total_distance,
-    p_search_count,
-    p_preferred_vehicle,
-    p_preferred_theme
-  )
-  on conflict (id) do update set
-    username = excluded.username,
-    city_id = excluded.city_id,
-    last_active_at = excluded.last_active_at,
-    total_sessions = excluded.total_sessions,
-    total_time_seconds = excluded.total_time_seconds,
-    total_distance = excluded.total_distance,
-    search_count = excluded.search_count,
-    preferred_vehicle = excluded.preferred_vehicle,
-    preferred_theme = excluded.preferred_theme;
+  -- Look up existing user by unique username constraint
+  select id into v_user_id
+  from public.analytics_users
+  where username = p_username;
+
+  if v_user_id is not null then
+    -- User exists: perform update on the existing record
+    update public.analytics_users set
+      city_id = p_city_id,
+      last_active_at = p_last_active_at,
+      total_sessions = p_total_sessions,
+      total_time_seconds = p_total_time_seconds,
+      total_distance = p_total_distance,
+      search_count = p_search_count,
+      preferred_vehicle = p_preferred_vehicle,
+      preferred_theme = p_preferred_theme
+    where id = v_user_id;
+  else
+    -- User does not exist: perform insert with the generated id
+    v_user_id := p_id;
+    insert into public.analytics_users (
+      id,
+      username,
+      city_id,
+      first_visit_at,
+      last_active_at,
+      total_sessions,
+      total_time_seconds,
+      total_distance,
+      search_count,
+      preferred_vehicle,
+      preferred_theme
+    ) values (
+      v_user_id,
+      p_username,
+      p_city_id,
+      coalesce(p_first_visit_at, timezone('utc'::text, now())),
+      p_last_active_at,
+      p_total_sessions,
+      p_total_time_seconds,
+      p_total_distance,
+      p_search_count,
+      p_preferred_vehicle,
+      p_preferred_theme
+    );
+  end if;
+
+  return v_user_id;
 end;
 $$;
 
