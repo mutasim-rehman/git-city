@@ -120,7 +120,7 @@ const EMERALD_THEME: CityTheme = {
   grid1: "#120c1a",
   grid2: "#facc15",
   roadMarkingColor: "#e5e7eb",
-  sidewalkColor: "#6b6f7a",
+  sidewalkColor: "#1e293b",
   building: {
     windowLit: ["#ff7a18", "#ec4899", "#a855f7", "#7dd3fc", "#ffe4b5"],
     windowOff: "#111827",

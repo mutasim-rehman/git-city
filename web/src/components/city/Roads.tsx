@@ -119,7 +119,6 @@ function applyLocalUVs(geo: THREE.BufferGeometry, w: number, d: number) {
   const count = posAttr.count;
   for (let i = 0; i < count; i++) {
     const x = posAttr.getX(i);
-    const y = posAttr.getY(i);
     const z = posAttr.getZ(i);
     const ny = normalAttr ? normalAttr.getY(i) : 0;
 
@@ -173,6 +172,7 @@ function appendMedianBoxes(
   roads: RoadSegment[],
   laneW: number,
   medianW: number,
+  heightOffset: number,
 ) {
   const len = Math.hypot(seg.x2 - seg.x1, seg.z2 - seg.z1);
   if (len < 1) return;
@@ -217,7 +217,7 @@ function appendMedianBoxes(
       if (segmentEnd - prevZ > 1.0) {
         const segLen = segmentEnd - prevZ;
         const segCenterZ = (prevZ + segmentEnd) / 2;
-        appendOrientedBox(medians, cx, 0.22, segCenterZ, rotY, 0, 0, 0, segLen, 0.32, medianW);
+        appendOrientedBox(medians, cx, 0.22 + heightOffset, segCenterZ, rotY, 0, 0, 0, segLen, 0.32, medianW);
       }
       prevZ = cz + gap;
     }
@@ -225,7 +225,7 @@ function appendMedianBoxes(
     if (endZ - prevZ > 1.0) {
       const segLen = endZ - prevZ;
       const segCenterZ = (prevZ + endZ) / 2;
-      appendOrientedBox(medians, cx, 0.22, segCenterZ, rotY, 0, 0, 0, segLen, 0.32, medianW);
+      appendOrientedBox(medians, cx, 0.22 + heightOffset, segCenterZ, rotY, 0, 0, 0, segLen, 0.32, medianW);
     }
 
   } else {
@@ -261,7 +261,7 @@ function appendMedianBoxes(
       if (segmentEnd - prevX > 1.0) {
         const segLen = segmentEnd - prevX;
         const segCenterX = (prevX + segmentEnd) / 2;
-        appendOrientedBox(medians, segCenterX, 0.22, cz, rotY, 0, 0, 0, segLen, 0.32, medianW);
+        appendOrientedBox(medians, segCenterX, 0.22 + heightOffset, cz, rotY, 0, 0, 0, segLen, 0.32, medianW);
       }
       prevX = cx + gap;
     }
@@ -269,7 +269,7 @@ function appendMedianBoxes(
     if (endX - prevX > 1.0) {
       const segLen = endX - prevX;
       const segCenterX = (prevX + endX) / 2;
-      appendOrientedBox(medians, segCenterX, 0.22, cz, rotY, 0, 0, 0, segLen, 0.32, medianW);
+      appendOrientedBox(medians, segCenterX, 0.22 + heightOffset, cz, rotY, 0, 0, 0, segLen, 0.32, medianW);
     }
   }
 }
@@ -308,23 +308,26 @@ function buildBatchedRoadGeometries(roads: RoadSegment[]): BatchedRoadMeshes {
     const medianW = isArterial ? MEDIAN_WIDTH : 0;
     const totalW = isArterial ? seg.width : seg.width;
 
+    const isVertical = Math.abs(seg.x1 - seg.x2) < 0.1;
+    const heightOffset = isVertical ? 0 : 0.002;
+
     const rotY = -angle;
     if (isArterial) {
-      appendOrientedBox(sidewalks, cx, 0.02, cz, rotY, 0, 0, 0, len + 2, 0.12, totalW + 4);
+      appendOrientedBox(sidewalks, cx, 0.02 + heightOffset, cz, rotY, 0, 0, 0, len + 2, 0.12, totalW + 4);
     } else {
       // Slightly lower local sidewalk to avoid z-fighting where it overlaps with arterial roads
-      appendOrientedBox(sidewalks, cx, 0.019, cz, rotY, 0, 0, 0, len + 2, 0.118, totalW + 4);
+      appendOrientedBox(sidewalks, cx, 0.019 + heightOffset, cz, rotY, 0, 0, 0, len + 2, 0.118, totalW + 4);
     }
 
     if (isArterial) {
       const off = medianW / 2 + laneW / 2;
-      appendOrientedBox(arterialLanes, cx, 0.08, cz, rotY, 0, 0, -off, len, 0.1, laneW, true);
-      appendOrientedBox(arterialLanes, cx, 0.08, cz, rotY, 0, 0, off, len, 0.1, laneW, true);
+      appendOrientedBox(arterialLanes, cx, 0.08 + heightOffset, cz, rotY, 0, 0, -off, len, 0.1, laneW, true);
+      appendOrientedBox(arterialLanes, cx, 0.08 + heightOffset, cz, rotY, 0, 0, off, len, 0.1, laneW, true);
 
       // Elevated Median ending before intersections
-      appendMedianBoxes(medians, seg, roads, laneW, medianW);
+      appendMedianBoxes(medians, seg, roads, laneW, medianW, heightOffset);
     } else {
-      appendOrientedBox(localLanes, cx, 0.07, cz, rotY, 0, 0, 0, len, 0.09, totalW * 0.85, true);
+      appendOrientedBox(localLanes, cx, 0.07 + heightOffset, cz, rotY, 0, 0, 0, len, 0.09, totalW * 0.85, true);
     }
   }
 
@@ -423,7 +426,13 @@ export function BatchedGridRoads({
         roughness: 0.85,
       }),
       median: new THREE.MeshStandardMaterial({ color: ROAD_COLORS.median, roughness: 0.9 }),
-      marking: new THREE.MeshStandardMaterial({ color: markingColor, roughness: 0.95 }),
+      marking: new THREE.MeshStandardMaterial({
+        color: markingColor,
+        roughness: 0.95,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      }),
     };
   }, [sidewalkColor, markingColor]);
 
@@ -465,11 +474,9 @@ export function BatchedGridRoads({
 export function RoadStrip({
   seg,
   sidewalkColor,
-  markingColor,
 }: {
   seg: RoadSegment;
   sidewalkColor: string;
-  markingColor: string;
 }) {
   const len = Math.hypot(seg.x2 - seg.x1, seg.z2 - seg.z1);
   if (len < 1) return null;
@@ -482,8 +489,11 @@ export function RoadStrip({
   const medianW = isArterial ? MEDIAN_WIDTH : 0;
   const totalW = isArterial ? seg.width : seg.width;
 
+  const isVertical = Math.abs(seg.x1 - seg.x2) < 0.1;
+  const heightOffset = isVertical ? 0 : 0.002;
+
   return (
-    <group position={[cx, isArterial ? 0.02 : 0.019, cz]} rotation-y={-angle}>
+    <group position={[cx, (isArterial ? 0.02 : 0.019) + heightOffset, cz]} rotation-y={-angle}>
       <mesh receiveShadow>
         <boxGeometry args={[len + 2, isArterial ? 0.12 : 0.118, totalW + 4]} />
         <meshStandardMaterial color={sidewalkColor} roughness={0.92} />
@@ -517,11 +527,9 @@ export function RoadStrip({
 export function GridRoads({
   roads,
   sidewalkColor,
-  markingColor,
 }: {
   roads: RoadSegment[];
   sidewalkColor: string;
-  markingColor: string;
 }) {
   return (
     <group>
@@ -530,7 +538,6 @@ export function GridRoads({
           key={seg.id}
           seg={seg}
           sidewalkColor={sidewalkColor}
-          markingColor={markingColor}
         />
       ))}
     </group>
