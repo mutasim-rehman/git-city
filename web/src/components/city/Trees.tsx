@@ -955,6 +955,38 @@ export function createGrassTexture() {
   return texture;
 }
 
+/** Low-cost repeating turf for ground planes in sector green margins. */
+let turfTextureCache: THREE.CanvasTexture | null = null;
+export function createTurfTexture() {
+  if (typeof window === "undefined") return null;
+  if (turfTextureCache) return turfTextureCache;
+
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  const greens = ["#3d7a2e", "#4a9038", "#356828", "#5aa848", "#2f6624"];
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const pick = (x * 13 + y * 7 + ((x ^ y) % 5)) % greens.length;
+      ctx.fillStyle = greens[pick]!;
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+
+  const turfTex = new THREE.CanvasTexture(canvas);
+  turfTex.wrapS = THREE.RepeatWrapping;
+  turfTex.wrapT = THREE.RepeatWrapping;
+  turfTex.magFilter = THREE.NearestFilter;
+  turfTex.minFilter = THREE.NearestFilter;
+  turfTex.colorSpace = THREE.SRGBColorSpace;
+  turfTextureCache = turfTex;
+  return turfTex;
+}
+
 export function InstancedMedianGrass({ belts, roads = [] }: { belts: LayoutRect[]; roads?: any[] }) {
   const intersections = useMemo((): RoadIntersection[] => {
     const out: RoadIntersection[] = [];
@@ -1370,12 +1402,12 @@ export function SectorGreenSpaces({
 }) {
   const grassPlacements = useMemo(() => {
     const out: { x: number; z: number; scale: number; rotY: number }[] = [];
-    const STEP = 1.6;
+    const STEP = 1.4;
     for (const sp of spaces) {
       for (let x = sp.minX; x < sp.maxX; x += STEP) {
         for (let z = sp.minZ; z < sp.maxZ; z += STEP) {
           const s = x * 0.19 + z * 0.11;
-          if (seededRng(s) > 0.95) continue;
+          if (seededRng(s) > 0.88) continue;
           const tx = x + (seededRng(s + 1) - 0.5) * STEP * 0.9;
           const tz = z + (seededRng(s + 2) - 0.5) * STEP * 0.9;
           if (isPointOnRoad(tx, tz, roads, 3.5)) continue;
@@ -1436,8 +1468,26 @@ export function SectorGreenSpaces({
 
   const grassMatSG = useMemo(() => {
     const tex = createGrassTexture();
-    return new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, transparent: true, side: THREE.DoubleSide, roughness: 1.0, metalness: 0 });
+    return new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.5, transparent: true, side: THREE.DoubleSide });
   }, []);
+
+  const turfMatSG = useMemo(() => {
+    const tex = createTurfTexture();
+    return new THREE.MeshLambertMaterial({
+      color: "#ffffff",
+      map: tex ?? undefined,
+    });
+  }, []);
+
+  const turfSurfaces = useMemo(() => {
+    return spaces.map((sp, i) => ({
+      key: i,
+      cx: (sp.minX + sp.maxX) / 2,
+      cz: (sp.minZ + sp.maxZ) / 2,
+      w: sp.maxX - sp.minX,
+      d: sp.maxZ - sp.minZ,
+    }));
+  }, [spaces]);
 
   const grassRefSG = useRef<THREE.InstancedMesh>(null);
   const grassTmpSG = useMemo(() => new THREE.Object3D(), []);
@@ -1447,7 +1497,7 @@ export function SectorGreenSpaces({
     if (!mesh || !grassPlacements.length) return;
     for (let i = 0; i < grassPlacements.length; i++) {
       const g = grassPlacements[i]!;
-      grassTmpSG.position.set(g.x, 0.01, g.z);
+      grassTmpSG.position.set(g.x, 0.04, g.z);
       grassTmpSG.rotation.set(0, g.rotY, 0);
       grassTmpSG.scale.setScalar(g.scale);
       grassTmpSG.updateMatrix();
@@ -1504,38 +1554,33 @@ export function SectorGreenSpaces({
       grassGeoSG.dispose();
       if (grassMatSG.map) grassMatSG.map.dispose();
       grassMatSG.dispose();
+      turfMatSG.dispose();
       flowerGeoSG.dispose();
       for (const mat of flowerMatsSG) {
         if (mat.map) mat.map.dispose();
         mat.dispose();
       }
     };
-  }, [grassGeoSG, grassMatSG, flowerGeoSG, flowerMatsSG]);
+  }, [grassGeoSG, grassMatSG, turfMatSG, flowerGeoSG, flowerMatsSG]);
 
   if (!spaces.length) return null;
 
   return (
     <group>
-      {spaces.map((sp, i) => {
-        const cx = (sp.minX + sp.maxX) / 2;
-        const cz = (sp.minZ + sp.maxZ) / 2;
-        const w  = sp.maxX - sp.minX;
-        const d  = sp.maxZ - sp.minZ;
-        return (
-          <mesh key={i} position={[cx, -0.02, cz]} rotation-x={-Math.PI / 2} receiveShadow>
-            <planeGeometry args={[w, d]} />
-            <meshStandardMaterial color="#3d6b25" roughness={1.0} metalness={0} />
-          </mesh>
-        );
-      })}
+      {turfSurfaces.map((surf) => (
+        <mesh key={surf.key} position={[surf.cx, 0.028, surf.cz]} rotation-x={-Math.PI / 2} receiveShadow>
+          <planeGeometry args={[surf.w, surf.d]} />
+          <primitive object={turfMatSG} attach="material" />
+        </mesh>
+      ))}
       {grassPlacements.length > 0 && (
-        <instancedMesh ref={grassRefSG} args={[grassGeoSG, grassMatSG, grassPlacements.length]} castShadow receiveShadow />
+        <instancedMesh ref={grassRefSG} args={[grassGeoSG, grassMatSG, grassPlacements.length]} frustumCulled={false} castShadow={false} />
       )}
       {flowerTypesSG.map((type, fi) => {
         const placements = flowerPlacements[fi]!;
         if (!placements.length) return null;
         return (
-          <instancedMesh key={type} ref={flowerRefsSG[fi]} args={[flowerGeoSG, flowerMatsSG[fi]!, placements.length]} castShadow receiveShadow />
+          <instancedMesh key={type} ref={flowerRefsSG[fi]} args={[flowerGeoSG, flowerMatsSG[fi]!, placements.length]} frustumCulled={false} castShadow={false} />
         );
       })}
       {treePlacements.map((groupTrees, idx) =>
