@@ -484,6 +484,60 @@ export function CityCanvas({
       .slice(0, 5);
   }, [buildings, navQuery]);
 
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [reviewText, setReviewText] = useState("");
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const hasPromptedReview = useRef(false);
+
+  useEffect(() => {
+    const handleMouseLeave = (e: MouseEvent) => {
+      if (e.clientY < 15 && !hasPromptedReview.current) {
+        setShowReviewModal(true);
+        hasPromptedReview.current = true;
+      }
+    };
+    document.addEventListener("mouseleave", handleMouseLeave);
+
+    const timer = window.setTimeout(() => {
+      if (!hasPromptedReview.current) {
+        setShowReviewModal(true);
+        hasPromptedReview.current = true;
+      }
+    }, 15000);
+
+    return () => {
+      document.removeEventListener("mouseleave", handleMouseLeave);
+      window.clearTimeout(timer);
+    };
+  }, []);
+
+  const submitReview = async () => {
+    if (rating === 0) return;
+    setSubmittingReview(true);
+    try {
+      const { error } = await supabase.from("reviews").insert({
+        username: playerName || "Anonymous",
+        city_id: city,
+        rating,
+        review_text: reviewText,
+      });
+      if (error) throw error;
+      setToast("Thank you for your review!");
+      window.setTimeout(() => setToast(null), 2000);
+      setShowReviewModal(false);
+      setRating(0);
+      setReviewText("");
+    } catch (err) {
+      console.error("Error submitting review:", err);
+      setToast("Failed to submit review. Try again.");
+      window.setTimeout(() => setToast(null), 2000);
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
+
   const isPlayerInFrontOfBuilding = useMemo(() => {
     if (!streetMode || !streetFocused || !uiPose) return false;
     const dx = streetFocused.x - uiPose.x;
@@ -1142,6 +1196,13 @@ export function CityCanvas({
             <div className="pointer-events-auto flex items-center gap-2 shrink-0">
               <button
                 type="button"
+                onClick={() => setShowReviewModal(true)}
+                className="rounded-xl border border-emerald-900 bg-black px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider text-emerald-300/75 hover:border-emerald-700 hover:text-emerald-100 transition"
+              >
+                ⭐ Review
+              </button>
+              <button
+                type="button"
                 onClick={() => setStreetMode((prev) => !prev)}
                 className="rounded-xl border border-emerald-800 bg-black px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider text-emerald-300 transition hover:border-emerald-600 hover:text-emerald-100"
               >
@@ -1427,6 +1488,64 @@ export function CityCanvas({
             
             <div className="mt-5 text-center text-[9px] uppercase tracking-widest text-emerald-500/50 font-mono">
               Auto-closes in 4s
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Review Modal */}
+      {showReviewModal && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto">
+          <div className="w-96 rounded-3xl border-2 border-emerald-500 bg-slate-950 p-6 text-slate-100 shadow-[0_0_50px_rgba(16,185,129,0.5)] animate-in fade-in zoom-in duration-200">
+            <h3 className="text-sm font-bold font-mono uppercase tracking-[0.25em] text-emerald-300 text-center mb-1">
+              Rate your experience
+            </h3>
+            <p className="text-[10px] text-emerald-500/60 text-center font-mono uppercase tracking-wider mb-6">
+              Before you go, leave a quick review!
+            </p>
+
+            {/* Star Rating */}
+            <div className="flex justify-center gap-2 mb-5">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  type="button"
+                  onClick={() => setRating(star)}
+                  onMouseEnter={() => setHoverRating(star)}
+                  onMouseLeave={() => setHoverRating(0)}
+                  className="text-2xl transition hover:scale-110 focus:outline-none"
+                >
+                  {star <= (hoverRating || rating) ? "⭐" : "☆"}
+                </button>
+              ))}
+            </div>
+
+            {/* Review text */}
+            <textarea
+              value={reviewText}
+              onChange={(e) => setReviewText(e.target.value)}
+              placeholder="Optional: Tell us what you liked or what we can improve..."
+              className="w-full h-24 rounded-xl border border-emerald-900 bg-black p-3 text-xs text-emerald-100 placeholder:text-emerald-400/40 focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-950 mb-5 resize-none font-sans"
+              maxLength={500}
+            />
+
+            {/* Buttons */}
+            <div className="flex gap-3 font-mono text-[10px] uppercase tracking-wider">
+              <button
+                type="button"
+                onClick={() => setShowReviewModal(false)}
+                className="flex-1 rounded-xl border border-slate-800 bg-black py-2.5 text-slate-400 hover:border-slate-700 hover:text-slate-200 transition"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={submitReview}
+                disabled={rating === 0 || submittingReview}
+                className="flex-1 rounded-xl border border-emerald-500 bg-emerald-950/45 py-2.5 text-emerald-300 hover:bg-emerald-500 hover:text-black transition disabled:border-slate-800 disabled:bg-transparent disabled:text-slate-600"
+              >
+                {submittingReview ? "Submitting..." : "Submit"}
+              </button>
             </div>
           </div>
         </div>
