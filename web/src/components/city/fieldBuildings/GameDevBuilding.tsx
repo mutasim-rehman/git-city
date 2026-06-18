@@ -20,6 +20,7 @@ export function GameDevBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#d4a843"
+        surface="brick"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.36}

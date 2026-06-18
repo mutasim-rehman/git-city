@@ -23,6 +23,7 @@ export function BackendBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#4a4a42"
+        surface="dark_stone"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.38}
@@ -34,6 +35,7 @@ export function BackendBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#3c3c36"
+        surface="dark_stone"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.38}

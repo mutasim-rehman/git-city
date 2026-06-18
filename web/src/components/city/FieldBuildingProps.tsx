@@ -21,6 +21,7 @@ import type {
   FieldBuildingComponentProps,
   FieldBuildingGeometries,
 } from "./fieldBuildings/shared";
+import { BuildingFacadeDetails } from "./fieldBuildings/facadeDetails";
 
 const FIELD_BUILDING_COMPONENTS: Record<
   BuildingFieldStyle,
@@ -92,6 +93,7 @@ export const FieldBuildingProps = memo(function FieldBuildingProps({
           />
         );
       })}
+      <BuildingFacadeDetails buildings={buildings} geometry={geometries.box} />
     </group>
   );
 });

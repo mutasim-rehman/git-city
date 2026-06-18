@@ -21,6 +21,7 @@ export function MobileBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#e8d5a3"
+        surface="plaster"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.44}

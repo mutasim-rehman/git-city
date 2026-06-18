@@ -20,6 +20,7 @@ export function FullStackBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#6e7278"
+        surface="stone"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.175}
@@ -60,6 +61,7 @@ export function FullStackBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#7a8088"
+        surface="stone"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.515}
@@ -103,6 +105,7 @@ export function FullStackBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#848c96"
+        surface="stone"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.793}
@@ -146,6 +149,7 @@ export function FullStackBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#909aa4"
+        surface="stone"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.958}

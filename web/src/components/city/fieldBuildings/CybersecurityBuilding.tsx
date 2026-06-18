@@ -50,6 +50,7 @@ export function CybersecurityBuilding({
         buildings={buildings}
         geometry={geometries.cylinder}
         color="#323638"
+        surface="dark_stone"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.52}

@@ -20,6 +20,7 @@ export function DevopsBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#7a7268"
+        surface="stone"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.07}
@@ -74,6 +75,7 @@ export function DevopsBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#6e7278"
+        surface="stone"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.52}

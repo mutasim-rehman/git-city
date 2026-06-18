@@ -20,6 +20,7 @@ export function DesignBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#ece8e0"
+        surface="plaster"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.36}

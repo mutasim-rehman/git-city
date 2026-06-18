@@ -28,6 +28,7 @@ export function OtherBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#b8a888"
+        surface="plaster"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.22}
@@ -54,6 +55,7 @@ export function OtherBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#a89878"
+        surface="plaster"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.56}

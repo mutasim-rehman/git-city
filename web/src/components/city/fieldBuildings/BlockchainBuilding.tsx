@@ -47,6 +47,7 @@ export function BlockchainBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#6e7a4a"
+        surface="stone"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.44}

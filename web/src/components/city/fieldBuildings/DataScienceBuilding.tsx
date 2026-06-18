@@ -19,6 +19,7 @@ export function DataScienceBuilding({
         buildings={buildings}
         geometry={geometries.cylinder}
         color="#7a8490"
+        surface="stone"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.07}
@@ -42,6 +43,7 @@ export function DataScienceBuilding({
         buildings={buildings}
         geometry={geometries.cylinder}
         color="#6e7880"
+        surface="stone"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.50}

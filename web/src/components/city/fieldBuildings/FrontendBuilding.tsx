@@ -30,6 +30,7 @@ export function FrontendBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#c4622d"
+        surface="plaster"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.30}

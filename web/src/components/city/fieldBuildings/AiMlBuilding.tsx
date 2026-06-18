@@ -17,6 +17,7 @@ export function AiMlBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#7a7670"
+        surface="stone"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.32}
@@ -28,6 +29,7 @@ export function AiMlBuilding({
         buildings={buildings}
         geometry={geometries.box}
         color="#908c86"
+        surface="stone"
         emissive="#000000"
         emissiveIntensity={0}
         centerYFn={(b) => b.height * 0.74}
