@@ -279,13 +279,7 @@ export default function Home() {
         />
       )}
 
-      {/* Phase: transition */}
-      {phase === "transition" && (
-        <PhaseStatusScreen
-          title="Entering Git City"
-          message="Starting the engine and placing you on the first street."
-        />
-      )}
+
 
       {/* Warm WebGL during transition so city mount overlaps the fade */}
       {(phase === "transition" || phase === "play") && layoutResult && buildings.length > 0 && (
