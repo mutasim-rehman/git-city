@@ -74,6 +74,8 @@ export function InstancedPropLayer({
   localOffsetFn,
   scaleFn,
   rotYFn,
+  opacity = 1,
+  transparent = false,
 }: {
   buildings: PositionedBuilding[];
   geometry: THREE.BufferGeometry;
@@ -85,20 +87,35 @@ export function InstancedPropLayer({
   localOffsetFn?: (b: PositionedBuilding) => [number, number];
   scaleFn: (b: PositionedBuilding) => [number, number, number];
   rotYFn?: (b: PositionedBuilding) => number;
+  opacity?: number;
+  transparent?: boolean;
 }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const count = buildings.length;
 
   const material = useMemo(
     () =>
-      new THREE.MeshStandardMaterial({
-        color,
-        emissive: emissive ?? color,
-        emissiveIntensity,
-        roughness: 0.55,
-        metalness: 0.15,
-      }),
-    [color, emissive, emissiveIntensity],
+      transparent
+        ? new THREE.MeshPhysicalMaterial({
+            color,
+            emissive: emissive ?? "#000000",
+            emissiveIntensity,
+            roughness: 0.05,
+            metalness: 0.1,
+            transmission: 1 - opacity,
+            thickness: 0.5,
+            transparent: true,
+            opacity,
+            envMapIntensity: 1.2,
+          })
+        : new THREE.MeshStandardMaterial({
+            color,
+            emissive: emissive ?? color,
+            emissiveIntensity,
+            roughness: 0.55,
+            metalness: 0.15,
+          }),
+    [color, emissive, emissiveIntensity, opacity, transparent],
   );
 
   useEffect(() => {
