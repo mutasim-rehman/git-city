@@ -463,6 +463,47 @@ export function CityCanvas({
   const [toast, setToast] = useState<string | null>(null);
   const arrivalLatchRef = useRef<string | null>(null);
 
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [showStatsBox, setShowStatsBox] = useState(false);
+  const [statsBuilding, setStatsBuilding] = useState<PositionedBuilding | null>(null);
+  const statsTimerRef = useRef<number | null>(null);
+
+  const isPlayerInFrontOfBuilding = useMemo(() => {
+    if (!streetMode || !streetFocused || !uiPose) return false;
+    const dx = streetFocused.x - uiPose.x;
+    const dz = streetFocused.z - uiPose.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    const maxDimension = Math.max(streetFocused.width, streetFocused.depth);
+    return dist < maxDimension * 0.75 + 30;
+  }, [streetMode, streetFocused, uiPose]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea") return;
+
+      if ((e.key === "z" || e.key === "Z") && isPlayerInFrontOfBuilding && streetFocused) {
+        setStatsBuilding(streetFocused);
+        setShowStatsBox(true);
+
+        if (statsTimerRef.current) {
+          window.clearTimeout(statsTimerRef.current);
+        }
+
+        statsTimerRef.current = window.setTimeout(() => {
+          setShowStatsBox(false);
+          setStatsBuilding(null);
+        }, 4000) as unknown as number;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      if (statsTimerRef.current) window.clearTimeout(statsTimerRef.current);
+    };
+  }, [isPlayerInFrontOfBuilding, streetFocused]);
+
   type QualityLevel = "low" | "medium" | "high";
   const [quality, setQuality] = useState<QualityLevel>(() => {
     if (typeof window === "undefined") return "medium";
@@ -838,7 +879,15 @@ export function CityCanvas({
     if (!needle) return;
     const target = buildings.find((b) => b.username.toLowerCase() === needle);
     gameAnalytics.trackSearch(needle, target ? 1 : 0, !!target);
-    if (target) computeRouteTo(target);
+
+    searchInputRef.current?.blur();
+
+    if (target) {
+      computeRouteTo(target);
+    } else {
+      setToast(`No user found: @${needle}`);
+      window.setTimeout(() => setToast(null), 1800);
+    }
   }, [buildings, computeRouteTo, navQuery]);
 
   useEffect(() => {
@@ -1166,6 +1215,7 @@ export function CityCanvas({
             </p>
             <div className="flex items-center gap-2">
               <input
+                ref={searchInputRef}
                 value={navQuery}
                 onChange={(e) => setNavQuery(e.target.value)}
                 onKeyDown={(e) => {
@@ -1259,6 +1309,73 @@ export function CityCanvas({
         <div className="pointer-events-none absolute inset-x-4 top-4 z-40 flex justify-center">
           <div className="rounded-full border border-emerald-900 bg-black/75 px-4 py-2 text-[11px] font-mono uppercase tracking-[0.25em] text-emerald-100 shadow-[0_0_25px_rgba(6,78,59,0.4)] backdrop-blur-md">
             {toast}
+          </div>
+        </div>
+      )}
+
+      {/* Stats interaction prompt and box */}
+      {isPlayerInFrontOfBuilding && streetFocused && !showStatsBox && (
+        <div className="absolute left-1/2 bottom-24 -translate-x-1/2 z-35 animate-bounce pointer-events-none">
+          <div className="rounded-xl border border-emerald-400 bg-black/90 px-4 py-2 text-xs font-mono font-semibold uppercase tracking-widest text-emerald-300 shadow-[0_0_20px_rgba(52,211,153,0.5)]">
+            Press <span className="text-white px-1.5 py-0.5 bg-emerald-800 rounded border border-emerald-500">Z</span> to view stats
+          </div>
+        </div>
+      )}
+
+      {showStatsBox && statsBuilding && (
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-auto">
+          <div className="w-80 rounded-2xl border-2 border-emerald-400 bg-slate-950/95 p-6 text-slate-100 shadow-[0_0_50px_rgba(16,185,129,0.6)] backdrop-blur-lg animate-in fade-in zoom-in duration-200">
+            {/* Header / Avatar */}
+            <div className="flex items-center gap-4 border-b border-emerald-900/60 pb-4 mb-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-950 border border-emerald-800 text-2xl">
+                {fieldEmoji(statsBuilding.fieldStyle)}
+              </div>
+              <div className="min-w-0">
+                <h3 className="font-bold text-emerald-100 text-sm truncate">
+                  @{statsBuilding.username}
+                </h3>
+                <p className="text-[10px] text-emerald-400/80 font-mono tracking-wider uppercase">
+                  {fieldDisplayLabel(statsBuilding)}
+                </p>
+              </div>
+            </div>
+
+            {/* Stats list */}
+            <div className="space-y-3 font-mono text-xs">
+              <div className="flex justify-between items-center border-b border-emerald-950 pb-1.5">
+                <span className="text-emerald-500/80 uppercase text-[10px] tracking-wider">Repos</span>
+                <span className="text-emerald-100 font-semibold">{statsBuilding.publicRepos.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center border-b border-emerald-950 pb-1.5">
+                <span className="text-emerald-500/80 uppercase text-[10px] tracking-wider">Commits</span>
+                <span className="text-emerald-100 font-semibold">{statsBuilding.lifetimeCommits.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center border-b border-emerald-950 pb-1.5">
+                <span className="text-emerald-500/80 uppercase text-[10px] tracking-wider">Floors</span>
+                <span className="text-emerald-100 font-semibold">{statsBuilding.floors}</span>
+              </div>
+              <div className="flex justify-between items-center border-b border-emerald-950 pb-1.5">
+                <span className="text-emerald-500/80 uppercase text-[10px] tracking-wider">Dimensions</span>
+                <span className="text-emerald-100 font-semibold">{statsBuilding.width}x{statsBuilding.depth}x{statsBuilding.height}</span>
+              </div>
+              {statsBuilding.profileUrl && (
+                <div className="pt-1 text-[10px] text-emerald-400/60 truncate">
+                  <span className="text-emerald-500/80 uppercase tracking-wider block mb-0.5">Profile</span>
+                  <a
+                    href={statsBuilding.profileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:underline hover:text-emerald-300"
+                  >
+                    {statsBuilding.profileUrl}
+                  </a>
+                </div>
+              )}
+            </div>
+            
+            <div className="mt-5 text-center text-[9px] uppercase tracking-widest text-emerald-500/50 font-mono">
+              Auto-closes in 4s
+            </div>
           </div>
         </div>
       )}

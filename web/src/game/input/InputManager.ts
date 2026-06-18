@@ -35,6 +35,15 @@ export class InputManager {
 
   attach() {
     const onKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      if (
+        activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.getAttribute("contenteditable") === "true")
+      ) {
+        return;
+      }
       this.keys[e.code] = true;
       if (this.keymap.exit.includes(e.code)) this.exitRequested = true;
     };
