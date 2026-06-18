@@ -6,6 +6,7 @@ import { Suspense, useMemo, useState, useRef, useEffect, useCallback } from "rea
 import * as THREE from "three";
 import type { PositionedBuilding } from "@/lib/types";
 import type { CityId } from "@/lib/types";
+import { fieldDisplayLabel, fieldEmoji } from "@/lib/city/buildingFieldStyles";
 import { Building } from "./Building";
 
 // ─── Scene sub-components ────────────────────────────────────────────────────
@@ -371,6 +372,9 @@ export function CityScene({ city, buildings }: Props) {
                       </span>
                     )}
                   </div>
+                  <p className="mt-0.5 font-mono text-[9px] tracking-[0.15em] text-emerald-300/70">
+                    {fieldEmoji(hovered.fieldStyle)} {fieldDisplayLabel(hovered)}
+                  </p>
                   <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.25em] text-emerald-400/50">
                     {city.toUpperCase()} · Git City
                   </p>

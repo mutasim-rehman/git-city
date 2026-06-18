@@ -1,4 +1,5 @@
 import type { CityId, CsvUser, Building } from "../types";
+import { normalizeBuildingField } from "@/lib/city/buildingFieldStyles";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -7,7 +8,6 @@ const MIN_FLOORS   = 3;
 const MAX_FLOORS   = 40;
 const MAX_USERS_PER_CITY = 10_000;
 
-const BASE_SIZE     = 28;
 const BASE_SIZE_MIN = 24;
 const BASE_SIZE_MAX = 34;
 
@@ -86,6 +86,9 @@ export function mapCsvToBuildings(city: CityId, rows: CsvUser[]): Building[] {
     const sideWindowsPerFloor = clamp(Math.round(depth / 6), 2, 10);
     const litPercentage       = 0.20 + commitNorm * 0.65;
 
+    const rawField = row.Field?.trim() || "";
+    const { style: fieldStyle } = normalizeBuildingField(rawField);
+
     return {
       id: `${city}-${index}-${row.Username}`,
       city,
@@ -95,6 +98,8 @@ export function mapCsvToBuildings(city: CityId, rows: CsvUser[]): Building[] {
       yearGroup: row.Year_Group,
       sectorId: 0,
       sectorLabel: "",
+      field: rawField,
+      fieldStyle,
       publicRepos: repos,
       lifetimeCommits: commits,
       width,

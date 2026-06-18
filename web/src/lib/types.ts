@@ -7,9 +7,25 @@ export interface CsvUser {
   Year_Group: string;
   Public_Repositories: string;
   Lifetime_Commits: string;
+  Field?: string;
   sector_id?: string;
   sector_label?: string;
 }
+
+/** Normalized field key used for whimsical building silhouettes. */
+export type BuildingFieldStyle =
+  | "data_science"
+  | "full_stack"
+  | "frontend"
+  | "backend"
+  | "ai_ml"
+  | "cybersecurity"
+  | "devops"
+  | "mobile"
+  | "game_dev"
+  | "blockchain"
+  | "design"
+  | "other";
 
 export interface Building {
   id: string;
@@ -20,6 +36,10 @@ export interface Building {
   yearGroup: string;
   sectorId: number;
   sectorLabel: string;
+  /** Raw field label from CSV / Supabase (may be empty). */
+  field: string;
+  /** Normalized style key for voxel props and palette. */
+  fieldStyle: BuildingFieldStyle;
   publicRepos: number;
   lifetimeCommits: number;
   width: number;

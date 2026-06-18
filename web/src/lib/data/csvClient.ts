@@ -11,7 +11,7 @@ const CITY_FILE: Record<CityId, string> = {
 const SUPABASE_PAGE_SIZE = 1000;
 
 const GITHUB_USER_COLUMNS =
-  "username, profile_url, github_id, year_group, public_repositories, lifetime_commits";
+  "username, profile_url, github_id, year_group, public_repositories, lifetime_commits, field";
 
 type GithubUserRow = {
   username: string;
@@ -20,6 +20,7 @@ type GithubUserRow = {
   year_group: string | null;
   public_repositories: number;
   lifetime_commits: number;
+  field: string | null;
 };
 
 function mapGithubUserRow(item: GithubUserRow): CsvUser {
@@ -30,6 +31,7 @@ function mapGithubUserRow(item: GithubUserRow): CsvUser {
     Year_Group: item.year_group || "",
     Public_Repositories: String(item.public_repositories),
     Lifetime_Commits: String(item.lifetime_commits),
+    Field: item.field || "",
   };
 }
 

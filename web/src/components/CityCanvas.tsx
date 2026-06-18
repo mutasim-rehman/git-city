@@ -11,6 +11,8 @@ import {
   BuildingSignBoards,
   PulseTargetBuilding,
 } from "@/components/city/Buildings";
+import { FieldBuildingProps } from "@/components/city/FieldBuildingProps";
+import { fieldDisplayLabel, fieldEmoji } from "@/lib/city/buildingFieldStyles";
 import type { CityLayoutResult, LayoutRect } from "@/lib/city/layout";
 import { Game } from "@/game/Game";
 import { createGridRoadGraph, nearestRoadNode } from "@/game/world/RoadGraph";
@@ -942,6 +944,7 @@ export function CityCanvas({
           onHover={setHovered}
           meshRef={instancedRef}
         />
+        <FieldBuildingProps buildings={buildings} />
         <PulseTargetBuilding building={pulseBuilding} />
         <BuildingSignBoards buildings={signTargetBuildings} activeBuildingId={signTagBuildingId} />
 
@@ -1046,6 +1049,10 @@ export function CityCanvas({
                     <>
                       <p className="font-semibold text-emerald-100 truncate">
                         {active.username}
+                      </p>
+                      <p className="mt-0.5 text-[10px] tracking-[0.12em] text-emerald-200/85 truncate">
+                        {fieldEmoji(active.fieldStyle)}{" "}
+                        {fieldDisplayLabel(active)}
                       </p>
                       <p className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-emerald-300/70 truncate">
                         Repos: {active.publicRepos.toLocaleString()} · Commits:{" "}

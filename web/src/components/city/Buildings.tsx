@@ -2,9 +2,10 @@
 
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { RefObject } from "react";
-import { useFrame, useThree } from "@react-three/fiber";
+import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { PositionedBuilding, BuildingColors } from "@/lib/types";
+import { FIELD_STYLE_META } from "@/lib/city/buildingFieldStyles";
 import { WINDOW_ATLAS_CONSTANTS } from "@/lib/city/windowAtlas";
 
 const {
@@ -134,6 +135,8 @@ export const InstancedBuildings = memo(function InstancedBuildings({
       },
       vertexShader,
       fragmentShader,
+      colorWrite: false,
+      depthWrite: false,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -150,97 +153,17 @@ export const InstancedBuildings = memo(function InstancedBuildings({
     const facade = new Float32Array(count * 3);
     const pulse = new Float32Array(count);
 
-    // Muted architectural facade palette.
-    const palette = [
-      "#9ca3af", // cool grey
-      "#94a3b8", // slate
-      "#a5b4fc", // light blue
-      "#cbd5e1", // light concrete
-      "#d6d3d1", // warm stone
-      "#e7e5e4", // off-white
-      "#d4c5a8", // sand/beige
-      "#b0b9c6", // steel
-    ].map((hex) => new THREE.Color(hex));
-
-    // Determine grid coordinates and "block" grouping so adjacent buildings can be differentiated.
-    // Layout snaps to a strict GRID_STEP; derive cell coords from positions.
-    const GRID_STEP = 95;
-    const BLOCK_CELLS = 4; // ~ one block between major roads (380 / 95 ≈ 4)
-
-    type Key = string;
-    const cellKey = (cx: number, cz: number) => `${cx},${cz}` as Key;
-    const assigned = new Map<Key, number>(); // cell -> palette index
-
-    // Stable ordering so color assignment is deterministic.
-    const order = Array.from({ length: count }, (_, i) => i).sort((ai, bi) => {
-      const a = buildings[ai];
-      const b = buildings[bi];
-      const acx = Math.round(a.x / GRID_STEP);
-      const acz = Math.round(a.z / GRID_STEP);
-      const bcx = Math.round(b.x / GRID_STEP);
-      const bcz = Math.round(b.z / GRID_STEP);
-
-      const abx = Math.floor(acx / BLOCK_CELLS);
-      const abz = Math.floor(acz / BLOCK_CELLS);
-      const bbx = Math.floor(bcx / BLOCK_CELLS);
-      const bbz = Math.floor(bcz / BLOCK_CELLS);
-
-      return abx - bbx || abz - bbz || acx - bcx || acz - bcz;
-    });
-
-    for (const i of order) {
-      const b = buildings[i];
-      const cx = Math.round(b.x / GRID_STEP);
-      const cz = Math.round(b.z / GRID_STEP);
-      const bx = Math.floor(cx / BLOCK_CELLS);
-      const bz = Math.floor(cz / BLOCK_CELLS);
-
-      const neighbors: Key[] = [
-        cellKey(cx - 1, cz),
-        cellKey(cx + 1, cz),
-        cellKey(cx, cz - 1),
-        cellKey(cx, cz + 1),
-      ];
-
-      const forbidden = new Set<number>();
-      for (const nk of neighbors) {
-        const c = assigned.get(nk);
-        if (typeof c === "number") forbidden.add(c);
-      }
-
-      // Only enforce adjacency within the same block.
-      const inSameBlock = (ncx: number, ncz: number) =>
-        Math.floor(ncx / BLOCK_CELLS) === bx && Math.floor(ncz / BLOCK_CELLS) === bz;
-
-      const neighborCells: [number, number][] = [
-        [cx - 1, cz],
-        [cx + 1, cz],
-        [cx, cz - 1],
-        [cx, cz + 1],
-      ];
-      forbidden.clear();
-      for (const [ncx, ncz] of neighborCells) {
-        if (!inSameBlock(ncx, ncz)) continue;
-        const c = assigned.get(cellKey(ncx, ncz));
-        if (typeof c === "number") forbidden.add(c);
-      }
-
+    for (let i = 0; i < count; i++) {
+      const b = buildings[i]!;
+      const meta = FIELD_STYLE_META[b.fieldStyle];
+      const base = new THREE.Color(meta.facade);
+      const accent = new THREE.Color(meta.accent);
       const seed = usernameSeed(b.username);
-      const start = seed % palette.length;
-      let chosen = start;
-      for (let tries = 0; tries < palette.length; tries++) {
-        const idx = (start + tries) % palette.length;
-        if (!forbidden.has(idx)) {
-          chosen = idx;
-          break;
-        }
-      }
-
-      assigned.set(cellKey(cx, cz), chosen);
-      const c = palette[chosen];
-      facade[i * 3 + 0] = c.r;
-      facade[i * 3 + 1] = c.g;
-      facade[i * 3 + 2] = c.b;
+      const mix = 0.12 + (seed % 7) * 0.04;
+      base.lerp(accent, mix);
+      facade[i * 3 + 0] = base.r;
+      facade[i * 3 + 1] = base.g;
+      facade[i * 3 + 2] = base.b;
     }
 
     for (let i = 0; i < count; i++) {
@@ -321,7 +244,7 @@ export const InstancedBuildings = memo(function InstancedBuildings({
     mesh.geometry.setAttribute("aPulseFlag", pulseAttr);
 
     mesh.count = count;
-  }, [buildings, count, uvFrontData, uvSideData, facadeData, pulseData]);
+  }, [buildings, count, meshRef, uvFrontData, uvSideData, facadeData, pulseData]);
 
   const lastFogNear = useRef(0);
   const lastFogFar = useRef(0);
@@ -353,8 +276,8 @@ export const InstancedBuildings = memo(function InstancedBuildings({
       ref={meshRef}
       args={[geometry, material, count]}
       frustumCulled={false}
-      castShadow
-      receiveShadow
+      castShadow={false}
+      receiveShadow={false}
       onPointerMove={(e) => {
         e.stopPropagation();
         if (typeof e.instanceId === "number" && buildings[e.instanceId]) {
