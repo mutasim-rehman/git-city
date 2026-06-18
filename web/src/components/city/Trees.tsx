@@ -955,55 +955,6 @@ export function createGrassTexture() {
   return texture;
 }
 
-let grassGroundTextureBase: THREE.CanvasTexture | null = null;
-
-/** Tiled Minecraft-style lawn for green-space ground planes. */
-export function createGrassGroundTexture(): THREE.CanvasTexture | null {
-  if (typeof window === "undefined") return null;
-
-  if (!grassGroundTextureBase) {
-    const size = 64;
-    const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-
-    const pixels = [
-      "#4a9e3a",
-      "#3d8a30",
-      "#52b044",
-      "#358028",
-      "#62c04e",
-      "#2d6e22",
-    ];
-
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const idx = (x * 7 + y * 13 + ((x >> 2) ^ (y >> 2)) * 5) % pixels.length;
-        ctx.fillStyle = pixels[idx]!;
-        ctx.fillRect(x, y, 1, 1);
-      }
-    }
-
-    for (let i = 0; i < 180; i++) {
-      const x = (i * 17) % size;
-      const y = (i * 23) % size;
-      ctx.fillStyle = "rgba(20, 50, 16, 0.35)";
-      ctx.fillRect(x, y, 2, 1);
-    }
-
-    grassGroundTextureBase = new THREE.CanvasTexture(canvas);
-    grassGroundTextureBase.wrapS = THREE.RepeatWrapping;
-    grassGroundTextureBase.wrapT = THREE.RepeatWrapping;
-    grassGroundTextureBase.magFilter = THREE.NearestFilter;
-    grassGroundTextureBase.minFilter = THREE.NearestFilter;
-    grassGroundTextureBase.colorSpace = THREE.SRGBColorSpace;
-  }
-
-  return grassGroundTextureBase.clone();
-}
-
 export function InstancedMedianGrass({ belts, roads = [] }: { belts: LayoutRect[]; roads?: any[] }) {
   const intersections = useMemo((): RoadIntersection[] => {
     const out: RoadIntersection[] = [];
@@ -1410,41 +1361,6 @@ export function MedianFlowers({ belts, roads = [] }: { belts: LayoutRect[]; road
 // Dense vegetation (grass, wildflowers, small green trees) placed in the margin
 // zones between each sector's building grid and the sector boundary walls.
 
-function SectorGreenGround({ sp }: { sp: LayoutRect }) {
-  const w = sp.maxX - sp.minX;
-  const d = sp.maxZ - sp.minZ;
-  const cx = (sp.minX + sp.maxX) / 2;
-  const cz = (sp.minZ + sp.maxZ) / 2;
-
-  const material = useMemo(() => {
-    const tex = createGrassGroundTexture();
-    if (tex) {
-      tex.repeat.set(Math.max(1, w / 5), Math.max(1, d / 5));
-      tex.needsUpdate = true;
-    }
-    return new THREE.MeshLambertMaterial({
-      map: tex ?? undefined,
-      color: tex ? "#ffffff" : TREE_COLORS.parkGround,
-    });
-  }, [w, d]);
-
-  useEffect(
-    () => () => {
-      material.dispose();
-      if (material.map) material.map.dispose();
-    },
-    [material],
-  );
-
-  if (w < 0.5 || d < 0.5) return null;
-
-  return (
-    <mesh position={[cx, 0.03, cz]} rotation-x={-Math.PI / 2} receiveShadow material={material}>
-      <planeGeometry args={[w, d]} />
-    </mesh>
-  );
-}
-
 export function SectorGreenSpaces({
   spaces,
   roads = [],
@@ -1605,9 +1521,19 @@ export function SectorGreenSpaces({
 
   return (
     <group>
-      {spaces.map((sp, i) => (
-        <SectorGreenGround key={`ground-${i}`} sp={sp} />
-      ))}
+      {spaces.map((sp, i) => {
+        const cx = (sp.minX + sp.maxX) / 2;
+        const cz = (sp.minZ + sp.maxZ) / 2;
+        const w = sp.maxX - sp.minX;
+        const d = sp.maxZ - sp.minZ;
+        if (w < 0.5 || d < 0.5) return null;
+        return (
+          <mesh key={`ground-${i}`} position={[cx, -0.02, cz]} rotation-x={-Math.PI / 2} receiveShadow>
+            <planeGeometry args={[w, d]} />
+            <meshStandardMaterial color="#3d6b25" roughness={1.0} metalness={0} />
+          </mesh>
+        );
+      })}
       {grassPlacements.length > 0 && (
         <instancedMesh
           ref={grassRefSG}

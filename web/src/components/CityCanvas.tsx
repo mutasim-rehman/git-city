@@ -469,7 +469,7 @@ export function CityCanvas({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [showStatsBox, setShowStatsBox] = useState(false);
   const [statsBuilding, setStatsBuilding] = useState<PositionedBuilding | null>(null);
-  const statsTimerRef = useRef<number | null>(null);
+  const [statsOpenToken, setStatsOpenToken] = useState(0);
 
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestions = useMemo(() => {
@@ -504,7 +504,7 @@ export function CityCanvas({
       }
     };
 
-    const REVIEW_DELAY_MS = 15_000;
+    const REVIEW_DELAY_MS = 25_000;
 
     const promptTimer = window.setTimeout(() => {
       if (!hasPromptedReview.current) {
@@ -567,24 +567,24 @@ export function CityCanvas({
       if ((e.key === "z" || e.key === "Z") && isPlayerInFrontOfBuilding && streetFocused) {
         setStatsBuilding(streetFocused);
         setShowStatsBox(true);
-
-        if (statsTimerRef.current) {
-          window.clearTimeout(statsTimerRef.current);
-        }
-
-        statsTimerRef.current = window.setTimeout(() => {
-          setShowStatsBox(false);
-          setStatsBuilding(null);
-        }, 4000) as unknown as number;
+        setStatsOpenToken((t) => t + 1);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      if (statsTimerRef.current) window.clearTimeout(statsTimerRef.current);
-    };
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isPlayerInFrontOfBuilding, streetFocused]);
+
+  useEffect(() => {
+    if (!showStatsBox) return;
+
+    const timer = window.setTimeout(() => {
+      setShowStatsBox(false);
+      setStatsBuilding(null);
+    }, 3000);
+
+    return () => window.clearTimeout(timer);
+  }, [showStatsBox, statsOpenToken]);
 
   type QualityLevel = "low" | "medium" | "high";
   const [quality, setQuality] = useState<QualityLevel>(() => {
@@ -1499,7 +1499,7 @@ export function CityCanvas({
             </div>
             
             <div className="mt-5 text-center text-[9px] uppercase tracking-widest text-emerald-500/50 font-mono">
-              Auto-closes in 4s
+              Auto-closes in 3s
             </div>
           </div>
         </div>
