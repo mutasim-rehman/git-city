@@ -457,14 +457,6 @@ export function CarShowroom({
             >
               Drive
             </button>
-            <button
-              type="button"
-              className="rounded-xl border border-emerald-900 bg-black px-3 py-2 text-[10px] font-mono uppercase tracking-[0.2em] text-emerald-200/90 hover:border-emerald-700 hover:text-emerald-100"
-              onClick={() => setDebugEnabled((v) => !v)}
-              title="F4"
-            >
-              {debugEnabled ? "Hide tuner" : "Tuner"}
-            </button>
             <div className="hidden sm:block rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-mono uppercase tracking-[0.25em] text-white/30">
               ← →
             </div>
@@ -472,7 +464,7 @@ export function CarShowroom({
 
           {!debugEnabled && (
             <p className="mt-2 text-center text-[9px] font-mono uppercase tracking-[0.2em] text-white/25">
-              F4 or Tuner for model debug
+              F4 for model debug
             </p>
           )}
 
