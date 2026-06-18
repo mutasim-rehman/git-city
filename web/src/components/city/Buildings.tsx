@@ -135,6 +135,7 @@ export const InstancedBuildings = memo(function InstancedBuildings({
       },
       vertexShader,
       fragmentShader,
+      // Invisible pick mesh — field props provide the visuals.
       colorWrite: false,
       depthWrite: false,
     });
@@ -275,7 +276,7 @@ export const InstancedBuildings = memo(function InstancedBuildings({
     <instancedMesh
       ref={meshRef}
       args={[geometry, material, count]}
-      frustumCulled={false}
+      frustumCulled
       castShadow={false}
       receiveShadow={false}
       onPointerMove={(e) => {

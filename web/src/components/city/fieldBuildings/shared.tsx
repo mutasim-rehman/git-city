@@ -40,6 +40,21 @@ export function roofScale(b: PositionedBuilding): [number, number, number] {
   return [base * 0.42, base * 0.18, base * 0.42];
 }
 
+function updateInstancedBounds(mesh: THREE.InstancedMesh, buildings: PositionedBuilding[]) {
+  let maxDist = 0;
+  let maxHeight = 0;
+  for (let i = 0; i < buildings.length; i++) {
+    const b = buildings[i]!;
+    maxDist = Math.max(maxDist, Math.hypot(b.x, b.z));
+    maxHeight = Math.max(maxHeight, b.height);
+  }
+  const radius = Math.hypot(maxDist, maxHeight) + 250;
+  mesh.boundingSphere = new THREE.Sphere(
+    new THREE.Vector3(0, maxHeight / 2, 0),
+    radius,
+  );
+}
+
 function setInstanceMatrix(
   mesh: THREE.InstancedMesh,
   index: number,
@@ -104,15 +119,23 @@ export function InstancedPropLayer({
   const count = buildings.length;
 
   const material = useMemo(() => {
-    const mat = new THREE.MeshStandardMaterial({
+    if (transparent) {
+      return new THREE.MeshStandardMaterial({
+        color,
+        emissive: emissive ?? color,
+        emissiveIntensity,
+        roughness: roughness ?? 0.12,
+        metalness: metalness ?? 0.08,
+        transparent: true,
+        opacity,
+        depthWrite: opacity > 0.92,
+      });
+    }
+
+    const mat = new THREE.MeshLambertMaterial({
       color,
       emissive: emissive ?? color,
       emissiveIntensity,
-      roughness: roughness ?? (transparent ? 0.12 : 0.72),
-      metalness: metalness ?? (transparent ? 0.08 : 0.1),
-      transparent,
-      opacity: transparent ? opacity : 1,
-      depthWrite: !transparent || opacity > 0.92,
     });
 
     if (surface !== "plain") {
@@ -146,6 +169,7 @@ export function InstancedPropLayer({
     }
     mesh.instanceMatrix.needsUpdate = true;
     mesh.count = count;
+    updateInstancedBounds(mesh, buildings);
   }, [buildings, centerYFn, count, localOffsetFn, offsetY, scaleFn, rotYFn]);
 
   useEffect(() => () => material.dispose(), [material]);
@@ -156,8 +180,9 @@ export function InstancedPropLayer({
     <instancedMesh
       ref={meshRef}
       args={[geometry, material, count]}
-      frustumCulled={false}
-      castShadow
+      frustumCulled
+      castShadow={false}
+      receiveShadow={false}
     />
   );
 }
@@ -177,12 +202,10 @@ export function OrbLayer({
   const count = buildings.length;
   const material = useMemo(
     () =>
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshLambertMaterial({
         color,
         emissive,
         emissiveIntensity: 0.8,
-        roughness: 0.2,
-        metalness: 0.1,
       }),
     [color, emissive],
   );
@@ -197,6 +220,7 @@ export function OrbLayer({
     }
     mesh.instanceMatrix.needsUpdate = true;
     mesh.count = count;
+    updateInstancedBounds(mesh, buildings);
   }, [buildings, count]);
 
   useEffect(() => () => material.dispose(), [material]);
@@ -207,8 +231,9 @@ export function OrbLayer({
     <instancedMesh
       ref={meshRef}
       args={[geometries.sphere, material, count]}
-      frustumCulled={false}
-      castShadow
+      frustumCulled
+      castShadow={false}
+      receiveShadow={false}
     />
   );
 }

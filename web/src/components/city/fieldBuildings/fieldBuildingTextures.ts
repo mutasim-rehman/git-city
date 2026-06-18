@@ -24,9 +24,33 @@ function makeCanvasTexture(
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
   tex.needsUpdate = true;
   return tex;
+}
+
+/** Cheap repeating window hints — drawn into wall textures, zero extra geometry. */
+function stampWindowGrid(ctx: CanvasRenderingContext2D, size: number) {
+  const cols = 4;
+  const rows = 6;
+  const padX = size * 0.08;
+  const padY = size * 0.06;
+  const cellW = (size - padX * 2) / cols;
+  const cellH = (size - padY * 2) / rows;
+  const winW = cellW * 0.52;
+  const winH = cellH * 0.58;
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const x = padX + col * cellW + (cellW - winW) / 2;
+      const y = padY + row * cellH + (cellH - winH) / 2;
+      const lit = (row + col) % 3 !== 0;
+      ctx.fillStyle = lit ? "rgba(240, 210, 120, 0.55)" : "rgba(20, 28, 40, 0.7)";
+      ctx.fillRect(x, y, winW, winH);
+      ctx.strokeStyle = "rgba(50, 45, 40, 0.85)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, winW - 1, winH - 1);
+    }
+  }
 }
 
 function drawBrick(ctx: CanvasRenderingContext2D, size: number) {
@@ -55,6 +79,7 @@ function drawBrick(ctx: CanvasRenderingContext2D, size: number) {
       ctx.fillRect(x + mortar, y + mortar, brickW - mortar * 2, brickH - mortar * 2);
     }
   }
+  stampWindowGrid(ctx, size);
 }
 
 function drawStone(ctx: CanvasRenderingContext2D, size: number) {
@@ -79,6 +104,7 @@ function drawStone(ctx: CanvasRenderingContext2D, size: number) {
       ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
     }
   }
+  stampWindowGrid(ctx, size);
 }
 
 function drawDarkStone(ctx: CanvasRenderingContext2D, size: number) {
@@ -122,6 +148,7 @@ function drawPlaster(ctx: CanvasRenderingContext2D, size: number) {
     ctx.lineTo(size, y);
     ctx.stroke();
   }
+  stampWindowGrid(ctx, size);
 }
 
 const BUILDERS: Record<
