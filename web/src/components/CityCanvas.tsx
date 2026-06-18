@@ -468,6 +468,22 @@ export function CityCanvas({
   const [statsBuilding, setStatsBuilding] = useState<PositionedBuilding | null>(null);
   const statsTimerRef = useRef<number | null>(null);
 
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const suggestions = useMemo(() => {
+    const query = navQuery.trim().replace(/^@/, "").toLowerCase();
+    if (!query) return [];
+    return buildings
+      .filter((b) => b.username.toLowerCase().includes(query))
+      .sort((a, b) => {
+        const aStart = a.username.toLowerCase().startsWith(query);
+        const bStart = b.username.toLowerCase().startsWith(query);
+        if (aStart && !bStart) return -1;
+        if (!aStart && bStart) return 1;
+        return a.username.localeCompare(b.username);
+      })
+      .slice(0, 5);
+  }, [buildings, navQuery]);
+
   const isPlayerInFrontOfBuilding = useMemo(() => {
     if (!streetMode || !streetFocused || !uiPose) return false;
     const dx = streetFocused.x - uiPose.x;
@@ -1214,17 +1230,53 @@ export function CityCanvas({
               Navigation
             </p>
             <div className="flex items-center gap-2">
-              <input
-                ref={searchInputRef}
-                value={navQuery}
-                onChange={(e) => setNavQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter") return;
-                  runNavSearch();
-                }}
-                placeholder="Type @username and press Enter"
-                className="h-9 flex-1 rounded-xl border border-emerald-900 bg-black px-3 text-xs text-emerald-100 placeholder:text-emerald-400/45 focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-950"
-              />
+              <div className="relative flex-1">
+                <input
+                  ref={searchInputRef}
+                  value={navQuery}
+                  onChange={(e) => {
+                    setNavQuery(e.target.value);
+                    setShowSuggestions(true);
+                  }}
+                  onFocus={() => setShowSuggestions(true)}
+                  onBlur={() => {
+                    setTimeout(() => setShowSuggestions(false), 200);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      runNavSearch();
+                    } else if (e.key === "Escape") {
+                      setShowSuggestions(false);
+                    }
+                  }}
+                  placeholder="Type @username and press Enter"
+                  className="w-full h-9 rounded-xl border border-emerald-900 bg-black px-3 text-xs text-emerald-100 placeholder:text-emerald-400/45 focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-950"
+                />
+
+                {/* Autocomplete Suggestions Dropdown */}
+                {showSuggestions && suggestions.length > 0 && (
+                  <div className="absolute left-0 right-0 top-10 z-50 rounded-xl border border-emerald-900 bg-black/95 py-1.5 shadow-[0_4px_20px_rgba(0,0,0,0.85)] max-h-48 overflow-y-auto">
+                    {suggestions.map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onMouseDown={() => {
+                          setNavQuery(`@${b.username}`);
+                          computeRouteTo(b);
+                          setShowSuggestions(false);
+                          searchInputRef.current?.blur();
+                        }}
+                        className="w-full px-3 py-1.5 text-left text-xs font-mono text-emerald-200 hover:bg-emerald-950 hover:text-white transition-colors flex justify-between items-center"
+                      >
+                        <span>@{b.username}</span>
+                        <span className="text-[9px] uppercase tracking-wider text-emerald-500/70">
+                          {fieldEmoji(b.fieldStyle)} {b.fieldStyle.replace("_", " ")}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
                 className="h-9 rounded-xl border border-emerald-800 bg-black px-3 text-[11px] font-medium text-emerald-100 hover:border-emerald-600"
