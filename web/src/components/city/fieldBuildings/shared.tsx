@@ -97,7 +97,7 @@ export function InstancedPropLayer({
     () =>
       transparent
         ? new THREE.MeshPhysicalMaterial({
-            color,
+            color: "white",
             emissive: emissive ?? "#000000",
             emissiveIntensity,
             roughness: 0.05,
@@ -109,7 +109,7 @@ export function InstancedPropLayer({
             envMapIntensity: 1.2,
           })
         : new THREE.MeshStandardMaterial({
-            color,
+            color: "white",
             emissive: emissive ?? color,
             emissiveIntensity,
             roughness: 0.55,
@@ -122,6 +122,9 @@ export function InstancedPropLayer({
     const mesh = meshRef.current;
     if (!mesh || count === 0) return;
 
+    const baseColor = new THREE.Color(color);
+    const tempColor = new THREE.Color();
+
     for (let i = 0; i < count; i++) {
       const b = buildings[i]!;
       const [sx, sy, sz] = scaleFn(b);
@@ -130,10 +133,25 @@ export function InstancedPropLayer({
       const rot = rotYFn?.(b) ?? 0;
       const [localX, localZ] = localOffsetFn?.(b) ?? [0, 0];
       setInstanceMatrix(mesh, i, b, centerY, sx, sy, sz, rot, localX, localZ);
+
+      // Compute deterministic factor for the shade variation
+      const seed = usernameSeed(b.username);
+      const hash = Math.sin(seed * 12.9898) * 43758.5453;
+      const factor = (hash - Math.floor(hash)) * 0.16 - 0.08; // float in [-0.08, 0.08]
+
+      tempColor.copy(baseColor);
+      tempColor.r = Math.max(0, Math.min(1, tempColor.r * (1 + factor)));
+      tempColor.g = Math.max(0, Math.min(1, tempColor.g * (1 + factor)));
+      tempColor.b = Math.max(0, Math.min(1, tempColor.b * (1 + factor)));
+
+      mesh.setColorAt(i, tempColor);
     }
     mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) {
+      mesh.instanceColor.needsUpdate = true;
+    }
     mesh.count = count;
-  }, [buildings, centerYFn, count, localOffsetFn, offsetY, scaleFn, rotYFn]);
+  }, [buildings, centerYFn, count, localOffsetFn, offsetY, scaleFn, rotYFn, color]);
 
   useEffect(() => () => material.dispose(), [material]);
 
@@ -165,26 +183,43 @@ export function OrbLayer({
   const material = useMemo(
     () =>
       new THREE.MeshStandardMaterial({
-        color,
+        color: "white",
         emissive,
         emissiveIntensity: 0.8,
         roughness: 0.2,
         metalness: 0.1,
       }),
-    [color, emissive],
+    [emissive],
   );
 
   useEffect(() => {
     const mesh = meshRef.current;
     if (!mesh || count === 0) return;
+    const baseColor = new THREE.Color(color);
+    const tempColor = new THREE.Color();
     for (let i = 0; i < count; i++) {
       const b = buildings[i]!;
       const s = Math.min(b.width, b.depth) * 0.14;
       setInstanceMatrix(mesh, i, b, b.height + s * 0.6, s, s, s);
+
+      // Compute deterministic factor for the shade variation
+      const seed = usernameSeed(b.username);
+      const hash = Math.sin(seed * 12.9898) * 43758.5453;
+      const factor = (hash - Math.floor(hash)) * 0.16 - 0.08; // float in [-0.08, 0.08]
+
+      tempColor.copy(baseColor);
+      tempColor.r = Math.max(0, Math.min(1, tempColor.r * (1 + factor)));
+      tempColor.g = Math.max(0, Math.min(1, tempColor.g * (1 + factor)));
+      tempColor.b = Math.max(0, Math.min(1, tempColor.b * (1 + factor)));
+
+      mesh.setColorAt(i, tempColor);
     }
     mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) {
+      mesh.instanceColor.needsUpdate = true;
+    }
     mesh.count = count;
-  }, [buildings, count]);
+  }, [buildings, count, color]);
 
   useEffect(() => () => material.dispose(), [material]);
 
