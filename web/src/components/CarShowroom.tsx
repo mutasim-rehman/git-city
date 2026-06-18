@@ -462,12 +462,6 @@ export function CarShowroom({
             </div>
           </div>
 
-          {!debugEnabled && (
-            <p className="mt-2 text-center text-[9px] font-mono uppercase tracking-[0.2em] text-white/25">
-              F4 for model debug
-            </p>
-          )}
-
           {/* Garage + model tuning controls (debug) */}
           {debugEnabled && (
             <div className="mt-4 space-y-3">
