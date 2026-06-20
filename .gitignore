@@ -17,6 +17,8 @@ gitcity/
 
 #local crash arifact
 .hs_err_pid*.log
+docs/
+*.csv
 
 islamabad.csv
 karachi.csv
